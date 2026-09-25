@@ -1,0 +1,91 @@
+# ASSO .gitignore
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.*
+.env.local
+.env.development
+.env.staging
+.env.production
+!.env.example
+
+# ========================
+# Dependencies
+# ========================
+node_modules/
+.pnp/
+.pnp.js
+
+# ========================
+# Build Output
+# ========================
+dist/
+build/
+.next/
+out/
+.nuxt/
+.output/
+*.tsbuildinfo
+
+# ========================
+# Logs
+# ========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ========================
+# OS Files
+# ========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ========================
+# Editor & IDE
+# ========================
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ========================
+# Testing & Coverage
+# ========================
+coverage/
+.nyc_output/
+*.lcov
+
+# ========================
+# Local Tooling & Caches
+# ========================
+.cache/
+.parcel-cache/
+.turbo/
+.vercel/
+.netlify/
+.supabase/
+*.local
+
+# ========================
+# Database (local)
+# ========================
+*.sqlite
+*.sqlite3
+*.db
+
+# ========================
+# Temporary Files
+# ========================
+tmp/
+temp/
