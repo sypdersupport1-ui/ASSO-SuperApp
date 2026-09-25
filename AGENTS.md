@@ -29,6 +29,78 @@ Before making any significant change, you must:
 
 ---
 
+## Product Architecture
+
+- **One ASSO platform**: ASSO is a unified platform, not separate products.
+- **Equal verticals**: Hotel, Restaurant, Cinema are equal sibling verticals (no hierarchy).
+- **Shared engines**: Common business capabilities are shared.
+- **Vertical-specific modules**: Verticals contain only vertical-specific workflows and UI.
+- **Implementation principle**: Shared engine → vertical configuration → workflow → UI.
+
+## Core Platform
+
+ASSO's core platform must support:
+- Multi-tenancy
+- Organizations / Properties / Outlets
+- RBAC
+- Module Entitlements
+- Module Dependencies
+- Policies / Approval Rules
+- Audit
+
+## Shared Capabilities
+
+ASSO uses shared domain engines for the following capabilities:
+- Customer
+- Business Context
+- QR
+- Ordering
+- POS
+- Billing
+- Payments
+- Inventory
+- Procurement
+- Expenses
+- Cash Management
+- Service Requests
+- Chat / Conversations
+- Notifications
+- Reporting
+- Domain Events
+- Observability
+
+## Important Architecture Rules
+
+- **Business Context abstraction**: Contexts like Hotel Room, Restaurant Table, or Cinema Seat should be abstracted appropriately.
+- **Workflow / state machines**: Important domain entities must use controlled workflows and state machines.
+- **Domain events**: Use internal domain events for clean module boundaries (e.g. Order Completed triggers Inventory, Financial, etc.).
+- **Data ownership**: Every major domain object must have a clear owning module. No duplicate sources of truth.
+- **Current state vs historical records**: For important domains, distinguish current state from historical record (e.g. current inventory + stock movement history).
+- **Idempotency**: Critical operations (payments, inventory movements, etc.) must be designed for duplicate-request safety.
+- **Modular monolith initially**: Do not introduce microservices prematurely.
+- **No premature microservices**: Stick to the modular monolith architecture initially.
+
+## Security
+
+Security is a core architectural concern. ASSO must implement:
+- Tenant isolation
+- RLS where appropriate
+- Server-side authorization (frontend is never the authority)
+- RBAC
+- Module entitlement enforcement
+- Policy enforcement
+- Input validation
+- Rate limiting
+- Secure sessions
+- QR security (opaque tokens, context-aware)
+- File security
+- Payment verification
+- Audit logging
+- Secrets management
+- Backups/recovery
+
+---
+
 ## Core Rules
 
 ### Shared Engines Over Duplication
@@ -104,6 +176,7 @@ Both must be checked. Do not rely on frontend navigation hiding as a security me
 - Do not silently rewrite historical financial transactions.
 - Do not bypass tenant isolation for convenience.
 - Do not invent business requirements — document uncertainty instead.
+- **No feature coding before foundation approval**.
 
 ---
 
