@@ -19,7 +19,7 @@ ASSO replaces fragmented, vertical-specific tools with a single platform that sh
 ASSO is a **multi-tenant SaaS platform** for physical-business operators. It provides:
 
 - A **shared platform core** for identity, tenancy, access control, and configuration
-- **Shared domain engines** for common business operations (ordering, inventory, expenses, POS, billing, payments, etc.)
+- **Shared domain engines** for common business operations (ordering, inventory, expenses, POS, billing, payments, and reporting)
 - **Vertical-specific modules** for workflows unique to each business type
 - A **customer-facing experience** for guests and patrons through QR-based digital interaction
 - A **business console** for operators to manage their daily operations
@@ -84,7 +84,7 @@ Outlet / Location
 Business Context (Room / Table / Seat)
 ```
 
-- An **Organization** represents a customer of ASSO (a company, business owner, etc.)
+- An **Organization** represents a customer of ASSO (a company, business owner, or operating group)
 - A **Property** is a physical business (a hotel, a restaurant, a cinema)
 - An **Outlet** is a distinct operating unit within a property (a hotel may have a restaurant outlet and a bar outlet)
 - A **Business Context** is the specific operational context within an outlet (a room, a table, a seat)
@@ -255,7 +255,7 @@ Ordering (room service), Catalog (room service menu), Fulfillment, Service Reque
 
 | Capability | Description |
 |---|---|
-| Dining Areas | Defined areas within the restaurant (indoor, outdoor, bar, etc.) |
+| Dining Areas | Defined areas within the restaurant (indoor, outdoor, bar, private dining) |
 | Table Management | Table configuration, status, assignment |
 | Table Operations | Open, occupy, clear, turn over |
 | Q / Waitlist | Walk-in customer queue management |
@@ -381,7 +381,7 @@ Business operators manage ASSO through a **Business Console** that provides:
 | **Reporting** | Operational metrics, summaries, exports |
 | **Settings** | Business configuration, modules, policies, notifications |
 
-The Business Console adapts to the vertical — a hotel operator sees room/stay operations, a restaurant operator sees table/kitchen operations, a cinema operator sees screen/show operations — but the shared capabilities (inventory, expenses, reporting, etc.) are consistent.
+The Business Console adapts to the vertical — a hotel operator sees room/stay operations, a restaurant operator sees table/kitchen operations, a cinema operator sees screen/show operations — but the shared capabilities (inventory, expenses, reporting, notifications, and cash management) are consistent.
 
 ---
 
@@ -480,10 +480,10 @@ Tenant → Property / Outlet → Inventory Location → Inventory Item → Stock
 
 ```text
 Inventory
-├── Items (name, category, unit, reorder point, etc.)
-├── Categories (configurable per vertical — food, beverage, supplies, etc.)
+├── Items (name, category, unit, reorder point, active status)
+├── Categories (configurable per vertical — food, beverage, supplies, and consumables)
 ├── Units of Measure (with conversions)
-├── Inventory Locations (storeroom, kitchen, bar, etc.)
+├── Inventory Locations (storeroom, kitchen, bar, central warehouse)
 ├── Stock (current quantities per item per location)
 ├── Stock Movements / Ledger
 │   ├── Opening balance
@@ -556,7 +556,7 @@ Cash Management
 
 ```text
 Inventory Purchase   — procurement of goods for stock (links to Inventory)
-Operating Expense    — daily operational costs (utilities, repairs, services, etc.)
+Operating Expense    — daily operational costs (utilities, repairs, maintenance, services)
 Capital Expense      — FUTURE — asset purchases, not in initial scope
 ```
 
@@ -591,6 +591,7 @@ Customer/Staff selects items → Order created → Routed to fulfillment → Sta
 | Hotel | Guest folio — charges accumulate across a stay, settled at checkout |
 | Restaurant | Table bill — charges accumulate during a dining session, settled before departure |
 | Cinema | Per-order or tab — settled at order time or at a counter |
+| Mixed Property | Cross-outlet folio transfer — outlet charges (e.g. restaurant dining, cinema concessions) posted to an active hotel room folio within the same property/organization, settled at checkout |
 
 ### Payments
 
@@ -726,7 +727,7 @@ These relationships should be implemented through **domain events** to maintain 
 | 19 | KDS depth (multi-station, course management) | Restaurant |
 | 20 | Cinema concession delivery model | Cinema |
 | 21 | Cinema ticketing timeline | Cinema (Future) |
-| 22 | Printing requirements (receipts, KDS, etc.) | Operations |
+| 22 | Printing requirements (POS receipts, KDS tickets, folios) | Operations |
 | 23 | Recipe / auto-consumption timeline | Inventory (Future) |
 | 24 | Exact KPI definitions | Reporting |
 

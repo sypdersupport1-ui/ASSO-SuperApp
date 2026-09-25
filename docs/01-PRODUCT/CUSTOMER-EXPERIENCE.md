@@ -19,7 +19,7 @@ Customer Session
         ↓
 Vertical-Specific Experience
         ↓
-Shared Capabilities (Ordering, Chat, Service Requests, etc.)
+Shared Capabilities (Ordering, Chat, Service Requests, Billing)
 ```
 
 The entry mechanism and session management are shared platform capabilities. The experience that follows is shaped by the vertical and its business context.
@@ -32,7 +32,7 @@ QR codes are the primary customer-entry mechanism.
 
 ### How It Works
 
-1. Customer scans a QR code physically placed in the business context (room, table, seat area, etc.)
+1. Customer scans a QR code physically placed in the business context (room, table, or seat area)
 2. ASSO resolves the QR to a specific business, outlet, and context
 3. A customer session is established, scoped to that context
 4. The customer sees the appropriate vertical experience
@@ -59,7 +59,7 @@ Once a customer enters through QR (or another entry mechanism), a session is cre
 - Scoped to a specific tenant, property, outlet, and business context
 - Time-bounded (sessions should not persist indefinitely)
 - Revocable by staff or by context change (e.g., guest checkout, table turnover)
-- Supports the capabilities enabled for that business (ordering, chat, service requests, etc.)
+- Supports the capabilities enabled for that business (ordering, chat, service requests, bill viewing)
 
 ### Session Lifecycle
 
@@ -91,7 +91,7 @@ Session Ends (checkout, departure, staff action, timeout)
 Room Context
     ├── View room information
     ├── Order food / beverages / amenities (room service)
-    ├── Request services (housekeeping, maintenance, etc.)
+    ├── Request services (housekeeping, maintenance, amenities)
     ├── Chat with hotel staff
     ├── View charges / folio
     └── Access hotel information
@@ -130,7 +130,7 @@ Table Context
     ├── View menu / catalog
     ├── Place orders
     ├── Track order status
-    ├── Request services (call waiter, request bill, etc.)
+    ├── Request services (call waiter, request bill, request assistance)
     ├── Chat with staff
     ├── View current bill
     └── Pay (if digital payment is supported)

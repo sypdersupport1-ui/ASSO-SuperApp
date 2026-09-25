@@ -47,7 +47,7 @@ Each layer depends on the one below it. Shared engines must exist before vertica
 | Stage | Focus | Description |
 |---|---|---|
 | Core Platform | Identity, auth, multi-tenancy, RBAC, entitlements | The platform every module depends on |
-| Shared Engines | Ordering, inventory, POS, billing, payments, expenses, etc. | The business capabilities shared by all verticals |
+| Shared Engines | Ordering, inventory, POS, billing, payments, expenses, and reporting | The business capabilities shared by all verticals |
 | Hotel Vertical | Hotel-specific workflows, room operations, stays, front desk | First vertical implementation |
 | Restaurant Vertical | Restaurant-specific workflows, table operations, dining | Second vertical implementation |
 | Cinema Vertical | Cinema-specific workflows, screen/seat operations | Third vertical implementation |

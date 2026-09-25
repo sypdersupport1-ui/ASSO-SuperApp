@@ -117,7 +117,7 @@ These flows are powered by shared ASSO engines and operate across all verticals,
 **Context**: Any vertical
 
 **Steps**:
-1. Charges accumulate against the business context (orders, services, etc.)
+1. Charges accumulate against the business context (orders, services, and room tariffs)
 2. Customer or staff requests the bill
 3. Bill is generated showing all charges
 4. Payment is made (cash, card, UPI, or other accepted method)
@@ -312,7 +312,7 @@ These flows are powered by shared ASSO engines and operate across all verticals,
 **Conceptual Distinctions**:
 ```text
 Inventory Purchase  — procurement of goods for stock
-Operating Expense   — daily operational costs (utilities, repairs, etc.)
+Operating Expense   — daily operational costs (utilities, repairs, maintenance, supplies)
 Capital Expense     — FUTURE — asset purchases
 ```
 
@@ -344,7 +344,7 @@ Capital Expense     — FUTURE — asset purchases
 **Context**: Property / Outlet / Organization
 
 **Steps**:
-1. User selects a report type and parameters (date range, outlet, etc.)
+1. User selects a report type and parameters (date range, outlet, and format)
 2. System generates the report from operational data
 3. Report is displayed / exported
 
@@ -441,8 +441,8 @@ Hotel-specific workflows that use shared engines within the hotel context.
 **Context**: Room
 
 **Steps**:
-1. Guest requests a service (extra towels, room repair, wake-up call, etc.)
-2. Request is categorized (housekeeping, maintenance, amenities, etc.)
+1. Guest requests a service (extra towels, room repair, or wake-up call)
+2. Request is categorized (housekeeping, maintenance, or amenities)
 3. Request is assigned to appropriate department/staff
 4. Staff fulfills the request
 5. Request is marked resolved
@@ -505,7 +505,7 @@ Hotel-specific workflows that use shared engines within the hotel context.
 
 **Steps**:
 1. Folio is opened at check-in
-2. Charges are accumulated (room rate, room service, minibar, services, etc.)
+2. Charges are accumulated (room rate, room service, minibar, and services)
 3. Payments are applied (deposits, partial payments)
 4. Adjustments, discounts, or corrections are made (with authorization)
 5. Folio is settled at checkout
@@ -597,7 +597,7 @@ Available → Occupied → Needs Clearing → Available
 **Connected Modules**: Ordering, Fulfillment, KDS, Notifications
 
 **Rules**:
-- Items may be grouped or sequenced (starters before mains, etc.)
+- Items may be grouped or sequenced (such as starters before main courses)
 - Priority and timing management
 
 > `OPEN DECISION` — KDS feature depth (multi-station routing, course management, timing) to be determined.
@@ -791,6 +791,58 @@ The following diagram shows how major ASSO modules connect:
 | Show Ended | Session invalidation for that screen/showtime |
 
 These cross-module interactions should be implemented through **domain events** to maintain clean module boundaries.
+
+---
+
+## E.2 Cross-Vertical Flow: Charge to Room / Folio (Restaurant / Cinema to Hotel)
+
+In mixed-property deployments (for example, a hotel property with an on-site restaurant outlet or cinema hall), customers can charge outlet orders directly to their active hotel stay folio.
+
+**Actor**: Diner / Patron, Restaurant Server / Cinema Cashier, Front Desk Staff
+
+**Context**: Mixed Property (Restaurant / Cinema Outlet ↔ Hotel Room Stay)
+
+**Steps**:
+1. Customer dining at a restaurant table or purchasing concessions at a cinema counter requests to charge the bill to their room.
+2. Server or cashier selects "Charge to Room" on the outlet POS.
+3. Staff enters the room number and guest surname.
+4. The system validates server-side:
+   - The room has an active, checked-in stay
+   - The guest name matches the reservation / stay record
+   - Room charge privileges are enabled and credit limit is not exceeded
+5. Upon confirmation, the outlet bill is closed under payment method "Room Charge".
+6. A charge transaction is posted to the active guest folio with complete outlet metadata (outlet ID, original order number, itemized receipt, server ID, timestamp).
+7. Customer signs the digital or printed charge voucher.
+8. The guest folio balance updates immediately.
+9. At hotel checkout, the front desk presents the consolidated folio including room tariff, room service, restaurant dining, and cinema charges for unified settlement.
+
+**Outcome**: Seamless guest experience across outlets; accurate revenue allocation between outlets and central property folio.
+
+**Connected Modules**: POS, Billing, Guest Folio, Hotel Stays, Payments, Audit, Reporting
+
+**Rules**:
+- Cross-outlet folio charging is only permitted within authorized property boundaries.
+- Active stay validation and credit ceiling checks are strictly enforced server-side.
+- Outlet revenue is credited to the originating outlet's ledger for cross-departmental reconciliation, even though settlement occurs at the front desk.
+
+---
+
+## E.3 Inter-Outlet Inventory Transfer
+
+**Actor**: Outlet Manager, Central Inventory Clerk
+
+**Context**: Property with multiple operating units (e.g., Central Warehouse → Restaurant Kitchen / Cinema Concession)
+
+**Steps**:
+1. Outlet manager identifies stock replenishment need and submits a stock transfer request.
+2. Central inventory manager reviews and approves the request.
+3. Items are dispatched; source stock ledger records outbound movement.
+4. Receiving outlet inspects goods upon arrival and confirms receipt.
+5. Destination stock ledger records inbound movement; location-specific quantities update.
+
+**Outcome**: Accurate inventory tracking across multiple outlets within a single property.
+
+**Connected Modules**: Inventory, Stock Ledger, Stock Transfers, Audit
 
 ---
 

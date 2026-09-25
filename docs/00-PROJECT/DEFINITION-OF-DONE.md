@@ -21,7 +21,7 @@ Before a change can be considered done, the following aspects must have been con
 | 9 | **Policy** | Are business policies (approval rules, thresholds) respected? |
 | 10 | **Input Validation** | Is all input validated server-side? |
 | 11 | **Error Handling** | Are errors handled gracefully with appropriate user feedback? |
-| 12 | **Idempotency** | Are critical operations (payments, inventory movements, etc.) safe against duplicate requests? |
+| 12 | **Idempotency** | Are critical operations (such as payments, stock adjustments, and refunds) safe against duplicate requests? |
 | 13 | **Audit** | Are auditable operations logged appropriately? |
 | 14 | **Testing** | Are appropriate tests written and passing? |
 | 15 | **Documentation** | Is documentation updated to reflect the change? |
