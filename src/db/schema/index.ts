@@ -6,3 +6,4 @@ export * from "./operations";
 export * from "./inventory";
 export * from "./hotel_ledger";
 export * from "./finance";
+export * from "./hotel";

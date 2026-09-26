@@ -9,12 +9,12 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:security": "vitest run tests/security",
+    "test": "node --env-file=.env.local node_modules/.bin/vitest run",
+    "test:watch": "node --env-file=.env.local node_modules/.bin/vitest",
+    "test:security": "node --env-file=.env.local node_modules/.bin/vitest run tests/security",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:verify:rls": "tsx scripts/verify-supabase-native-rls.ts"
+    "db:migrate": "node --env-file=.env.local node_modules/.bin/vite-node src/db/migrate.ts",
+    "db:verify:rls": "node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-supabase-native-rls.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

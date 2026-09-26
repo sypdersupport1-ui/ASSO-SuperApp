@@ -17,9 +17,13 @@ describe("API v1 Foundation Endpoints Integration", () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.data.service).toBe("ASSO Platform Core");
-    // When DB is unreachable, status truthfully reports degraded
-    expect(body.data.status).toBe("degraded");
-    expect(body.data.database.status).toBe("disconnected");
+    // Truthful reporting: when DB is connected, status is healthy; if unreachable, status is degraded
+    if (body.data.database.status === "connected") {
+      expect(body.data.status).toBe("healthy");
+    } else {
+      expect(body.data.status).toBe("degraded");
+      expect(body.data.database.status).toBe("disconnected");
+    }
     expect(body.data.testDatabase.engine).toBe("pg-mem");
     expect(body.meta.requestId).toBeDefined();
   });
