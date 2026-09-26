@@ -103,14 +103,12 @@ Implementation
 
 ---
 
-## Team & Tooling
+## Current Development Team
 
-ASSO is developed by:
+- **One primary human developer** (Product Owner & Lead Developer)
+- **Antigravity** as the primary AI engineering agent
 
-- Two human developers
-- AI coding agents: **Antigravity** and **OpenCode**
-
-Both AI agents and human developers work from the same GitHub repository. The repository architecture and documentation define ownership boundaries — not the specific tool being used.
+All work is committed to the shared GitHub repository. Future human developers and AI agents may be introduced as the platform evolves. The repository architecture and documentation define ownership boundaries — not the specific tool or individual.
 
 ---
 

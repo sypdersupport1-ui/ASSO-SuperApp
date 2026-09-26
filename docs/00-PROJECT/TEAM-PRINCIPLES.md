@@ -6,7 +6,7 @@ These principles apply to all contributors â€” human developers and AI agents â€
 
 ## 1. One Engineering Team
 
-Humans and AI agents form one engineering team. The tool used (Antigravity, OpenCode, or a code editor) does not determine ownership boundaries. The repository architecture and documentation do.
+Humans and AI agents work as one engineering team. Currently comprising one primary human developer and Antigravity as the primary AI engineering agent, the tool or editor used does not determine ownership boundaries. The repository architecture and documentation do. Additional contributors and AI agents may join the team later under these same principles.
 
 ## 2. Optimize for Long-Term Success
 

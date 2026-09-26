@@ -1,8 +1,6 @@
 # ASSO — AI Agent Operating Rules
 
-This document establishes the operating rules for all AI coding agents working on ASSO.
-
-Both **Antigravity** and **OpenCode** must follow these rules.
+The primary AI engineering agent is **Antigravity**. These operating rules apply to Antigravity and any future AI coding agents or human contributors working on ASSO.
 
 ---
 
@@ -219,20 +217,28 @@ A change is not complete merely because the UI works. Consider:
 
 ## Working Model
 
-All agents work from the same GitHub repository. The repository architecture and documentation define ownership boundaries — not the AI tool being used.
-
 ```text
-              ASSO
-                │
-             GitHub
-                │
-     ┌──────────┴──────────┐
-     │                      │
-Developer A            Developer B
-     │                      │
-Antigravity              OpenCode
-     │                      │
-     └──────────┬───────────┘
-                │
-          Same repository
+Human Primary Developer / Product Owner
+                 │
+  Antigravity (Primary AI Engineering Agent)
+                 │
+        ASSO GitHub Repository (Source of Truth)
 ```
+
+The current active development model consists of:
+- **One human primary developer / Product Owner**
+- **Antigravity as the primary AI engineering agent**
+- **GitHub as the single source of truth**
+
+Additional human developers and AI agents may be introduced later. Regardless of team composition, all contributors work against the same shared GitHub repository. The repository architecture, documentation, and module boundaries define ownership — not the tool or individual.
+
+All agents must continue to follow:
+- Architecture documentation and API contracts
+- Strict module boundaries and data ownership
+- Security rules, tenant isolation, and RLS
+- Server-side authorization, RBAC, and module entitlements
+- Policy enforcement and approval workflows
+- Migration-based database changes
+- Testing and idempotency on critical paths
+- Documentation updates
+- Human approval requirements for major decisions

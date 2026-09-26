@@ -59,38 +59,50 @@ The following branch protection rules should be configured manually on GitHub:
 
 ## 2. Team Model
 
+### Current Active Model
+
 ```text
-                 ASSO
-                   │
-                GitHub
-                   │
-        ┌──────────┴──────────┐
-        │                     │
- Developer A             Developer B
-        │                     │
- Antigravity               OpenCode
-        │                     │
-        └──────────┬──────────┘
-                   │
-             Same repository
+Human Primary Developer / Product Owner
+                 │
+  Antigravity (Primary AI Engineering Agent)
+                 │
+        ASSO GitHub Repository (Source of Truth)
+```
+
+The current team setup comprises:
+- **One Primary Human Developer / Product Owner**
+- **Antigravity as the Primary AI Engineering Agent**
+- **Single Shared GitHub Repository**
+
+### Future Scalability
+
+The project is structured to scale smoothly to:
+
+```text
+Multiple Developers
+         +
+Multiple AI Agents
+         ↓
+Same Shared GitHub Repository
 ```
 
 ### Key Principles
 
-- All contributors — human and AI — work from the **same GitHub repository**.
-- This model is **not a permanent restriction** on who works on what. Any contributor can work on any area of the codebase.
-- The **repository architecture and documentation** define ownership boundaries — not the specific tool being used.
-- AI agents follow the rules established in `AGENTS.md`.
-- Human developers have final authority on major decisions.
+- **Single Source of Truth**: All contributors — human and AI — work from the **same GitHub repository**.
+- **Boundaries Defined by Documentation**: The **repository architecture and documentation** define ownership boundaries — not the specific tool or individual.
+- **End-to-End Delivery**: The current model enables cohesive end-to-end feature delivery without artificial silos.
+- **Agent Operating Rules**: AI agents follow the rules established in `AGENTS.md`.
+- **Human Authority**: The human developer/owner maintains final authority on all major architecture, database, security, and financial decisions.
+- **Pull Requests and Review**: All non-trivial changes follow feature branching, pull request proposals, and explicit review before merge into `develop`.
 
 ---
 
 ## 3. Development Phases
 
 ```text
-Phase 0 — Repository & Project Governance     ← CURRENT
-Phase 1 — Product Definition
-Phase 2 — Master Architecture
+Phase 0 — Repository & Project Governance     ✓ COMPLETE
+Phase 1 — Product Definition                  ✓ COMPLETE
+Phase 2 — Master Architecture                 ← NEXT
 Phase 3 — Database, API & Security
 Phase 4 — UX & Design System
 Phase 5 — Engineering & Operations

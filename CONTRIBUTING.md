@@ -1,16 +1,43 @@
 # Contributing to ASSO
 
-Thank you for contributing to ASSO. This document establishes the initial contribution principles for all contributors — human developers and AI agents alike.
+This document establishes the contribution workflow and standards for ASSO.
 
 ---
 
-## Repository
+## 1. Collaboration & Workflow Model
 
-All work happens in the **same GitHub repository**. There are no separate repositories for different agents or contributors.
+### Current Active Model
+
+Development is currently driven by:
+- **One Primary Human Developer / Product Owner**
+- **Antigravity as the Primary AI Engineering Agent**
+- **Single Shared GitHub Repository**
+
+In this setup, features are implemented **end-to-end** without artificial frontend/backend developer silos:
+
+```text
+Product
+   ↓
+Architecture
+   ↓
+Database
+   ↓
+Backend
+   ↓
+Frontend
+   ↓
+Tests
+   ↓
+Documentation
+```
+
+### Future Multi-Contributor Expansion
+
+The workflow is architected to scale smoothly. Additional human developers and AI agents can be onboarded in the future without changing the repository structure or governance rules. All contributors work against the same shared GitHub repository.
 
 ---
 
-## Branch Model
+## 2. Repository & Branch Model
 
 ```text
 main
@@ -23,10 +50,10 @@ feature/*
 ### Rules
 
 - **Do not push directly to `main`.** All changes to `main` must come through reviewed pull requests.
-- **Create feature branches** for your work (e.g., `feature/phase-1-product-definition`, `feature/inventory-engine`).
+- **Create feature branches** for focused work (e.g., `feature/phase-2-master-architecture`, `feature/inventory-engine`).
 - **Use pull requests** to propose changes for merge into `develop`.
-- **Changes must be reviewed** before merging. This applies to both human and AI-authored code.
-- **Keep changes focused.** A pull request should do one thing well, not bundle unrelated changes.
+- **Changes must be reviewed** before merging.
+- **Keep changes cohesive.** Implement complete vertical or shared engine slices end-to-end while keeping individual PRs focused.
 
 ---
 
