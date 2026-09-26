@@ -9,6 +9,8 @@ import {
   listRoomTypes,
   listRooms,
 } from "./service";
+import { listHotelGuests, createHotelGuest } from "./guest-service";
+import { listReservations, createReservation } from "./reservation-service";
 import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 
@@ -125,9 +127,65 @@ export async function ensureHotelSeedData(tenantId: string = DEMO_TENANT_ID) {
     logger.info({ message: "Seeded demo hotel rooms", details: { count: demoRooms.length } });
   }
 
+  // 6. Ensure sample guests exist
+  const existingGuests = await listHotelGuests(tenantId, { limit: 1 });
+  let primaryGuestId: string | undefined;
+
+  if (existingGuests.total === 0) {
+    const guest1 = await createHotelGuest(tenantId, {
+      fullName: "Dr. Vikram Sethi",
+      phone: "+919876543210",
+      email: "vikram.sethi@example.com",
+      vipStatus: "VIP",
+      nationality: "INDIAN",
+      notes: "Prefers high floor quiet room with extra pillows.",
+    });
+    await createHotelGuest(tenantId, {
+      fullName: "Meera Rajput",
+      phone: "+919812345678",
+      email: "meera.rajput@example.com",
+      vipStatus: "STANDARD",
+      nationality: "INDIAN",
+    });
+    await createHotelGuest(tenantId, {
+      fullName: "Rohan Verma",
+      phone: "+919823456789",
+      email: "rohan.verma@example.com",
+      vipStatus: "VVIP",
+      nationality: "INDIAN",
+    });
+    primaryGuestId = guest1.guestId;
+    logger.info({ message: "Seeded demo hotel guests", details: { count: 3 } });
+  } else {
+    primaryGuestId = existingGuests.guests[0].guestId;
+  }
+
+  // 7. Ensure sample reservations exist
+  const existingReservations = await listReservations(tenantId, outletId, { limit: 1 });
+  if (existingReservations.total === 0 && primaryGuestId && deluxeType) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const inThreeDays = new Date();
+    inThreeDays.setDate(inThreeDays.getDate() + 3);
+
+    await createReservation(tenantId, outletId, {
+      guestId: primaryGuestId,
+      roomTypeId: deluxeType.roomTypeId,
+      arrivalDate: tomorrow,
+      departureDate: inThreeDays,
+      adultCount: 2,
+      childrenCount: 0,
+      specialRequests: "Anniversary stay. Non-smoking room preferred.",
+      status: "CONFIRMED",
+    });
+    logger.info({ message: "Seeded demo hotel reservation" });
+  }
+
   return {
     property,
     roomTypes: await listRoomTypes(tenantId, outletId),
     roomsCount: (await listRooms(tenantId, outletId)).length,
+    guestsCount: (await listHotelGuests(tenantId, { limit: 100 })).total,
+    reservationsCount: (await listReservations(tenantId, outletId, { limit: 100 })).total,
   };
 }

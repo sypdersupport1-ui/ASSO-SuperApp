@@ -1,5 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { organizations, outlets } from "./core";
+import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { organizations, outlets, customers } from "./core";
 import { businessContexts } from "./context";
 
 // Operational and housekeeping status enums for type safety
@@ -75,3 +75,62 @@ export const hotelRooms = pgTable(
 
 export type HotelRoom = typeof hotelRooms.$inferSelect;
 export type NewHotelRoom = typeof hotelRooms.$inferInsert;
+
+export const HOTEL_RESERVATION_STATUSES = [
+  "PENDING",
+  "CONFIRMED",
+  "CANCELLED",
+  "NO_SHOW",
+] as const;
+export type HotelReservationStatus = typeof HOTEL_RESERVATION_STATUSES[number];
+
+/**
+ * Hotel Guests (Hotel-specific guest profile attached to shared Customer)
+ */
+export const hotelGuests = pgTable("hotel_guests", {
+  guestId: uuid("guest_id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+  customerId: uuid("customer_id").notNull().references(() => customers.customerId),
+  idProofType: varchar("id_proof_type", { length: 50 }),
+  idProofNumberMasked: varchar("id_proof_number_masked", { length: 50 }),
+  nationality: varchar("nationality", { length: 50 }).default("INDIAN"),
+  vipStatus: varchar("vip_status", { length: 50 }).default("STANDARD"),
+  preferences: jsonb("preferences").default({}),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type HotelGuest = typeof hotelGuests.$inferSelect;
+export type NewHotelGuest = typeof hotelGuests.$inferInsert;
+
+/**
+ * Hotel Reservations (Planned booking domain entity)
+ */
+export const hotelReservations = pgTable(
+  "hotel_reservations",
+  {
+    reservationId: uuid("reservation_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    guestId: uuid("guest_id").notNull().references(() => hotelGuests.guestId),
+    reservationNumber: varchar("reservation_number", { length: 50 }).notNull(),
+    roomTypeId: uuid("room_type_id").notNull().references(() => hotelRoomTypes.roomTypeId),
+    assignedRoomId: uuid("assigned_room_id").references(() => hotelRooms.roomId),
+    arrivalDate: timestamp("arrival_date", { withTimezone: true }).notNull(),
+    departureDate: timestamp("departure_date", { withTimezone: true }).notNull(),
+    adultCount: integer("adult_count").notNull().default(1),
+    childrenCount: integer("children_count").notNull().default(0),
+    status: varchar("status", { length: 50 }).notNull().default("CONFIRMED"),
+    specialRequests: text("special_requests"),
+    totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_hotel_reservations_outlet_number").on(table.outletId, table.reservationNumber),
+  ]
+);
+
+export type HotelReservation = typeof hotelReservations.$inferSelect;
+export type NewHotelReservation = typeof hotelReservations.$inferInsert;

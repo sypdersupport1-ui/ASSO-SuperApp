@@ -385,11 +385,18 @@ export default function HotelDashboardPage() {
                     </div>
                   </div>
 
-                  <Link href="/hotel/rooms">
-                    <Button variant="outline" size="sm" className="whitespace-nowrap">
-                      Open Room Rack <ArrowRight className="h-4 w-4 ml-1.5" />
-                    </Button>
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href="/hotel/guests">
+                      <Button variant="outline" size="sm">
+                        Guest Profiles
+                      </Button>
+                    </Link>
+                    <Link href="/hotel/reservations">
+                      <Button size="sm">
+                        Reservations Ledger
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </CardContent>
             </Card>
