@@ -1,417 +1,307 @@
 # ASSO — Frontend Architecture
 
 **Phase**: 2 — Master Architecture  
-**Status**: Approved for Phase 2  
-**Last Updated**: 2026-09-26
+**Status**: Pre-Phase-3 Resolution Completed  
+**Last Updated**: 2026-09-26  
 
 ---
 
 ## 1. Frontend Principle
 
-ASSO has three distinct frontend applications sharing one codebase, common components, and a single API client layer:
+ASSO implements **one unified Next.js application** in a single codebase that hosts three distinct user surfaces and application shells:
 
 ```text
-One Codebase
-      ↓
-┌─────────────────────────────────────────────┐
-│  Customer App   │  Business Console  │  Super Admin  │
-└─────────────────────────────────────────────┘
-      ↓
-Shared Component Library
-      ↓
-Shared API Client Layer
-      ↓
-ASSO API Server
+                     ASSO Unified Frontend Codebase
+                                   │
+      ┌────────────────────────────┼────────────────────────────┐
+      ▼                            ▼                            ▼
+Customer Shell              Business Shell              Super Admin Shell
+(`/c/...`)                  (`/b/...`)                  (`/sa/...`)
+Mobile-first QR experience   Staff operations & KDS      Platform management
+Ultra-lightweight bundle    Dense, interactive tables   High-privilege portal
+      │                            │                            │
+      └────────────────────────────┼────────────────────────────┘
+                                   │
+                 ┌─────────────────┴─────────────────┐
+                 ▼                                   ▼
+        Shared Design System                Shared API Client
+        (Tailwind + Radix Tokens)           (Typed HTTP + SSE Stream)
+                 │                                   │
+                 └─────────────────┬─────────────────┘
+                                   ▼
+                         ASSO Backend API Server
 ```
 
-Each application has separate routing roots, separate authentication state, and separate authorization-aware navigation. They share the design system, component library, and API client.
+### Why One Application with Three Surfaces (ADR-009)?
+1. **Single Developer + AI Agent Maintainability**: One repository, one `package.json`, one build pipeline, zero package publication overhead or version skew.
+2. **Instant Preview Verification**: Feature branches generate a single Vercel preview deployment verifying Customer QR, Staff Console, and Super Admin in lockstep against preview databases.
+3. **Strict Route Boundaries**: Enforced via Next.js App Router route groups (`(customer)`, `(console)`, `(admin)`) with isolated root layouts, separate session cookies, and dedicated auth middleware.
 
 ---
 
-## 2. Application Structure
+## 2. Application Shell Architecture
 
-```mermaid
-graph TD
-    subgraph "Frontend Monorepo / App"
-        subgraph "Customer App  /app/c/..."
-            CQ[QR Entry & Context Resolution]
-            CM[Menu / Catalog Browse]
-            CO[Order Placement & Status]
-            CSR[Service Requests]
-            CCC[Chat]
-            CP[Payment]
-            CFS[Feedback]
-        end
-
-        subgraph "Business Console  /app/b/..."
-            BD[Dashboard]
-            BO[Orders]
-            BK[KDS / Kitchen View]
-            BSR[Service Requests]
-            BCH[Chat / Conversations]
-            BPOS[POS]
-            BINV[Inventory]
-            BPRO[Procurement]
-            BEXP[Expenses]
-            BCM[Cash Management]
-            BST[Staff Management]
-            BRPT[Reports]
-            BSET[Settings & Modules]
-        end
-
-        subgraph "Super Admin Console  /app/sa/..."
-            SATM[Tenant Management]
-            SAOB[Organization Onboarding]
-            SAPL[Plans & Entitlements]
-            SAMD[Module Catalog]
-            SAMON[System Monitoring]
-            SACFG[Platform Configuration]
-        end
-
-        subgraph "Shared"
-            DS[Design System / Component Library]
-            AC[API Client Layer]
-            ST[Global State Management]
-            ER[Error Boundary / Loading States]
-        end
-    end
-
-    CQ --> DS
-    BD --> DS
-    SATM --> DS
-    DS --> AC
-    AC --> ST
-```
+| Shell | Route Root | Primary Devices | Shell Philosophy | Session Context |
+|---|---|---|---|---|
+| **Customer Shell** | `/c/...` | Mobile smartphone (iOS / Android) | Zero navigation chrome, fast initial paint, contextual branding, touch-optimized (targets ≥ 44px) | `CustomerSession` (token bound to `tenant + outlet + context`) |
+| **Business Console Shell** | `/b/...` | Desktop monitor, Tablet / iPad, POS terminal | Persistent sidebar, multi-outlet switcher, dense data grids, real-time alerts, keyboard shortcuts | `StaffSession` (scoped to `tenant + assigned_outlets + role`) |
+| **Super Admin Shell** | `/sa/...` | Desktop workstation | Platform health metrics, organization list, module catalog, audit log viewer | `SuperAdminSession` (platform-wide privilege, mandatory MFA) |
 
 ---
 
 ## 3. Route Architecture
 
-### 3.1 Customer Application Routes
-
-The customer app is accessed via QR code or direct web URL. All routes are under a `/c` prefix (or a dedicated customer subdomain in production):
+### 3.1 Customer Application Routes (`/c/...`)
 
 ```text
-/c/[token]                    — QR entry: resolve token → context → redirect
-/c/[tenantSlug]/[outlet]/...  — Resolved customer experience (vertical-specific)
+/c/[token]                    — QR entry: resolves opaque token → creates session → redirects
+/c/hotel/[outletId]/menu      — Room service menu & catalog
+/c/hotel/[outletId]/orders    — Live order tracker
+/c/hotel/[outletId]/requests  — Service requests (Housekeeping, Amenities, Luggage)
+/c/hotel/[outletId]/chat      — Real-time conversation with front desk
+/c/hotel/[outletId]/bill      — View active stay charges / folio
 
-Hotel context:
-  /c/hotel/[outletId]/menu        — Room service menu
-  /c/hotel/[outletId]/orders      — My orders
-  /c/hotel/[outletId]/requests    — Service requests
-  /c/hotel/[outletId]/chat        — Chat with staff
-  /c/hotel/[outletId]/bill        — View folio / bill
+/c/restaurant/[outletId]/menu — Dining menu with categories and item modifiers
+/c/restaurant/[outletId]/orders— Table orders status
+/c/restaurant/[outletId]/requests— Call waiter, request water/cutlery
+/c/restaurant/[outletId]/chat — Chat with server/host
+/c/restaurant/[outletId]/bill — View table bill, request bill, pay via UPI/Card
 
-Restaurant context:
-  /c/restaurant/[outletId]/menu       — Table menu
-  /c/restaurant/[outletId]/orders     — My orders at this table
-  /c/restaurant/[outletId]/requests   — Call waiter / request
-  /c/restaurant/[outletId]/chat       — Chat
-  /c/restaurant/[outletId]/bill       — Request bill / pay
-
-Cinema context:
-  /c/cinema/[outletId]/menu       — Concession menu
-  /c/cinema/[outletId]/orders     — My concession orders
-  /c/cinema/[outletId]/requests   — Service requests
-  /c/cinema/[outletId]/chat       — Chat
+/c/cinema/[outletId]/menu     — Concession snacks and beverages menu
+/c/cinema/[outletId]/orders   — Concession order tracking
+/c/cinema/[outletId]/requests — Seat assistance / temperature / cleanliness
+/c/cinema/[outletId]/chat     — Chat with theater usher/staff
 ```
 
-### 3.2 Business Console Routes
-
-The business console is accessed via staff login. Routes are under `/b`:
+### 3.2 Business Console Routes (`/b/...`)
 
 ```text
-/b/login                         — Staff login
-/b/[outletId]/dashboard          — Operations dashboard
-/b/[outletId]/orders             — Live orders & fulfillment
-/b/[outletId]/kitchen            — KDS view (kitchen / concession staff)
-/b/[outletId]/requests           — Service requests
-/b/[outletId]/chat               — Conversations
-/b/[outletId]/pos                — POS terminal
-/b/[outletId]/inventory          — Inventory management
-/b/[outletId]/inventory/movements — Stock movement ledger
-/b/[outletId]/procurement        — Purchase orders & receiving
-/b/[outletId]/expenses           — Expense recording
-/b/[outletId]/cash               — Cash management
-/b/[outletId]/staff              — Staff & roles management
-/b/[outletId]/reports            — Reports & metrics
-/b/[outletId]/settings           — Outlet configuration
-/b/[outletId]/settings/modules   — Module entitlements (read-only for admin)
+/b/login                          — Staff authentication (Email/Password)
+/b/[outletId]/dashboard           — Outlet operations overview & live telemetry
+/b/[outletId]/orders              — Order management & fulfillment tracking
+/b/[outletId]/kitchen             — Kitchen Display System (KDS) full-screen view
+/b/[outletId]/requests            — Service requests queue & assignment
+/b/[outletId]/chat                — Live customer conversations inbox
+/b/[outletId]/pos                 — Point-of-Sale terminal
+/b/[outletId]/inventory           — Stock levels & location management
+/b/[outletId]/inventory/movements — Immutable stock movement ledger
+/b/[outletId]/procurement         — Purchase orders & goods receipt
+/b/[outletId]/expenses            — Operating expenses & receipts
+/b/[outletId]/cash                — Cash register sessions & reconciliation
+/b/[outletId]/staff               — Staff profiles, outlet assignment, RBAC roles
+/b/[outletId]/reports             — Centrally calculated metrics & exports
+/b/[outletId]/settings            — Outlet configuration
+/b/[outletId]/settings/modules    — View active module entitlements
 
-Hotel-specific:
-  /b/[outletId]/rooms            — Room management
-  /b/[outletId]/stays            — Stays & check-in/check-out
-  /b/[outletId]/reservations     — Hotel reservations
-  /b/[outletId]/housekeeping     — Housekeeping tasks
-  /b/[outletId]/folio/[stayId]   — Guest folio
-
-Restaurant-specific:
-  /b/[outletId]/tables           — Table floor plan / status
-  /b/[outletId]/tables/[tableId] — Table detail
-  /b/[outletId]/queue            — Queue / waitlist (if entitled)
-
-Cinema-specific:
-  /b/[outletId]/screens          — Screen management
-  /b/[outletId]/shows            — Show schedule
+Vertical-Specific Extensions:
+  Hotel:
+    /b/[outletId]/rooms           — Room grid, floor plans, room status
+    /b/[outletId]/stays           — Active stays, check-in, check-out
+    /b/[outletId]/reservations    — Room booking roster
+    /b/[outletId]/housekeeping    — Housekeeping task board
+    /b/[outletId]/folio/[stayId]  — Guest folio ledger & settlements
+  Restaurant:
+    /b/[outletId]/tables          — Table status floor view
+    /b/[outletId]/queue           — Walk-in waitlist board (if entitled)
+    /b/[outletId]/reservations    — Table reservations roster (if entitled)
+  Cinema:
+    /b/[outletId]/screens         — Screen & auditorium configuration
+    /b/[outletId]/shows           — Screening schedule & concession tracking
 ```
 
-### 3.3 Super Admin Routes
-
-The super admin console is accessed via a separate admin login at `/sa`:
+### 3.3 Super Admin Routes (`/sa/...`)
 
 ```text
-/sa/login                        — Platform admin login
-/sa/dashboard                    — Platform overview
-/sa/tenants                      — Tenant (organization) list
-/sa/tenants/[id]                 — Tenant detail
-/sa/tenants/new                  — Onboard new organization
-/sa/plans                        — Plan management
-/sa/modules                      — Module catalog
-/sa/modules/[id]                 — Module detail
-/sa/monitoring                   — System health & usage
-/sa/config                       — Platform-level configuration
+/sa/login                         — Platform admin login with mandatory MFA
+/sa/dashboard                     — Global platform metrics & tenant activity
+/sa/tenants                       — Tenant organization roster
+/sa/tenants/[id]                  — Organization details, properties, outlets
+/sa/tenants/new                   — Onboard new organization
+/sa/plans                         — SaaS subscription plans & module bundles
+/sa/modules                       — Module registry & dependency graph
+/sa/monitoring                    — System health, job queues, error rates
+/sa/config                        — Global platform settings
 ```
 
 ---
 
-## 4. Authentication State
-
-### 4.1 Customer Sessions
-
-Customer sessions are:
-- Created server-side when a valid QR is resolved
-- Stored as a short-lived, scoped, signed token (HttpOnly cookie or Authorization header)
-- Scoped to: `tenant + outlet + context (room/table/seat)`
-- Not necessarily linked to a registered user account (anonymous session initially)
-- Invalidated on context lifecycle events (guest checkout, table cleared, show ended)
+## 4. State Management Architecture
 
 ```text
-QR Token → API validates → Returns signed session token
-Session token → Attached to all customer API requests
-API middleware → Validates + resolves context from session
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Authoritative Server API                        │
+└────────────────────────────────────┬───────────────────────────────────┘
+                                     │ HTTP (REST) + SSE Push
+                                     ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                 Server State Layer (TanStack Query / SWR)              │
+│  - Cached server responses (stale-while-revalidate)                    │
+│  - Query invalidation on mutations and real-time domain events         │
+│  - Optimistic updates for low-latency feedback                         │
+└────────────────────────────────────┬───────────────────────────────────┘
+                                     │
+      ┌──────────────────────────────┴──────────────────────────────┐
+      ▼                                                             ▼
+┌───────────────────────────┐                         ┌───────────────────┐
+│     Client UI State       │                         │ Form & Cart State │
+│  - Modal visibility       │                         │  - Active Cart    │
+│  - Sidebar open/collapsed │                         │  - Draft forms    │
+│  - Active tab / filters   │                         │  - Zod validation │
+│  (React State / Zustand)  │                         │  (ReactHookForm)  │
+└───────────────────────────┘                         └───────────────────┘
 ```
 
-### 4.2 Staff Sessions
-
-Staff sessions are:
-- Created via email/password login through the auth provider
-- Stored as a signed JWT or session token (HttpOnly cookie)
-- Scoped to: `tenant + assigned outlets + role`
-- Subject to RBAC checks on every operation
-
-### 4.3 Super Admin Sessions
-
-Super admin sessions are:
-- Highest-privilege sessions
-- Backed by a separate admin authentication flow
-- Not scoped to a tenant (can access all tenants)
-- All operations produce audit logs
+1. **Server State is Authoritative**:
+   - The frontend never calculates financial totals, inventory levels, or authorization rights independently.
+   - TanStack Query manages caching, request deduplication, and background refetching.
+2. **Real-Time Cache Synchronization**:
+   - Inbound SSE domain events (`ORDER_STATUS_CHANGED`, `STOCK_ADJUSTED`) immediately trigger targeted query invalidation (`queryClient.invalidateQueries(['orders', orderId])`), updating the UI seamlessly.
+3. **Cart State**:
+   - Customer cart is maintained in client-side memory during catalog browsing.
+   - Submission triggers `POST /api/v1/orders` with an idempotency key. Upon success, the cart clears and the view navigates to the live order tracker.
 
 ---
 
-## 5. Authorization-Aware Navigation
+## 5. Real-Time Frontend Integration (ADR-010)
 
-Frontend navigation must respect authorization state, but **never rely on navigation hiding as the security mechanism**:
+```typescript
+// Architectural Hook Pattern: useRealtimeEvents
+export function useRealtimeEvents(outletId: string, onEvent: (event: DomainEvent) => void) {
+  useEffect(() => {
+    const eventSource = new EventSource(`/api/v1/realtime/stream?outletId=${outletId}`);
 
-```text
-Backend enforces: Module entitlement + RBAC permission + Policy
-Frontend reflects: Hides unavailable navigation items for UX cleanliness only
+    eventSource.onmessage = (e) => {
+      const event = JSON.parse(e.data);
+      onEvent(event);
+    };
+
+    eventSource.onerror = () => {
+      // Browser automatically attempts reconnection with Last-Event-ID header
+      // Fallback polling triggers if disconnected for > 15 seconds
+    };
+
+    return () => eventSource.close();
+  }, [outletId, onEvent]);
+}
 ```
 
-Implementation approach:
-1. On authenticated session load, fetch the user's entitlement and permission map from the API
-2. Store in client-side state (not persisted to localStorage)
-3. Use to conditionally render navigation items
-4. Every API call still enforces authorization server-side regardless of frontend state
+- KDS, Staff Inboxes, and Customer Order Status screens consume this stream.
+- Reconnections automatically pass `Last-Event-ID`, ensuring no dropped updates during momentary cellular/Wi-Fi blips.
 
 ---
 
-## 6. State Management
+## 6. Design System Architecture
 
-### 6.1 Server State (Primary)
+### 6.1 Design Tokens (CSS Custom Properties)
 
-ASSO's frontend primarily uses **server state management** (React Query / SWR pattern):
-- All domain data is fetched from and synchronized with the API
-- Stale-while-revalidate patterns for low-latency feel
-- Optimistic updates for common mutations (order placement, request creation)
-- Invalidation on mutation to keep server state authoritative
+All visual attributes are governed by semantic tokens defined in `styles/globals.css`:
 
-### 6.2 Client State (Secondary)
+```css
+:root {
+  /* Surface & Background Tokens */
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
 
-Client state is used for:
-- Authentication session state (current user, permissions, outlet context)
-- UI state (sidebar open/closed, selected tab, modal visibility)
-- Cart / draft order state (before submission)
-- Form state (unsaved form values)
+  /* Brand & Semantic Action Tokens */
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
 
-Client state is **not** used as the authority for business data.
+  /* Status Tokens */
+  --success: 142.1 76.2% 36.3%;
+  --success-foreground: 355.7 100% 97.3%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 48 96% 89%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
 
-### 6.3 Cart State
-
-The cart is a special case of client state:
-- Items are held client-side before order submission
-- Cart is validated server-side at order creation
-- Cart is not persisted in the database until the order is created
-- Client-side cart is cleared after successful order creation
-
----
-
-## 7. API Client Layer
-
-All frontend applications share a single typed API client:
-
-```text
-Frontend Components
-      ↓
-API Client (typed, centralized)
-      ↓
-HTTP Requests + Auth Headers + Tenant Context
-      ↓
-ASSO API Server
+  /* Neutral & Utility Tokens */
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+  --radius: 0.5rem;
+}
 ```
 
-The API client provides:
-- Typed request/response shapes
-- Automatic auth token attachment
-- Centralized error handling (401 → redirect to login, 403 → permission error, 409 → conflict)
-- Retry logic for transient errors
-- Request deduplication
+### 6.2 Typography Scale
+- **Font Stack**: Clean, modern sans-serif (`Inter`, system fallback `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto`).
+- **Type Scale**:
+  - `Display`: `text-3xl font-bold tracking-tight` (Hero titles, KDS order numbers)
+  - `Heading 1`: `text-2xl font-semibold` (Page headers)
+  - `Heading 2`: `text-xl font-semibold` (Section titles)
+  - `Heading 3`: `text-lg font-medium` (Card headers)
+  - `Body`: `text-sm font-normal leading-relaxed` (Standard text, descriptions)
+  - `Caption`: `text-xs text-muted-foreground` (Timestamps, metadata, secondary labels)
 
-The API client does NOT:
-- Cache business data independently (that is the server-state layer's responsibility)
-- Make authorization decisions
-- Bypass the API for any business operation
+### 6.3 Spacing & 4px Grid
+- Strict 4px base increments: `4px` (`p-1`), `8px` (`p-2`), `12px` (`p-3`), `16px` (`p-4`), `24px` (`p-6`), `32px` (`p-8`), `48px` (`p-12`), `64px` (`p-16`).
+- Consistency rule: Card padding is `p-4` on mobile, `p-6` on tablet/desktop.
+
+### 6.4 Responsive Breakpoints
+- **Mobile** (`< 640px`): Single column, full-width cards, sticky bottom action bars, touch targets ≥ 44px.
+- **Tablet** (`640px – 1024px`): Two-column grids, collapsible side navigation, optimized for KDS mounted screens and POS tablets.
+- **Desktop** (`> 1024px`): Multi-column layouts, persistent navigation sidebar, dense data tables, modal dialogs.
+- **Wide Desktop** (`> 1280px`): Full dashboard layouts with secondary auxiliary panels.
+
+### 6.5 Accessibility Baseline (WCAG 2.1 AA)
+- Headless primitives powered by Radix UI ensure correct ARIA roles (`role="dialog"`, `role="tab"`, `aria-expanded`).
+- Keyboard navigability: All interactive controls are accessible via `Tab`, `Enter`, `Escape`, and arrow keys.
+- Contrast ratio: Minimum 4.5:1 for body text and 3:1 for large headers and status badges.
+- Focus rings: High-visibility focus indicators (`ring-2 ring-primary ring-offset-2`).
+
+### 6.6 Standard Non-Happy-Path States
+
+Every data-driven component in ASSO must implement four standard states:
+
+1. **Loading State**:
+   - Skeleton components (`Skeleton`) matching the shape of incoming content rather than generic full-page spinners.
+   - Button loading indicators with disabled pointer events during async mutations.
+2. **Error State**:
+   - Field-level inline validation errors below inputs (`FormError`).
+   - Component-level error boundaries with a "Try Again" action button.
+   - Global network offline banner when connectivity drops.
+3. **Empty State**:
+   - Contextual icon or subtle illustration.
+   - Clear explanatory message ("No active orders found for Table 7").
+   - Primary call-to-action button ("Create First Order" or "Browse Catalog").
+4. **Feedback State**:
+   - Toast notifications for transient success/failure confirmations (auto-dismiss 4s).
+   - Sticky banner alerts for critical operational warnings (e.g., "Cash register session closed", "Low stock alert").
 
 ---
 
-## 8. Vertical-Specific UI Modules
+## 7. Shared Component Library Structure
 
-The Business Console adapts its navigation and views based on the outlet's business type:
+All reusable primitives live under `components/ui/` using headless Radix UI:
 
-| Section | Hotel | Restaurant | Cinema |
+- **Primitives**: `Button`, `Input`, `Textarea`, `Select`, `Checkbox`, `RadioGroup`, `Switch`, `Slider`.
+- **Layout & Containers**: `Card`, `Dialog` (Modal), `Sheet` (Drawer), `Tabs`, `Accordion`, `Separator`.
+- **Data Display**: `Table`, `Badge`, `Avatar`, `Tooltip`, `Popover`, `ScrollArea`.
+- **Feedback**: `Alert`, `Toast` (Sonner), `Progress`, `Skeleton`.
+- **Forms**: `Form`, `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormMessage`.
+- **Domain Components** (`components/domain/`):
+  - `OrderCard`: Shared order visualization for Customer, POS, and KDS.
+  - `StatusBadge`: Consistent color-coded state badges for orders, stays, and service requests.
+  - `PriceDisplay`: Currency-formatted amount with tax inclusion indicators.
+  - `ContextPicker`: Outlet and room/table/seat switcher for staff.
+
+---
+
+## 8. Resolution of Open Frontend Decisions
+
+| Decision | Status | Architectural Resolution | Reference |
 |---|---|---|---|
-| **Dashboard** | Room occupancy, today's check-ins/check-outs | Table status, active orders | Active shows, concession activity |
-| **Context Management** | Rooms + Stays | Tables + Sections | Screens + Shows |
-| **Orders** | Room service orders | Table orders | Concession orders |
-| **Kitchen View** | Room service kitchen | Restaurant KDS | Concession fulfillment |
-| **Billing** | Guest folio management | Table bill | Per-order billing |
-| **Vertical-Specific** | Housekeeping, Reservations | Queue, Table Reservations | Show scheduling |
-| **Shared** | Inventory, Procurement, Expenses, Cash, Staff, Reports, Settings |
-
-UI modules that differ per vertical:
-- **Context Management**: The concept is the same (manage rooms/tables/screens) but rendered with vertical-specific terminology, layout, and actions
-- **Dashboard**: The metrics widget set adapts to the vertical
-- **Fulfillment/KDS**: Layout and workflow adapted (hotel room delivery vs restaurant table service vs cinema concession counter)
-
-UI modules that are identical across verticals:
-- Inventory
-- Procurement
-- Expenses
-- Cash Management
-- Staff & Roles
-- Reports (with vertical-specific metric sets)
-- Module Settings
-
----
-
-## 9. Customer Experience Architecture
-
-### 9.1 QR Entry Flow
-
-```mermaid
-sequenceDiagram
-    participant C as Customer Device
-    participant QR as QR URL Handler
-    participant API as API
-    participant CTX as Context Engine
-    participant SESS as Session Engine
-    participant UI as Vertical UI
-
-    C->>QR: Scan QR → GET /c/[opaqueToken]
-    QR->>API: POST /api/qr/resolve {token}
-    API->>CTX: Resolve token → tenant, outlet, context
-    CTX-->>API: {tenantId, outletId, businessType, contextId, contextType}
-    API->>SESS: Create customer session
-    SESS-->>API: {sessionToken, contextDetails}
-    API-->>QR: 200 {sessionToken, redirectPath}
-    QR->>UI: Redirect to /c/[businessType]/[outletId]/menu
-    UI->>API: GET /api/customer/context (with sessionToken)
-    API-->>UI: Context details + available capabilities
-    UI-->>C: Render vertical-specific customer experience
-```
-
-### 9.2 Customer App Design Principles
-
-- **Mobile-first**: The primary customer device is a smartphone
-- **Fast initial load**: Menu/catalog must render quickly; no heavy JavaScript before first paint
-- **Progressive disclosure**: Start with browsing → guide toward ordering → payment
-- **Session awareness**: Customer can see their active orders and requests at any time
-- **Offline-tolerant**: Browsing the menu should work even with brief network interruption; order submission requires connectivity
-- **Accessible**: WCAG AA compliance targeted
-
----
-
-## 10. Responsive Behavior
-
-| Breakpoint | Customer App | Business Console | Super Admin |
-|---|---|---|---|
-| **Mobile** (< 640px) | Primary target | Limited — basic operations | Not targeted |
-| **Tablet** (640–1024px) | Good support | Primary target for KDS + table view | Basic support |
-| **Desktop** (> 1024px) | Good support | Primary target for full console | Primary target |
-
-The KDS kitchen display is designed specifically for large shared screens (tablet or desktop mounted in kitchen).
-
----
-
-## 11. Loading, Error, and Empty States
-
-All frontend views must implement three non-happy-path states:
-
-### Loading States
-- Skeleton screens for initial data loads
-- Spinner for mutations in progress
-- Optimistic updates where safe (e.g., adding item to cart)
-
-### Error States
-- API errors: Show user-friendly message, not raw errors
-- 401: Redirect to login
-- 403: Permission denied — explain what the user cannot do and why (if known)
-- 404: Clear not-found message
-- 5xx: Generic server error with retry option
-- Network errors: Offline indicator
-
-### Empty States
-- Empty orders list: Prompt to create first order
-- Empty inventory: Prompt to add items
-- Empty tables: Prompt to configure dining areas
-- Contextual and actionable — do not show blank screens
-
----
-
-## 12. Shared UI Components
-
-The shared component library provides:
-
-**Core Primitives**: Button, Input, Select, Checkbox, Radio, Toggle, Textarea, DatePicker, TimePicker  
-**Layout**: Page, Sidebar, TopBar, Card, Modal, Drawer, Tabs, Accordion, Divider  
-**Data Display**: Table, DataGrid, List, Badge, Avatar, Tag, Tooltip, Popover, Chip  
-**Feedback**: Toast, Alert, Banner, Skeleton, Spinner, ProgressBar, EmptyState, ErrorState  
-**Navigation**: Breadcrumb, Pagination, Stepper, ContextMenu  
-**Forms**: Form, FormField, FormSection, FormError, SubmitButton  
-**Business**: OrderCard, OrderStatusBadge, InventoryItemRow, ServiceRequestCard, ChatBubble
-
-Vertical-specific components (RoomCard, TableFloorPlan, ScreenLayout) live in their vertical UI module directories but may use shared primitives.
-
----
-
-## 13. Open Frontend Decisions
-
-| Decision | Status |
-|---|---|
-| Framework choice: Next.js App Router vs alternatives | OPEN DECISION — to evaluate in Phase 3 |
-| State management library: React Query vs SWR vs Zustand | OPEN DECISION — to evaluate in Phase 3 |
-| Design system: custom vs Radix + Tailwind vs shadcn/ui | OPEN DECISION — to evaluate in Phase 3 |
-| Real-time: WebSocket vs SSE vs polling for orders/KDS/chat | OPEN DECISION — to evaluate in Phase 3 |
-| Customer app subdomain vs path routing | OPEN DECISION — to evaluate in Phase 3 |
-| Multi-language (i18n) implementation | OPEN DECISION — see OPEN-DECISIONS.md |
-| Offline POS capability | OPEN DECISION — see OPEN-DECISIONS.md |
+| Framework & Deployment | `RESOLVED` | Next.js App Router (TypeScript) in a single codebase with 3 route surfaces (`/c`, `/b`, `/sa`) | ADR-009 |
+| Design System & Styling | `RESOLVED` | Tailwind CSS with CSS Custom Property design tokens + Radix UI (shadcn pattern) | ADR-009 |
+| State Management | `RESOLVED` | Server-state-first with TanStack Query + lightweight Zustand for client UI state | ADR-009 |
+| Real-Time Communication | `RESOLVED` | Hybrid SSE (`/api/v1/realtime/stream`) + standard HTTP POST/PATCH + polling fallback | ADR-010 |
+| Offline POS | `RESOLVED` | Online-first with network resilience (memory cart, optimistic UI, retries with idempotency) | ADR-012 |

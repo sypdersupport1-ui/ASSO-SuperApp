@@ -280,19 +280,21 @@ See [SCALABILITY.md](./SCALABILITY.md) for full details.
 
 ## 7. Technology Direction
 
-| Layer | Direction | Status |
+| Layer | Direction | Status / Reference |
 |---|---|---|
-| **Web Framework** | Next.js (App Router) | To evaluate in Phase 3 |
-| **API Style** | REST with JSON; tRPC considered | To evaluate in Phase 3 |
-| **Database** | PostgreSQL via Supabase | Preferred direction, not finalized |
-| **Auth** | NextAuth.js or Supabase Auth | To evaluate in Phase 3 |
-| **File Storage** | Supabase Storage / S3-compatible | To evaluate in Phase 3 |
-| **Background Jobs** | pg-boss or Inngest | To evaluate in Phase 3 |
-| **Cache** | In-process LRU initially; Redis if justified | Requirement-driven |
-| **Deployment** | Vercel | Preferred direction, not finalized |
-| **Observability** | Structured logging + error tracking | To evaluate in Phase 5 |
-
-> These are architectural directions to evaluate, not irrevocable commitments. Final selection documented in Phase 3.
+| **Web Framework** | Next.js (App Router, TypeScript) — 3 surfaces (`/c`, `/b`, `/sa`) | **Accepted** (ADR-009) |
+| **Design System** | Tailwind CSS + CSS custom property tokens + Radix UI primitives | **Accepted** (ADR-009) |
+| **Real-Time** | Hybrid: Server-Sent Events (SSE) push + HTTP mutations + polling fallback | **Accepted** (ADR-010) |
+| **Payment Gateway** | Adapter Pattern: Razorpay (India-first direction) + Mock Adapter (Dev/Preview) | **Accepted** (ADR-011) |
+| **POS Architecture**| Online-first with network resilience (memory cart, optimistic UI, retries) | **Accepted** (ADR-012) |
+| **Vertical Order**  | Hotel → Restaurant → Cinema | **Proposed / Human Approval** (ADR-013) |
+| **Database** | PostgreSQL via Supabase | Evaluated Direction (ADR-002) |
+| **API Style** | REST with JSON + typed API client | Phase 3 Specification |
+| **Auth** | NextAuth.js or Supabase Auth | Phase 3 Specification |
+| **File Storage** | Supabase Storage / S3-compatible | Phase 3 Specification |
+| **Background Jobs** | PostgreSQL-backed job queue (pg-boss) | Phase 3 Specification |
+| **Cache** | In-process LRU; Redis only if operational need justified | Requirement-driven |
+| **Deployment** | Vercel (Next.js unified deployment) | Evaluated Direction |
 
 ---
 
@@ -321,20 +323,22 @@ The Phase 2 architecture is documented across the following files:
 
 | Document | Topic |
 |---|---|
-| `SYSTEM-ARCHITECTURE.md` (this file) | Overall system design and principles |
-| `FRONTEND-ARCHITECTURE.md` | Frontend applications, routing, state management |
-| `BACKEND-ARCHITECTURE.md` | Server, API, module boundaries, background processing |
-| `SHARED-ENGINES.md` | All shared domain engine definitions |
-| `VERTICAL-ARCHITECTURE.md` | Hotel, Restaurant, Cinema vertical modules |
-| `MULTI-TENANCY.md` | Tenant hierarchy, isolation, cross-tenant access |
-| `MODULE-ENTITLEMENTS.md` | Module registry, plans, entitlement enforcement |
-| `RBAC-POLICIES.md` | Roles, permissions, policy engine |
+| `SYSTEM-ARCHITECTURE.md` (this file) | Overall system design, boundaries, and principles |
+| `FRONTEND-ARCHITECTURE.md` | Single codebase 3-shell architecture, state management, design tokens |
+| `BACKEND-ARCHITECTURE.md` | Modular monolith, API routes, middleware stack, caching, background jobs |
+| `SHARED-ENGINES.md` | All 28 shared domain engine definitions |
+| `VERTICAL-ARCHITECTURE.md` | Hotel, Restaurant, Cinema vertical modules and extension points |
+| `MULTI-TENANCY.md` | Tenant hierarchy, data isolation, cross-outlet access, RLS |
+| `MODULE-ENTITLEMENTS.md` | Module registry, dependency graph, subscription plans, enforcement |
+| `RBAC-POLICIES.md` | Roles, permissions, policy approval engine |
 | `WORKFLOWS-STATE-MACHINES.md` | State machines for important domain entities |
-| `DOMAIN-EVENTS.md` | Domain event catalog and processing |
-| `DATA-OWNERSHIP.md` | Entity ownership, source of truth, deletion rules |
-| `SECURITY-ARCHITECTURE.md` | Complete security model |
-| `SCALABILITY.md` | Scaling strategy and escape paths |
-| `OBSERVABILITY.md` | Logging, metrics, health checks |
-| `INTEGRATIONS.md` | External service integration boundaries |
-| `FAILURE-RECOVERY.md` | Failure handling and recovery patterns |
-| `OPEN-DECISIONS.md` | All unresolved architectural decisions |
+| `DOMAIN-EVENTS.md` | Domain event catalog, in-process pub/sub, transactional outbox |
+| `DATA-OWNERSHIP.md` | Entity ownership, source of truth, immutability, soft-delete rules |
+| `SECURITY-ARCHITECTURE.md` | Complete security, authorization, and isolation model |
+| `SCALABILITY.md` | Horizontal scaling path and escape valves without microservices |
+| `OBSERVABILITY.md` | Structured logging, audit trails, metrics, telemetry |
+| `INTEGRATIONS.md` | External service integration adapter boundaries |
+| `FAILURE-RECOVERY.md` | Idempotency, retry policies, and disaster recovery |
+| `OPEN-DECISIONS.md` | Master 35-decision registry with Category A/B/C classification |
+| `ADRs/ADR-001` to `ADR-013` | Architectural Decision Records (Foundations through Pre-Phase-3) |
+

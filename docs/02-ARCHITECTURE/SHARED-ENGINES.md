@@ -597,18 +597,22 @@ Context lifecycle event → Session INVALIDATED
 
 **Module**: `engines/pos`
 
-**Purpose**: Power staff-initiated point-of-sale transactions.
+**Purpose**: Power staff-initiated point-of-sale transactions across counter, quick-service, and cashier workflows.
+
+**Operational Model (ADR-012)**:
+- **Online-First with Network Resilience**: POS operates as an online-first system. Active cart lines and calculations are maintained in client memory so brief connection hiccups do not interrupt staff. Automatic retries with client-generated idempotency keys prevent duplicate orders or transactions.
+- Offline synchronization is deferred to future enterprise phases; architecture remains forward-compatible via client-generated UUIDs and ledger movements.
 
 **Responsibilities**:
-- Create POS transactions (may or may not be tied to an existing order)
-- Add line items and apply discounts
+- Create POS transactions (may or may not be tied to a pre-existing context order)
+- Add line items, apply authorized discounts, and record service charges
 - Process payment through the Payment Engine
-- Generate receipts
-- Record cash transactions in Cash Management
+- Generate printable receipts (native browser 80mm thermal format)
+- Record cash transactions directly in Cash Management
 
 **Owns**: `pos_sessions`, `pos_transactions`, `pos_transaction_items`
 
-**Does Not Own**: Payments (owned by Payment Engine), Cash (owned by Cash Engine), Orders (POS may create an order via Ordering Engine)
+**Does Not Own**: Payments (settled via Payment Engine), Cash drawers (owned by Cash Engine), Orders (POS delegates item preparation to Ordering Engine)
 
 **Events Published**: `POSTransactionCompleted`, `POSTransactionVoided`
 
@@ -618,29 +622,28 @@ Context lifecycle event → Session INVALIDATED
 
 **Module**: `engines/billing`
 
-**Purpose**: Accumulate charges against a business context and generate bills for payment.
+**Purpose**: Accumulate charges against a business context, calculate taxes and discounts, and generate authoritative bills/folios for settlement.
 
 **Responsibilities**:
-- Post charges to the active bill for a context (order charges, service charges, room rate, etc.)
-- Accumulate charges across a session or stay
-- Generate a bill summary on request
-- Apply discounts and adjustments (with authorization)
-- Support voids and reversals (with audit trail)
-- For Hotel: manage the Guest Folio
+- Post charges to the active bill for a context (order charges, service charges, room tariff, etc.)
+- Accumulate charges across a session (table/seat) or multi-day stay (hotel folio)
+- Calculate taxes (GST/VAT), service charges, and authorized discounts
+- Generate immutable bill summaries on request
+- Support voids and adjustments via explicit negative/reversal entries (with manager approval via Policy Engine)
+- Maintain the underlying ledger mechanics for both short-lived bills and Hotel Guest Folios
 
 **Owns**: `bills`, `bill_items`, `bill_adjustments`, `guest_folios`, `folio_entries`
 
-**Does Not Own**: Payments (owned by Payment Engine), Orders (owned by Ordering Engine)
+**Does Not Own**: Payments (settled via Payment Engine), Order operations (owned by Ordering Engine), Room stay lifecycles (owned by Hotel Vertical)
 
-**Financial Integrity Rules**:
-- All charges are immutable records once posted
-- Corrections use adjustment/reversal entries, not silent modification
-- Every financial mutation creates an audit record
+**Billing vs Folio Clarification**:
+- **Bills (`bills`, `bill_items`)**: Short-duration operational statements bound to an immediate dining session or concession order. Settled prior to table clearance or concession pickup.
+- **Guest Folios (`guest_folios`, `folio_entries`)**: Multi-day stay-level ledgers bound to a Hotel `GuestStay`. The Hotel vertical orchestrates the lifecycle (opened upon check-in, closed upon check-out), while the Billing Engine provides the immutable calculation, charge-posting, and adjustment ledger rules.
 
-**Vertical Billing Models**:
-- **Hotel**: Guest Folio — charges accumulate across entire stay; settled at checkout
-- **Restaurant**: Table Bill — charges accumulate during dining session; settled before departure
-- **Cinema**: Per-order billing or concession tab; settled at order time or at counter
+**Financial Integrity Rules (ADR-005)**:
+- All charges and folio entries are immutable once posted.
+- Corrections are made strictly via adjustment/reversal entries referencing the original entry.
+- Every financial mutation creates an append-only audit record.
 
 **Events Published**: `ChargePosted`, `BillGenerated`, `AdjustmentApplied`, `BillSettled`
 
@@ -652,20 +655,29 @@ Context lifecycle event → Session INVALIDATED
 
 **Module**: `engines/payments`
 
-**Purpose**: Process payments, handle refunds, and maintain the payment ledger.
+**Purpose**: Process financial settlements, handle refunds, and maintain the immutable payment transaction ledger.
+
+**Adapter Pattern (ADR-011)**:
+- Payment Engine domain logic is **100% provider-agnostic**.
+- External payment gateways integrate through the `PaymentGatewayAdapter` interface.
+- Initial directional production gateway: **Razorpay** (India-first UPI, cards, netbanking).
+- Development / Preview / CI environments strictly utilize **`MockPaymentAdapter`** for deterministic sandbox testing without external banking dependencies.
 
 **Responsibilities**:
-- Accept payment requests (cash, card, UPI, other)
-- Process payments via configured payment gateway (abstracted behind an adapter)
-- Handle payment webhooks from payment providers
-- Issue refunds (with authorization where required by policy)
-- Maintain payment transaction records
+- Accept payment requests across multiple payment methods (UPI, Card, Cash, NetBanking)
+- Dispatch transactions via the active `PaymentGatewayAdapter`
+- Validate and process inbound payment webhooks idempotently
+- Issue refunds (subject to Policy Engine thresholds and manager approval)
+- Maintain the immutable payment transaction ledger
 
-**Owns**: `payment_transactions`, `refund_transactions`, `payment_methods`
+**Owns**: `payment_transactions`, `refund_transactions`, `payment_methods`, `payment_idempotency`
 
-**Does Not Own**: Bills (owned by Billing Engine)
+**Does Not Own**: Bills or Folios (owned by Billing Engine), Cash register sessions (owned by Cash Management)
 
-**Idempotency**: Every payment creation request requires an idempotency key. Webhooks are processed idempotently.
+**Idempotency & Security**:
+- Every payment request mandates a client-generated `Idempotency-Key` (UUIDv4) stored in `payment_idempotency`.
+- Webhook HMAC signatures are verified before payload execution.
+- Payment amounts are strictly verified server-side against bill/folio totals; client input is never trusted for amounts.
 
 **Payment States**:
 ```text
@@ -676,11 +688,6 @@ PENDING → PROCESSING → COMPLETED | FAILED | EXPIRED
 ```text
 PENDING → PROCESSING → COMPLETED | FAILED
 ```
-
-**Security Considerations**:
-- Payment provider credentials stored as secrets (never in code or config files)
-- Webhook signatures verified before processing
-- Payment amounts verified server-side against bill totals (frontend never the authority)
 
 **Events Published**: `PaymentInitiated`, `PaymentCompleted`, `PaymentFailed`, `RefundInitiated`, `RefundCompleted`
 

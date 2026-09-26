@@ -379,34 +379,61 @@ Row-Level Security (RLS) in PostgreSQL provides a second layer of tenant isolati
 
 ## 9. Caching Strategy
 
-Initial approach: **no external cache**. In-process caching for appropriate data:
+Initial approach: **no external cache (no Redis initially)**. In-process LRU caching is used strictly for safe, high-frequency, read-mostly metadata.
 
-| Data | Cache Strategy | Rationale |
-|---|---|---|
-| Module entitlement map per tenant | In-process LRU (TTL: 5 min) | Read on every request; changes infrequently |
-| RBAC permission map per role | In-process LRU (TTL: 10 min) | Read on every request; changes rarely |
-| Catalog / menu items | In-process LRU (TTL: 2 min) | Read on every customer request; changes occasionally |
-| Tenant configuration | In-process LRU (TTL: 5 min) | Read frequently; changes rarely |
-| Reporting aggregates | No cache initially | Generated on demand |
+### 9.1 What Must NEVER Be Cached
+Due to financial correctness, tenant security, and data integrity requirements, the following data classes must **NEVER** be cached:
+1. **Financial Records & Balances**: Active bill totals, folio balances, payment transaction states, cash register positions, refunds. These must always query PostgreSQL directly.
+2. **Security & Session Revocations**: Active token blacklists, account lockouts, immediate role revocations.
+3. **Active Inventory Levels**: Current on-hand stock balances during order placement or inventory movement transactions (must evaluate against current ledger sum or row locks).
+4. **Cross-Tenant Data**: No static global variables or un-scoped cache structures that could leak across tenant boundaries.
 
-Cache invalidation: On mutation (permission change, catalog update, module toggle), publish a cache-bust event that clears the relevant in-process cache entry.
+### 9.2 Safe In-Process Cached Data
 
-If horizontal scaling requires shared cache, Redis is introduced with a documented decision. See [SCALABILITY.md](./SCALABILITY.md).
+| Data | Cache Strategy | Scope & Key Pattern | Rationale |
+|---|---|---|---|
+| Module entitlement map | In-process LRU (TTL: 5 min) | `tenant:{tenantId}:outlet:{outletId}:modules` | Read on every request; changes via Super Admin |
+| RBAC permission map | In-process LRU (TTL: 10 min) | `role:{roleId}:permissions` | Read on every staff request; changes rarely |
+| Catalog / menu items | In-process LRU (TTL: 2 min) | `tenant:{tenantId}:outlet:{outletId}:catalog:{catId}` | Read on customer visits; invalidated on menu edit |
+| Outlet configuration | In-process LRU (TTL: 5 min) | `tenant:{tenantId}:outlet:{outletId}:config` | Read frequently; changes rarely |
+
+### 9.3 Cache Scoping and Invalidation
+- **Strict Key Scoping**: Every cache key must include `tenant_id` and `outlet_id` prefixes.
+- **Cache Invalidation**: On mutation (e.g. role update, catalog edit, module toggle), the domain service publishes an internal cache-bust event clearing the relevant key.
+- **Horizontal Scaling Path**: When multi-instance deployment is reached, cache invalidation events will broadcast via PostgreSQL `LISTEN/NOTIFY` channels without requiring Redis (ADR-002, Open Decision #5).
 
 ---
 
-## 10. Real-Time Considerations
+## 10. Real-Time Architecture (ADR-010)
 
-Some ASSO features benefit from real-time updates:
+ASSO implements a **Hybrid Real-Time Architecture** balancing simplicity and resilience without maintaining stateful WebSocket clusters:
 
-| Feature | Mechanism | Notes |
-|---|---|---|
-| KDS order updates | Server-Sent Events (SSE) or WebSocket | Kitchen display must update in real-time |
-| Customer order status | SSE or polling (60s) | Customer watching order progress |
-| Service request assignment | SSE or polling | Staff notified of new requests |
-| Chat messages | WebSocket | Bidirectional communication required |
+```text
+                  Downstream Push: Server-Sent Events (SSE)
+            ┌──────────────────────────────────────────────────┐
+            │   GET /api/v1/realtime/stream?outletId=...       │
+            ▼                                                  │
+┌─────────────────────────┐                        ┌───────────────────────┐
+│ Client Applications     │                        │ ASSO API Server       │
+│ - Kitchen Display (KDS) │                        │ (Stateless Monolith)  │
+│ - Staff Operations      │                        │ - Publishes events    │
+│ - Customer Order Status │                        │ - Outbox event replay │
+│ - In-app Guest Chat     │                        └───────────────────────┘
+└───────────┬─────────────┘                                    ▲
+            │                                                  │
+            └──────────────────────────────────────────────────┘
+                 Upstream Actions: Standard HTTP POST / PATCH
+                   (With Idempotency-Key & 5-Layer Auth)
+```
 
-> `OPEN DECISION` — Real-time technology selection (WebSocket vs SSE vs long-polling) to be finalized in Phase 3. SSE is preferred for read-only streams; WebSocket for bidirectional chat. The architecture must support both.
+### 10.1 Mechanism Breakdown
+- **Downstream Push**: Server-Sent Events (SSE) via `GET /api/v1/realtime/stream`.
+  - Used for: KDS order notifications, order state transitions, service request assignment, incoming chat messages, and live dashboard metrics.
+  - Handshake: Authenticated via session cookie/header; strictly scoped to `tenant_id`, `outlet_id`, and `context_id` (for guests).
+  - Ordering & Reconnection: Browser native `EventSource` automatically reconnects and passes `Last-Event-ID`. The server replays missed events from the database outbox.
+- **Upstream Actions**: All client actions (place order, update KDS status, send chat message, assign request) are standard HTTP `POST`/`PATCH` endpoints passing through the full 5-stage middleware pipeline (Authentication, Tenant Context, Entitlements, RBAC, Policy).
+- **Fallback**: Exponential backoff polling (5s for KDS, 10s for active customer orders, 15s for console dashboards) triggers automatically if the SSE stream is interrupted.
+- **Chat**: Guest sends message via `POST /api/v1/conversations/:id/messages`. Server commits to database and dispatches `MessageSent` domain event, which SSE pushes to staff and guest instantaneously. Zero WebSockets required.
 
 ---
 
