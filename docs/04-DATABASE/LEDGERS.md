@@ -6,12 +6,16 @@
 
 ---
 
-## 1. The Three Canonical Ledgers
+## 1. The Three Canonical Core Business / Financial Ledgers
 
-ASSO enforces strict financial and physical stock integrity through three append-only ledgers:
-1. **The Inventory Movement Ledger** (`inventory_stock_movements`)
-2. **The Hotel Guest Folio Ledger** (`hotel_folio_entries`)
-3. **The Payment & Settlement Ledger** (`payment_transactions`, `payment_refunds`, `cash_movements`)
+ASSO enforces strict financial and physical stock integrity through three primary business ledgers:
+1. **The Inventory Movement Ledger** (`inventory_stock_movements`): Authoritative ledger of all physical stock receipts, transfers, adjustments, and wastage.
+2. **The Hotel Guest Folio Ledger** (`hotel_folio_entries`): Authoritative ledger of guest room charges, amenities, and stay settlement debits/credits.
+3. **The Payment & Settlement Ledger** (`payment_transactions`, `payment_refunds`): Authoritative ledger of customer monetary payments, refunds, and provider-neutral settlements.
+
+In addition to these three core business ledgers, ASSO maintains two categories of **append-only historical/audit records**:
+- **Cash Movement Records** (`cash_movements`): Tracks physical drawer float sessions, cash drops, and register movements.
+- **Compliance & Operational Audit Trails** (`audit_events`, `security_events`, `order_status_history`): Tamper-evident operational logs.
 
 ### Golden Rules of Ledger Immutability
 - **No In-Place Updates:** Once written, ledger rows cannot be updated or deleted.
@@ -114,12 +118,13 @@ Immutable Ledger / Historical Record (Source of Truth)
   Projection / Materialized Snapshot / Current Operational State
 ```
 
-| Domain | Immutable Historical Ledger (Append-Only) | Current Operational / Derived State (Mutable Projection) | Relationship & Mechanics |
+| Domain | Append-Only Record Structure | Current Operational / Derived State (Mutable Projection) | Relationship & Mechanics |
 | :--- | :--- | :--- | :--- |
-| **Inventory** | `inventory_stock_movements` | `inventory_stock_balances` (`current_quantity`) | Ledger is append-only. Stock balance is a materialized snapshot updated atomically under pessimistic row lock (`FOR UPDATE`). Balance can always be verified by summing ledger deltas. |
-| **Hotel Folio** | `hotel_folio_entries` | `hotel_folios` (`status`, `total_charges`, `total_payments`, `balance_due`) | Folio entries cannot be mutated; corrections require reversal entries. Folio header totals are transactional projections reflecting current settlement status. |
-| **Billing & Payments**| `payment_transactions`, `payment_refunds`, `cash_movements` | `bills` (`status`, `settled_amount`) | Payment rows record discrete financial events. Bill balance is an operational projection indicating whether the bill is OPEN, PARTIALLY_SETTLED, or SETTLED. |
-| **Orders** | `order_status_history` | `orders` (`status`), `order_items` (`item_status`) | History log records every status change with actor and timestamp. Order and item status represent live operational state on POS and KDS screens. |
+| **Inventory Movement** | `inventory_stock_movements` *(Core Ledger)* | `inventory_stock_balances` (`current_quantity`) | Ledger is append-only. Stock balance is a materialized snapshot updated atomically under pessimistic row lock (`FOR UPDATE`). Balance can always be verified by summing ledger deltas. |
+| **Hotel Folio** | `hotel_folio_entries` *(Core Ledger)* | `hotel_folios` (`status`, `total_charges`, `total_payments`, `balance_due`) | Folio entries cannot be mutated; corrections require reversal entries. Folio header totals are transactional projections reflecting current settlement status. |
+| **Payment & Settlement**| `payment_transactions`, `payment_refunds` *(Core Ledger)* | `bills` (`status`, `settled_amount`) | Core payment ledger records discrete settlement events. Bill balance is an operational projection indicating whether the bill is OPEN, PARTIALLY_SETTLED, or SETTLED. |
+| **Cash Drawer Float** | `cash_movements` *(Append-Only Historical Record)* | `cash_sessions` (`status`, `closing_balance`) | Records physical cash drawer deposits, drops, and float adjustments. Cash session stores live calculated drawer balance. |
+| **Compliance & Audit** | `audit_events`, `security_events`, `order_status_history` *(Append-Only Audit Trails)* | Live entity status flags | Audit logs preserve tamper-evident state transition and security compliance trails. Live entity status represents operational state. |
 
 ### Architectural Rules
 1. **Operational Tables are NOT Append-Only:** Operational state tables (`inventory_stock_balances`, `orders`, `bills`, `hotel_rooms`) are updated in place to support high-throughput lookups, POS feeds, and UI state rendering.

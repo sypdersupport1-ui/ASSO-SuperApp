@@ -89,12 +89,11 @@ For tables such as `orders`, `bills`, `expenses`, `service_requests`, `catalog_i
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders FORCE ROW LEVEL SECURITY;
 
--- 1. SELECT Policy (Supports tenant isolation and audited platform admin bypass)
+-- 1. SELECT Policy (Strict Tenant Isolation)
 CREATE POLICY orders_tenant_select ON orders
     FOR SELECT
     USING (
         tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
-        OR (COALESCE(NULLIF(current_setting('app.is_super_admin', true), ''), 'false')::boolean = true)
     );
 
 -- 2. INSERT Policy (Ensures tenant_id cannot be forged or mismatch session)
@@ -135,7 +134,6 @@ CREATE POLICY inv_movements_tenant_select ON inventory_stock_movements
     FOR SELECT
     USING (
         tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
-        OR (COALESCE(NULLIF(current_setting('app.is_super_admin', true), ''), 'false')::boolean = true)
     );
 
 -- Allow INSERT within tenant
@@ -175,14 +173,30 @@ CREATE POLICY order_item_modifiers_select ON order_item_modifiers
 
 ---
 
-## 5. Service-Role and Platform Admin Bypass Rules
+## 5. Super Admin Access & Role-Based Bypass Architecture
 
-1. **No Application Pool Bypass:** Standard application connection pools connect under an unprivileged PostgreSQL role that has `FORCE ROW LEVEL SECURITY` active. Application code cannot disable RLS.
-2. **Platform Admin (`is_super_admin`):**
-   - The expression `COALESCE(NULLIF(current_setting('app.is_super_admin', true), ''), 'false')::boolean = true` is evaluated safely.
-   - If `app.is_super_admin` is unset or empty, it defaults to `false`.
-   - The API Gateway only issues `SET LOCAL app.is_super_admin = 'true'` when the requesting identity has been authenticated via MFA as a verified Super Admin user.
-3. **Database Migrations and CI/CD:** Migration scripts run under a dedicated `postgres_admin` or `service_role` user that possesses the PostgreSQL `BYPASSRLS` attribute. This is restricted strictly to automated migration runners and prohibited for live user queries.
+ASSO strictly rejects using in-band session variables (such as `app.is_super_admin = true`) to bypass RLS policies on tenant-scoped tables. Relying on session variables for authorization bypass creates a critical vulnerability: any compromised endpoint or SQL injection flaw could execute `SET LOCAL app.is_super_admin = 'true'` and leak all tenants' data.
+
+Instead, ASSO implements an exact, tamper-proof two-tier model:
+
+### 5.1 Super Admin Tenant Inspection (Scoped Context)
+When a platform Super Admin views, audits, or troubleshoots a specific tenant's operational data:
+1. The Super Admin authenticates at the application gateway with verified TOTP MFA.
+2. The application gateway authorizes the administrative request and acquires an ordinary pooled database client.
+3. The transaction explicitly sets the target tenant's context:
+   ```sql
+   SET LOCAL app.current_tenant_id = '<target_tenant_uuid>';
+   ```
+4. The Super Admin's query executes strictly within that single tenant's boundary. Cross-tenant queries are prevented by PostgreSQL RLS because the policy only permits rows matching that specific `tenant_id`. Cross-tenant data leakage is structurally impossible.
+
+### 5.2 System Maintenance & Migration Bypass (Separate Database Role)
+For operations that genuinely require cross-tenant data access (automated migrations, nightly WAL backups, platform-wide compliance reporting):
+1. **Dedicated Database Role:** Operations run under a separate administrative database user (`asso_platform_admin` or Supabase `service_role`).
+2. **Native PostgreSQL `BYPASSRLS`:** This dedicated role is granted the native PostgreSQL `BYPASSRLS` attribute at the database cluster level (`ALTER ROLE asso_platform_admin BYPASSRLS;`).
+3. **Application Pool Isolation:** The standard web/API application connection pool connects under `asso_app_user`, which:
+   - Does **NOT** possess `BYPASSRLS`.
+   - Has `FORCE ROW LEVEL SECURITY` active on all tenant-owned tables (preventing table owners from bypassing RLS).
+   - Cannot grant itself `BYPASSRLS`.
 
 ---
 
@@ -190,8 +204,8 @@ CREATE POLICY order_item_modifiers_select ON order_item_modifiers
 
 | Threat Scenario | Attack Vector | RLS Defense Mechanism |
 | :--- | :--- | :--- |
-| **Missing Tenant Context** | Buggy endpoint fails to execute `SET LOCAL app.current_tenant_id`. | `NULLIF(..., '')` evaluates to `NULL`. Policy evaluates `tenant_id = NULL` → `UNKNOWN`. Returns zero rows; writes fail. |
+| **Missing Tenant Context** | Buggy endpoint fails to execute `SET LOCAL app.current_tenant_id`. | `NULLIF(..., '')` evaluates to `NULL`. Policy evaluates `tenant_id = NULL` → `UNKNOWN`. Returns zero rows; writes fail closed. |
 | **Forged Tenant ID in Payload** | Malicious actor passes `{ "tenant_id": "foreign-id" }` in JSON body. | `WITH CHECK (tenant_id = current_setting(...))` rejects the INSERT/UPDATE with PostgreSQL policy violation error `42501`. |
 | **Cross-Tenant IDOR via UUID Guessing** | User submits `GET /orders/<uuid-of-other-tenant>`. | Even with direct primary key `WHERE order_id = '...'`, the RLS `USING` filter silently excludes foreign tenant rows, returning `404 Not Found`. |
-| **Super Admin Privilege Abuse** | Compromised staff session claiming super-admin privileges. | `app.is_super_admin` session setting is strictly controlled by backend auth gateway and rejected unless verified by dedicated Super Admin JWT and MFA claims. |
+| **Attempted Session Flag Bypass** | Malicious actor attempts `SET LOCAL app.is_super_admin = 'true'`. | **Ineffective.** Tenant policies contain no session bypass flags. Context remains bound strictly to `app.current_tenant_id`. |
 | **SQL Injection Boundary Leak** | Attacker injects `UNION SELECT * FROM organizations`. | Standard application connection role has RLS enabled with `FORCE ROW LEVEL SECURITY`, preventing cross-tenant extraction even through secondary SQL injection vectors. |

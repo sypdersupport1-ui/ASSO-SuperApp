@@ -53,16 +53,16 @@ sequenceDiagram
 
 ---
 
-## 3. End-to-End Connection Lifecycle
+## 3. End-to-End Connection Lifecycle (6-Stage Pipeline)
 
-Every SSE connection transitions through an explicit lifecycle:
+Every SSE connection transitions through an explicit 6-stage lifecycle:
 
-1. **Authentication:** The client initiates `GET /api/v1/realtime/stream` providing a Bearer token via `Authorization` header (or ticket query parameter for browser EventSource compatibility). The gateway verifies signature, expiration, and user identity.
-2. **Tenant & Outlet Validation:** The gateway confirms that the client has active access to the specified `tenant_id` and `outlet_id`. Unauthenticated or cross-tenant requests are rejected immediately with `401 Unauthorized` or `403 Forbidden`.
-3. **Channel Subscription:** The connection is registered in the process's local connection registry, keyed by `(tenant_id, outlet_id, channel)`.
-4. **Heartbeat Protocol:** The server sends an `event: ping` every 15 seconds. If a client fails to receive a ping within 45 seconds, the client terminates and reconnects.
-5. **Timeout & Execution Limits:** On serverless platforms with maximum request durations (e.g. Vercel edge/serverless functions), connections gracefully close before the execution limit (e.g. at 55 seconds), and the client automatically reconnects without user disruption.
-6. **Disconnection & Resource Cleanup:** When a connection drops or closes, an `abort` listener fires, immediately unsubscribing the client from the event bus and releasing memory.
+1. **Stage 1 — Client Authentication:** The client initiates `GET /api/v1/realtime/stream` providing a Bearer token via `Authorization` header (or ticket query parameter for browser EventSource compatibility). The gateway verifies signature, expiration, and user identity.
+2. **Stage 2 — Tenant & Outlet Authorization:** The gateway confirms that the client has active access to the specified `tenant_id` and `outlet_id`. Unauthenticated or cross-tenant requests are rejected immediately with `401 Unauthorized` or `403 Forbidden`.
+3. **Stage 3 — Channel Subscription & Handshake:** The connection handshake completes with HTTP 200 `text/event-stream`, and the client is registered in the process's local connection registry keyed by `(tenant_id, outlet_id, channel)`.
+4. **Stage 4 — Heartbeat Protocol:** The server sends an `event: ping` every 15 seconds. If a client fails to receive a ping within 45 seconds, the client terminates and reconnects.
+5. **Stage 5 — Graceful Timeout & Reconnection:** On serverless platforms with maximum request durations (e.g. Vercel edge/serverless functions), connections gracefully close before the execution limit (e.g. at 55 seconds), and the client automatically reconnects using `Last-Event-ID` without user disruption.
+6. **Stage 6 — Disconnection & Resource Cleanup:** When a connection drops or closes, an `abort` listener fires, immediately unsubscribing the client from the event bus and releasing connection memory.
 
 ---
 
