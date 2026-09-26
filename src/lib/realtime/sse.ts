@@ -4,7 +4,7 @@ export interface SseClient {
   id: string;
   tenantId: string;
   outletId?: string;
-  writer: WritableStreamDefaultWriter<Uint8Array>;
+  send: (data: Uint8Array) => void;
   close: () => void;
 }
 
@@ -47,7 +47,7 @@ class RealtimeHub {
     for (const [id, client] of this.clients.entries()) {
       if (client.tenantId === tenantId) {
         try {
-          await client.writer.write(encoded);
+          client.send(encoded);
           deliveredCount++;
         } catch {
           deadClients.push(id);
@@ -75,6 +75,10 @@ class RealtimeHub {
 
   getClientCount(): number {
     return this.clients.size;
+  }
+
+  clearAllClients(): void {
+    this.clients.clear();
   }
 }
 

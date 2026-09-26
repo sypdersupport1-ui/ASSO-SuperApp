@@ -55,7 +55,7 @@ For all state-mutating requests (`POST`, `PUT`, `DELETE`), clients supply the `I
 ```text
 Feature Branch
     ↓
-Automated CI (Lint + Typecheck + 31 Tests + Build)
+Automated CI (Lint + Typecheck + 32 Tests + Build)
     ↓
 Preview Deployment (Isolated Dev DB)
     ↓
@@ -67,3 +67,11 @@ Human Product Owner Approval Gate
     ↓
 Production Deployment (Zero Automatic Migrations)
 ```
+
+## 6. Runtime Database vs. Test Database Distinction
+
+To ensure complete architectural clarity:
+* **Runtime Database**: Target PostgreSQL (Supabase / Managed PostgreSQL) configured via `DATABASE_URL`. In local environments without a live PostgreSQL daemon on port 5432, the database probe accurately reports `status: "disconnected"`, and `/api/v1/health` reports platform status as `"degraded"`.
+* **Test Database**: `pg-mem` (PostgreSQL in-memory engine) used exclusively in automated Vitest unit and security tests to verify Drizzle schemas, RLS policies, and tenant isolation in CI/local runs without requiring external daemon infrastructure.
+* **No Synthetic Readiness**: The foundation dashboard does not disguise a disconnected PostgreSQL connection as "ready". It transparently shows `DISCONNECTED` with diagnostics.
+

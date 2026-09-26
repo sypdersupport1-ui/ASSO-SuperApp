@@ -12,11 +12,42 @@ export async function GET(req: NextRequest) {
     const clientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const encoder = new TextEncoder();
 
-    let heartbeatTimer: NodeJS.Timeout;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let isClosed = false;
+
+    const cleanup = () => {
+      if (isClosed) return;
+      isClosed = true;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      realtimeHub.unregisterClient(clientId);
+    };
 
     const stream = new ReadableStream({
       start(controller) {
-        // Send initial connection event
+        // Register client with realtimeHub
+        realtimeHub.registerClient({
+          id: clientId,
+          tenantId,
+          outletId: ctx.outletId,
+          send: (data: Uint8Array) => {
+            if (!isClosed) {
+              controller.enqueue(data);
+            }
+          },
+          close: () => {
+            cleanup();
+            try {
+              controller.close();
+            } catch {
+              // Ignore if already closed
+            }
+          },
+        });
+
+        // Send initial connection handshake event
         const initialMsg = realtimeHub.formatSseMessage(
           "system.connected",
           {
@@ -31,17 +62,23 @@ export async function GET(req: NextRequest) {
 
         // Periodic heartbeat ping every 15 seconds
         heartbeatTimer = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(": ping\n\n"));
-          } catch {
-            clearInterval(heartbeatTimer);
+          if (!isClosed) {
+            try {
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {
+              cleanup();
+            }
           }
         }, 15000);
       },
       cancel() {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        realtimeHub.unregisterClient(clientId);
+        cleanup();
       },
+    });
+
+    // Also register abort listener on the request signal
+    req.signal.addEventListener("abort", () => {
+      cleanup();
     });
 
     return new Response(stream, {
@@ -50,6 +87,7 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         "Content-Encoding": "none",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (err) {

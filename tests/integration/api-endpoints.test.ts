@@ -8,7 +8,8 @@ import { setTenantEntitlements } from "@/lib/entitlements/checker";
 describe("API v1 Foundation Endpoints Integration", () => {
   const tenantId = "11111111-1111-1111-1111-111111111111";
 
-  it("1. GET /api/v1/health returns healthy platform status", async () => {
+  it("1. GET /api/v1/health returns truthful platform status (degraded when DB unreachable)", async () => {
+    delete process.env.ASSO_DB_MODE;
     const req = new NextRequest("http://localhost:3000/api/v1/health");
     const res = await healthGet(req);
     const body = await res.json();
@@ -16,8 +17,23 @@ describe("API v1 Foundation Endpoints Integration", () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.data.service).toBe("ASSO Platform Core");
-    expect(body.data.status).toBe("healthy");
+    // When DB is unreachable, status truthfully reports degraded
+    expect(body.data.status).toBe("degraded");
+    expect(body.data.database.status).toBe("disconnected");
+    expect(body.data.testDatabase.engine).toBe("pg-mem");
     expect(body.meta.requestId).toBeDefined();
+  });
+
+  it("1b. GET /api/v1/health returns healthy when explicit mock mode is active", async () => {
+    process.env.ASSO_DB_MODE = "mock";
+    const req = new NextRequest("http://localhost:3000/api/v1/health");
+    const res = await healthGet(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.status).toBe("healthy");
+    expect(body.data.database.status).toBe("mock");
+    delete process.env.ASSO_DB_MODE;
   });
 
   it("2. POST /api/v1/test/protected rejects unauthorized request (401)", async () => {

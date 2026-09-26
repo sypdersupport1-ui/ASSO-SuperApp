@@ -15,15 +15,33 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { CheckCircle2, ShieldCheck, Database, Radio, Layers, Server } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ShieldCheck, Database, Radio, Layers, Server, ExternalLink } from "lucide-react";
 
 interface HealthData {
-  status: string;
+  status: "healthy" | "degraded";
   service: string;
   version: string;
+  environment: string;
   uptimeSeconds: number;
-  database: { status: string; latencyMs: number };
-  realtime: { activeClients: number };
+  database: {
+    status: "connected" | "disconnected" | "not_configured" | "mock" | "error";
+    mode: "live" | "mock" | "unconfigured";
+    engine: string;
+    latencyMs: number;
+    configuredUrl?: string;
+    error?: string;
+    details?: string;
+  };
+  realtime: {
+    status: string;
+    activeClients: number;
+    heartbeatIntervalMs: number;
+  };
+  testDatabase: {
+    engine: string;
+    scope: string;
+    status: string;
+  };
   timestamp: string;
 }
 
@@ -51,6 +69,8 @@ export default function Home() {
     fetchHealth();
   }, []);
 
+  const isDegraded = health?.status === "degraded" || health?.database.status === "disconnected";
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-6 md:p-12">
       <div className="max-w-5xl mx-auto space-y-8">
@@ -61,17 +81,23 @@ export default function Home() {
               <h1 className="text-3xl font-extrabold tracking-tight font-display text-slate-900 dark:text-white">
                 ASSO SuperApp
               </h1>
-              <Badge variant="success" className="font-mono text-xs">
+              <Badge variant="outline" className="font-mono text-xs">
                 PHASE 5 FOUNDATION
+              </Badge>
+              <Badge
+                variant={isDegraded ? "warning" : "success"}
+                className="font-mono text-xs uppercase"
+              >
+                {health?.status || "CHECKING"}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              Core Technical Foundation & Operations Skeleton
+              Core Technical Foundation & Operations Verification Dashboard
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={fetchHealth} disabled={loading}>
-              {loading ? "Checking..." : "Refresh Health"}
+              {loading ? "Checking..." : "Refresh Status"}
             </Button>
             <Dialog>
               <DialogTrigger asChild>
@@ -79,9 +105,9 @@ export default function Home() {
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>ASSO Platform Foundation</DialogTitle>
+                  <DialogTitle>ASSO Platform Foundation Specs</DialogTitle>
                   <DialogDescription>
-                    Approved Phase 5 Foundation Stack & Architecture
+                    Approved Phase 5 Architectural Baseline & Runtime Matrix
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3 py-3 text-sm">
@@ -90,94 +116,150 @@ export default function Home() {
                     <span className="font-semibold">Next.js 15 App Router</span>
                   </div>
                   <div className="flex justify-between border-b pb-2">
-                    <span className="text-muted-foreground">Language</span>
+                    <span className="text-muted-foreground">Runtime Language</span>
                     <span className="font-semibold">TypeScript 5 (Strict Mode)</span>
                   </div>
                   <div className="flex justify-between border-b pb-2">
-                    <span className="text-muted-foreground">Styling</span>
-                    <span className="font-semibold">Tailwind CSS + Design Tokens</span>
+                    <span className="text-muted-foreground">Runtime Database</span>
+                    <span className="font-semibold">PostgreSQL via Drizzle ORM</span>
                   </div>
                   <div className="flex justify-between border-b pb-2">
-                    <span className="text-muted-foreground">Database & ORM</span>
-                    <span className="font-semibold">PostgreSQL / Supabase + Drizzle ORM</span>
+                    <span className="text-muted-foreground">Test Database</span>
+                    <span className="font-semibold">pg-mem (Automated Tests Only)</span>
                   </div>
                   <div className="flex justify-between border-b pb-2">
-                    <span className="text-muted-foreground">Security</span>
+                    <span className="text-muted-foreground">Security Model</span>
                     <span className="font-semibold">Transaction RLS + 5-Layer Auth</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Realtime</span>
-                    <span className="font-semibold">Server-Sent Events (SSE)</span>
+                    <span className="text-muted-foreground">Realtime Mechanism</span>
+                    <span className="font-semibold">HTTP Server-Sent Events (SSE)</span>
                   </div>
                 </div>
-                <DialogFooter>
-                  <Badge variant="outline">RFC 7519 JWT</Badge>
-                  <Badge variant="outline">Idempotent API</Badge>
+                <DialogFooter className="flex justify-between items-center sm:justify-between w-full">
+                  <span className="text-xs text-muted-foreground">Zero premature vertical coding</span>
+                  <Badge variant="outline">Hotel → Restaurant → Cinema</Badge>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
         </header>
 
-        {/* Status Alert */}
-        <Alert variant="success">
-          <CheckCircle2 className="h-5 w-5" />
-          <AlertTitle className="text-base font-semibold">Technical Foundation Operational</AlertTitle>
-          <AlertDescription>
-            The modular monolith foundation is executing cleanly on localhost. Feature development for Hotel, Restaurant, and Cinema verticals remains paused until human approval of Phase 5.
-          </AlertDescription>
-        </Alert>
+        {/* Truthful Status Alert Banner */}
+        {isDegraded ? (
+          <Alert variant="warning">
+            <AlertTriangle className="h-5 w-5" />
+            <AlertTitle className="text-base font-semibold">
+              Application Running in Degraded Mode
+            </AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>
+                The Next.js 15 application server and API routes are healthy, but the configured PostgreSQL database at{" "}
+                <code className="bg-amber-100 dark:bg-amber-950 px-1 py-0.5 rounded font-mono text-xs">
+                  {health?.database.configuredUrl || "localhost:5432"}
+                </code>{" "}
+                is <strong>unreachable</strong> (connection refused). No local PostgreSQL daemon is currently running on port 5432.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <em>Note: Automated schema and RLS tests execute self-contained via in-memory <code>pg-mem</code>. A live PostgreSQL instance (e.g. Supabase or local Postgres) is required for real database persistence.</em>
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert variant="success">
+            <CheckCircle2 className="h-5 w-5" />
+            <AlertTitle className="text-base font-semibold">
+              Technical Foundation Operational
+            </AlertTitle>
+            <AlertDescription>
+              All core platform capabilities, database connections, and realtime streaming hubs are fully active. Feature development for Hotel, Restaurant, and Cinema verticals remains paused until human approval.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Foundation Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Card 1: Core Platform */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Core Platform</CardTitle>
               <Server className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold font-display">{health?.status || "HEALTHY"}</div>
+              <div className="text-2xl font-bold font-display uppercase">
+                {health?.status || "HEALTHY"}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Uptime: {health?.uptimeSeconds || 0}s | Version: {health?.version || "0.1.0"}
+                Uptime: {health?.uptimeSeconds || 0}s | Env: {health?.environment || "development"}
               </p>
               <div className="mt-3 flex gap-2">
                 <Badge variant="outline">App Router</Badge>
-                <Badge variant="outline">Zod Validated</Badge>
+                <Badge variant="outline">v{health?.version || "0.1.0"}</Badge>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          {/* Card 2: Database & RLS (Truthful Dynamic Status) */}
+          <Card className={isDegraded ? "border-amber-300 dark:border-amber-800" : ""}>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Database & RLS</CardTitle>
               <Database className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold font-display">
-                {health?.database.status === "connected" ? "CONNECTED" : "READY (MOCK/MEM)"}
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold font-display uppercase">
+                  {health?.database.status === "connected"
+                    ? "CONNECTED"
+                    : health?.database.status === "disconnected"
+                    ? "DISCONNECTED"
+                    : health?.database.status === "mock"
+                    ? "MOCK MODE"
+                    : "NOT CONFIGURED"}
+                </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Latency: {health?.database.latencyMs || 0}ms | Multi-tenant RLS
+                {health?.database.status === "connected"
+                  ? `Latency: ${health?.database.latencyMs}ms | RLS Active`
+                  : health?.database.status === "disconnected"
+                  ? "Configured, but port 5432 refused connection"
+                  : health?.database.details || "No database configured"}
               </p>
-              <div className="mt-3 flex gap-2">
-                <Badge variant="outline">Drizzle ORM</Badge>
-                <Badge variant="outline">Transaction Scope</Badge>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge
+                  variant={
+                    health?.database.status === "connected"
+                      ? "success"
+                      : health?.database.status === "disconnected"
+                      ? "destructive"
+                      : "warning"
+                  }
+                >
+                  {health?.database.status === "connected"
+                    ? "PostgreSQL Live"
+                    : health?.database.status === "disconnected"
+                    ? "PostgreSQL Offline"
+                    : "Mock / Unconfigured"}
+                </Badge>
+                <Badge variant="outline">Test DB: pg-mem</Badge>
               </div>
             </CardContent>
           </Card>
 
+          {/* Card 3: Realtime SSE Hub */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Realtime SSE Hub</CardTitle>
               <Radio className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold font-display">ACTIVE</div>
+              <div className="text-2xl font-bold font-display uppercase">
+                {health?.realtime.status || "OPERATIONAL"}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Connected Clients: {health?.realtime.activeClients || 0} | 15s Heartbeat
+                Connected Clients: {health?.realtime.activeClients ?? 0} | 15s Heartbeat
               </p>
               <div className="mt-3 flex gap-2">
-                <Badge variant="outline">SSE Streaming</Badge>
+                <Badge variant="outline">SSE Stream</Badge>
                 <Badge variant="outline">Auto-Reconnect</Badge>
               </div>
             </CardContent>
@@ -193,13 +275,13 @@ export default function Home() {
                 <CardTitle className="text-lg">5-Layer Security Pipeline</CardTitle>
               </div>
               <CardDescription>
-                Server-side authorization enforced on every incoming request
+                Server-side authorization enforced independently on every incoming request
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between text-sm p-2 rounded bg-slate-100 dark:bg-slate-900">
                 <span className="font-medium">1. Authentication</span>
-                <Badge variant="secondary">Bearer JWT (RS256/HS256)</Badge>
+                <Badge variant="secondary">Bearer JWT (RFC 7519)</Badge>
               </div>
               <div className="flex items-center justify-between text-sm p-2 rounded bg-slate-100 dark:bg-slate-900">
                 <span className="font-medium">2. Tenant Context</span>
@@ -254,6 +336,39 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Machine-Readable Endpoints Direct Links */}
+        <Card className="bg-slate-100/50 dark:bg-slate-900/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <ExternalLink className="h-4 w-4" />
+              Machine-Readable Runtime API Probes
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Raw JSON endpoints for monitoring, telemetry, and automated uptime checks:
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+            <a
+              href="/api/v1/health"
+              target="_blank"
+              rel="noreferrer"
+              className="p-2.5 rounded bg-white dark:bg-slate-950 border hover:border-slate-400 transition-colors flex items-center justify-between"
+            >
+              <span>GET /api/v1/health</span>
+              <Badge variant="outline" className="text-[10px]">JSON</Badge>
+            </a>
+            <a
+              href="/api/v1/realtime"
+              target="_blank"
+              rel="noreferrer"
+              className="p-2.5 rounded bg-white dark:bg-slate-950 border hover:border-slate-400 transition-colors flex items-center justify-between"
+            >
+              <span>GET /api/v1/realtime</span>
+              <Badge variant="outline" className="text-[10px]">SSE</Badge>
+            </a>
+          </CardContent>
+        </Card>
 
         {/* Footer */}
         <footer className="text-center text-xs text-muted-foreground pt-6 border-t">
