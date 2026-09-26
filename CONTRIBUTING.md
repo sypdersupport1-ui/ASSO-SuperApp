@@ -13,23 +13,36 @@ Development is currently driven by:
 - **Antigravity as the Primary AI Engineering Agent**
 - **Single Shared GitHub Repository**
 
-In this setup, features are implemented **end-to-end** without artificial frontend/backend developer silos:
+In this setup, features are implemented **end-to-end** as cohesive vertical slices:
 
 ```text
-Product
-   ↓
-Architecture
-   ↓
-Database
-   ↓
-Backend
+Product Behavior
    ↓
 Frontend
    ↓
-Tests
+API / Server Logic
+   ↓
+Database
+   ↓
+Authorization & Entitlements
+   ↓
+Validation & Tests
    ↓
 Documentation
+   ↓
+Preview Deployment (isolated environment)
+   ↓
+Functional & Visual Review
+   ↓
+Staging
+   ↓
+Production
 ```
+
+### Progressive Delivery & Environment Isolation
+
+- **Preview Deployments**: Meaningful implementation slices are deployed to isolated preview environments for visual, functional, responsive, and UX verification rather than waiting for an entire vertical.
+- **Strict Environment Isolation**: Local, Preview, Staging, and Production are completely isolated. Preview and development environments must never use production databases or production credentials. External payment and service integrations must use test/sandbox credentials in non-production tiers.
 
 ### Future Multi-Contributor Expansion
 
@@ -84,9 +97,10 @@ Use the pull request template provided in `.github/pull_request_template.md`.
 
 ## Database Changes
 
-- **All schema changes must include migration files.** Do not make manual database changes.
-- **Production database changes require human review** before execution.
-- Clearly describe the migration in your pull request.
+- **All schema changes must include migration files.** Do not make manual or undocumented schema changes.
+- **Migration lifecycle**: `Schema Change → Migration File → Review → Dev/Preview Validation → Staging → Production`.
+- **Production database changes require human review and approval** before execution.
+- Clearly describe the migration and its reversibility in your pull request.
 
 ---
 
@@ -100,8 +114,9 @@ Use the pull request template provided in `.github/pull_request_template.md`.
 
 ## Security
 
-- **Never commit secrets** — API keys, database credentials, tokens, passwords.
-- **Never use production credentials** in development environments.
+- **Never commit secrets** — API keys, database credentials, tokens, passwords, private keys.
+- **Never use production credentials or production databases** in development or preview environments.
+- **External service environments**: Use test/sandbox credentials in Local, Preview, and Staging. Production keys are strictly isolated to Production.
 - **Never commit `.env` files** or other environment-specific configuration.
 - If your change has security implications, flag them explicitly in the pull request.
 
@@ -111,6 +126,7 @@ Use the pull request template provided in `.github/pull_request_template.md`.
 
 - Follow the project's established patterns and conventions.
 - Prefer reusing shared engines over creating vertical-specific duplicates.
+- **Infrastructure-on-demand**: Write code that runs against simple, measured infrastructure rather than adding speculative dependencies.
 - Write clear, maintainable code.
 - Include meaningful comments where the intent is not obvious from the code itself.
 
@@ -121,14 +137,13 @@ Use the pull request template provided in `.github/pull_request_template.md`.
 The following types of changes require explicit human review and approval:
 
 - Architecture changes
-- Database structure changes
-- Security model changes
-- Tenant isolation changes
-- Authorization model changes
-- Financial logic
-- Inventory logic
-- Technology stack changes
-- Production system changes
+- Database structure changes and production migrations
+- Security model and tenant isolation changes
+- Authorization model and module entitlement changes
+- Financial and inventory logic
+- Technology stack and infrastructure changes
+- Production system changes and releases
+- Destructive or irreversible production operations (AI agents must never perform independently)
 
 ---
 

@@ -191,8 +191,130 @@ Implementation
 ## 7. Security Governance
 
 - Secrets must never be committed to the repository
-- Production credentials must never be used in development
+- Production credentials must never be used in development or preview environments
 - Environment-specific configuration uses `.env` files (which are git-ignored)
 - Security-sensitive changes require explicit human review
 - Tenant isolation must be maintained in all operations
 - Server-side authorization is the authority — never the frontend alone
+
+---
+
+## 8. Progressive Delivery & Environment Model
+
+### 8.1 Progressive Delivery Principle
+
+> ASSO should be developed as a continuously testable and visually verifiable system. Meaningful implementation slices should be deployable to isolated preview environments during development rather than waiting until an entire vertical is complete.
+
+The preferred delivery cycle is:
+
+```text
+Feature / Vertical Slice
+        ↓
+Frontend + Backend + Database + Authorization + Tests
+        ↓
+Preview Deployment
+        ↓
+Functional Validation
+        ↓
+Visual / UX Validation
+        ↓
+Review
+        ↓
+Staging
+        ↓
+Production
+```
+
+This cycle catches issues early in business logic, backend integration, database behavior, authorization, tenant isolation, module entitlement, responsive UI, customer experience, and workflow behavior.
+
+### 8.2 Vertical-Slice Development
+
+When application development begins, features should be developed end-to-end where practical:
+
+```text
+Product Behavior → Frontend → API / Server Logic → Database → Authorization → Module Entitlement → Validation → Testing → Documentation → Preview
+```
+
+No artificial long-term split (e.g. backend team vs frontend team) is required. The current developer works across the full stack with Antigravity without compromising ASSO's modular architecture.
+
+### 8.3 Environment Model & Strict Isolation
+
+```text
+LOCAL  →  PREVIEW  →  STAGING  →  PRODUCTION
+```
+
+| Environment | Purpose | Infrastructure & Credentials |
+|---|---|---|
+| **LOCAL** | Active day-to-day development | Local/development services, mock or sandbox credentials |
+| **PREVIEW** | Feature/branch testing, visual UX verification, functional validation | Isolated preview services, test/sandbox credentials |
+| **STAGING** | Integrated pre-production validation approximating production | Staging services, test/sandbox or controlled staging credentials |
+| **PRODUCTION** | Live customer/business data and production services | Dedicated production infrastructure, production credentials |
+
+> **Security Rule**: Preview and development deployments must not use production databases or production credentials by default.
+
+Databases, credentials, secrets, file storage buckets, authentication configurations, and third-party/payment service credentials must remain strictly isolated across tiers. Never expose production payment or API secrets to development or preview environments.
+
+### 8.4 Preview Validation
+
+Preview environments are used for active verification prior to merge:
+- Functional correctness and API contracts
+- Database operations and transactional consistency
+- Server-side authorization, RBAC, and tenant isolation
+- Module entitlement enforcement
+- Responsive mobile and desktop UX behaviors
+- Customer-facing flows, loading states, and error handling
+- Browser-based visual verification
+
+### 8.5 Database Migration Strategy
+
+```text
+Schema Change → Migration File → Review → Dev/Preview Validation → Staging → Production
+```
+
+- All schema changes must be codified in reviewed migration files.
+- Undocumented or manual schema modifications are strictly prohibited.
+- Schema changes are validated in preview/staging before application to production.
+
+### 8.6 Production Safeguards
+
+Production deployments require:
+- Human approval for all production releases
+- Validated database migrations
+- Passing automated test suites and builds
+- Security checks and tenant isolation verification
+- Environment-specific credential injection
+- Active monitoring and health checks
+- Backup and recovery readiness with rollback planning
+
+AI agents must never independently make destructive or irreversible production changes.
+
+---
+
+## 9. Infrastructure Strategy Principles
+
+### 9.1 Infrastructure-on-Demand Principle
+
+> ASSO should use the simplest production-capable architecture that satisfies current requirements. Additional infrastructure should be introduced only when functional, performance, reliability, scale, or operational requirements justify it.
+
+```text
+Scalability = Clear Architecture + Correct Data Design + Clear Boundaries + Measured Infrastructure
+```
+
+Do not equate scalability with adding many infrastructure products prematurely.
+
+### 9.2 Technology Directions to Evaluate
+
+These represent **preferred strategic directions to evaluate**, not irrevocably finalized infrastructure or current commitments:
+
+- **Vercel**: Preferred web deployment and preview platform direction to evaluate for ASSO. (No resources provisioned during foundation phases).
+- **PostgreSQL / Supabase**: Preferred transactional data platform direction to evaluate as system of record. (No database or tables provisioned during foundation phases).
+- **Redis (Optional & Requirement-Driven)**: Redis is optional infrastructure and should be introduced only when a documented requirement justifies it (e.g. caching, rate limiting, ephemeral state, distributed locking, background job queues). The decision flow must be:
+  ```text
+  Identified Requirement → Architecture Evaluation → Documented Decision → Implementation
+  ```
+
+This same principle applies to future infrastructure components (message brokers, search engines, specialized workers, analytics databases).
+
+### 9.3 Observability Direction
+
+Progressive delivery requires planned future support for application logging, error tracking, metrics, health check endpoints, deployment visibility, database monitoring, and security event audit. (Not implemented in the foundation phase).

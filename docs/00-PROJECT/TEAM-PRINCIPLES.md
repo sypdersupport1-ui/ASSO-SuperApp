@@ -43,3 +43,14 @@ Every domain object has a clear owner. Do not create duplicate sources of truth.
 ## 10. Communication Through Documentation
 
 The repository documentation is how the team communicates product and architecture decisions. Keep it accurate and current.
+
+## 11. Continuous Testability & Progressive Delivery
+
+ASSO is developed as a continuously testable and visually verifiable system. Features should be developed as vertical slices deployed to isolated preview environments for early validation rather than waiting for an entire vertical to be built.
+
+## 12. Infrastructure on Demand
+
+Use the simplest production-capable architecture that satisfies current requirements. Additional infrastructure must be introduced only when functional, performance, reliability, scale, or operational requirements justify it.
+```text
+Scalability = Clear Architecture + Correct Data Design + Clear Boundaries + Measured Infrastructure
+```

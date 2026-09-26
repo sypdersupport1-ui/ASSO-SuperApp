@@ -118,6 +118,9 @@ All work is committed to the shared GitHub repository. Future human developers a
 - **Multi-tenant** — supports multiple businesses, properties, and outlets per customer
 - **Documentation-first** — decisions are documented before they are implemented
 - **Security by design** — tenant isolation, RBAC, module entitlements, server-side authorization
+- **Progressive delivery** — vertical-slice development, isolated preview validation, staging before production
+- **Strict environment isolation** — local, preview, staging, and production tiers with completely separated credentials and databases
+- **Infrastructure-on-demand** — simplest production-capable architecture; technology directions evaluated by requirement (Vercel web preview, PostgreSQL/Supabase transactional data, Redis requirement-driven)
 - **Auditability** — important operations maintain history and audit trails
 - **No premature architecture** — decisions are made when there is sufficient context
 

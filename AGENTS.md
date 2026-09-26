@@ -165,12 +165,47 @@ Both must be checked. Do not rely on frontend navigation hiding as a security me
 - Update documentation when architecture, contracts, or APIs change.
 - If your change introduces a new pattern or deviates from an existing one, document why.
 
+### Progressive Delivery & Vertical Slices
+
+- When application development begins, features should be developed as cohesive **vertical slices** where practical:
+  ```text
+  Product Behavior → Frontend → API/Server Logic → Database → Authorization → Module Entitlement → Validation → Tests → Documentation → Preview
+  ```
+- Validate frontend, backend, database behavior, and authorization together rather than in disconnected silos.
+- Isolated **preview deployments** are expected during implementation for continuous visual and functional verification.
+
+### Strict Environment Isolation
+
+- **Preview and development environments must never use production databases or production credentials by default.**
+- Environment tiers are strictly isolated:
+  - **LOCAL**: Active development against local/dev services and sandbox credentials.
+  - **PREVIEW**: Feature branch testing, UX/visual review, and functional validation against isolated preview services.
+  - **STAGING**: Integrated pre-production validation approximating production without exposing customer data.
+  - **PRODUCTION**: Live customer and business data with strict operational controls.
+- Keep databases, credentials, API secrets, file storage, auth configurations, and payment sandbox/live keys strictly separated across tiers.
+
+### Infrastructure-on-Demand & Technology Direction
+
+- **Infrastructure-on-demand**: Use the simplest production-capable architecture satisfying current requirements. Do not add infrastructure speculatively.
+  ```text
+  Scalability = Clear Architecture + Correct Data Design + Clear Boundaries + Measured Infrastructure
+  ```
+- **Vercel** is the preferred web deployment and preview platform direction to evaluate (not irrevocably finalized; not provisioned now).
+- **PostgreSQL / Supabase** is the preferred transactional data platform direction to evaluate as system of record (not finalized; not provisioned now).
+- **Redis is optional infrastructure** and must only be introduced when a documented requirement justifies it (e.g., caching, rate limiting, ephemeral coordination). The decision flow must be:
+  ```text
+  Identified Requirement → Architecture Evaluation → Documented Decision → Implementation
+  ```
+
 ---
 
 ## Prohibited Actions
 
 - Do not access or modify production systems without explicit human authorization.
+- Do not perform destructive or irreversible production operations independently.
+- Do not use production databases or credentials in preview or development environments.
 - Do not commit secrets, credentials, or environment-specific configuration.
+- Do not add infrastructure products speculatively without documented requirement justification.
 - Do not silently rewrite historical financial transactions.
 - Do not bypass tenant isolation for convenience.
 - Do not invent business requirements — document uncertainty instead.
