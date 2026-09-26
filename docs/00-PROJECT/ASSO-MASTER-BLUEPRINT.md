@@ -517,6 +517,7 @@ These are **configuration differences**, not separate inventory systems.
 
 - Current stock = sum of all movements
 - Every stock change creates a movement record
+- The Inventory Engine supports controlled transfers between inventory locations/outlets, while exact authorization, approval, and operational rules will be defined in Phase 2
 - All calculations are server-side
 - Adjustments require authorization
 - Future recipe/auto-consumption should be accommodatable
@@ -591,7 +592,7 @@ Customer/Staff selects items → Order created → Routed to fulfillment → Sta
 | Hotel | Guest folio — charges accumulate across a stay, settled at checkout |
 | Restaurant | Table bill — charges accumulate during a dining session, settled before departure |
 | Cinema | Per-order or tab — settled at order time or at a counter |
-| Mixed Property | Cross-outlet folio transfer — outlet charges (e.g. restaurant dining, cinema concessions) posted to an active hotel room folio within the same property/organization, settled at checkout |
+| Mixed Property | PROPOSED / OPEN DECISION — Cross-outlet folio transfer (e.g. restaurant dining or cinema concessions charged to a hotel room folio). While the shared architecture may support this capability, it is not part of the currently approved initial product scope and requires a separate product/business decision. Phase 2 must not implement or assume it unless explicitly approved later. |
 
 ### Payments
 
@@ -730,5 +731,6 @@ These relationships should be implemented through **domain events** to maintain 
 | 22 | Printing requirements (POS receipts, KDS tickets, folios) | Operations |
 | 23 | Recipe / auto-consumption timeline | Inventory (Future) |
 | 24 | Exact KPI definitions | Reporting |
+| 25 | Cross-vertical / cross-outlet folio charging | PROPOSED / OPEN DECISION — capability for mixed properties; not in initial approved scope; requires separate product decision |
 
 These decisions should be resolved through documented decision processes (see the Architecture Decision issue template) as ASSO progresses through subsequent phases.

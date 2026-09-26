@@ -108,7 +108,7 @@ These are **equal sibling verticals**. Each uses shared platform engines and has
 | Capability | Description |
 |---|---|
 | POS | Point of sale — staff-initiated transactions |
-| Billing | Charge accumulation, bill generation, and cross-outlet folio transfers |
+| Billing | Charge accumulation, bill generation (cross-outlet folio transfers are PROPOSED / OPEN DECISION) |
 | Payments | Payment acceptance, processing, verification |
 | Refunds | Controlled refund processing |
 | Receipts / Invoices | Transaction documentation |
@@ -117,7 +117,7 @@ These are **equal sibling verticals**. Each uses shared platform engines and has
 
 | Capability | Description |
 |---|---|
-| Inventory | Item management, stock tracking, movement history |
+| Inventory | Item management, stock tracking, movement history (supports controlled transfers between locations/outlets with rules defined in Phase 2) |
 | Inventory Locations | Storage locations within a property/outlet |
 | Units of Measure | Unit definitions and conversions |
 | Suppliers | Supplier/vendor records |
@@ -310,3 +310,4 @@ Operational Data → Metrics / Reporting Layer → Dashboards / Reports / Export
 | 10 | Payment provider integrations | `OPEN DECISION` |
 | 11 | Printing requirements (POS receipts, KDS tickets, guest folios) | `OPEN DECISION` |
 | 12 | Recipe / ingredient-based automated consumption | `FUTURE` — design should not prevent it |
+| 13 | Cross-vertical / cross-outlet folio charging | `PROPOSED / OPEN DECISION` — not part of initial approved scope; requires separate product decision; Phase 2 must not implement or assume it unless approved |

@@ -794,13 +794,14 @@ These cross-module interactions should be implemented through **domain events** 
 
 ---
 
-## E.2 Cross-Vertical Flow: Charge to Room / Folio (Restaurant / Cinema to Hotel)
+## E.2 Cross-Vertical Flow: Charge to Room / Folio (Restaurant / Cinema to Hotel) — PROPOSED / OPEN DECISION
 
-In mixed-property deployments (for example, a hotel property with an on-site restaurant outlet or cinema hall), customers can charge outlet orders directly to their active hotel stay folio.
+> `PROPOSED / OPEN DECISION`  
+> While the shared ASSO architecture may support cross-vertical folio charging (e.g. charging restaurant meals or cinema concessions to an active hotel room folio in mixed-property operations), **this capability is not part of the currently approved initial product scope**. It requires a separate product/business decision. **Phase 2 must not implement or assume this capability unless explicitly approved later.** It is documented below for conceptual reference only and must not be treated as a committed requirement.
 
 **Actor**: Diner / Patron, Restaurant Server / Cinema Cashier, Front Desk Staff
 
-**Context**: Mixed Property (Restaurant / Cinema Outlet ↔ Hotel Room Stay)
+**Context**: Mixed Property (Restaurant / Cinema Outlet ↔ Hotel Room Stay) — *Proposed Workflow*
 
 **Steps**:
 1. Customer dining at a restaurant table or purchasing concessions at a cinema counter requests to charge the bill to their room.
@@ -816,11 +817,11 @@ In mixed-property deployments (for example, a hotel property with an on-site res
 8. The guest folio balance updates immediately.
 9. At hotel checkout, the front desk presents the consolidated folio including room tariff, room service, restaurant dining, and cinema charges for unified settlement.
 
-**Outcome**: Seamless guest experience across outlets; accurate revenue allocation between outlets and central property folio.
+**Outcome**: Seamless guest experience across outlets; accurate revenue allocation between outlets and central property folio (subject to future decision).
 
 **Connected Modules**: POS, Billing, Guest Folio, Hotel Stays, Payments, Audit, Reporting
 
-**Rules**:
+**Rules (Proposed)**:
 - Cross-outlet folio charging is only permitted within authorized property boundaries.
 - Active stay validation and credit ceiling checks are strictly enforced server-side.
 - Outlet revenue is credited to the originating outlet's ledger for cross-departmental reconciliation, even though settlement occurs at the front desk.
@@ -828,6 +829,14 @@ In mixed-property deployments (for example, a hotel property with an on-site res
 ---
 
 ## E.3 Inter-Outlet Inventory Transfer
+
+```text
+ASSO Inventory Engine
+→
+supports controlled transfers between inventory locations/outlets
+```
+
+The ASSO shared Inventory Engine natively supports controlled stock movements across locations and outlets within the multi-outlet model. Exact authorization, approval workflows, and operational rules will be defined in Phase 2.
 
 **Actor**: Outlet Manager, Central Inventory Clerk
 
@@ -870,3 +879,4 @@ In mixed-property deployments (for example, a hotel property with an on-site res
 | 18 | Multi-language (i18n) | Required for initial scope? |
 | 19 | Recipe / auto-consumption | Future — but design should accommodate it |
 | 20 | Cross-tenant customer data | Can a customer's history span multiple businesses? |
+| 21 | Cross-vertical / cross-outlet folio charging | `PROPOSED / OPEN DECISION` — not part of initial approved scope; requires separate product decision; Phase 2 must not implement or assume it unless approved |

@@ -71,7 +71,7 @@ For each vertical, the marker indicates:
 | Domain | Capability | Classification | Hotel | Restaurant | Cinema | Notes |
 |---|---|---|---|---|---|---|
 | POS | Point of sale | Shared Engine | ✓ | ✓ | ✓ | |
-| Billing | Charge & bill management | Configurable | C | C | C | Folio-based / table-based / seat-based |
+| Billing | Charge & bill management | Configurable | C | C | C | Folio-based / table-based / seat-based (cross-outlet folio charging is PROPOSED / OPEN DECISION) |
 | Payments | Payment processing | Shared Engine | ✓ | ✓ | ✓ | |
 | Payments | Refunds | Shared Engine | ✓ | ✓ | ✓ | |
 | Billing | Receipts / Invoices | Shared Engine | ✓ | ✓ | ✓ | |
@@ -88,7 +88,7 @@ For each vertical, the marker indicates:
 | Inventory | Units of measure | Shared Engine | ✓ | ✓ | ✓ | |
 | Inventory | Stock tracking | Shared Engine | ✓ | ✓ | ✓ | Current + history |
 | Inventory | Stock movements / ledger | Shared Engine | ✓ | ✓ | ✓ | |
-| Inventory | Stock transfers | Shared Engine | ✓ | ✓ | ✓ | |
+| Inventory | Stock transfers | Shared Engine | ✓ | ✓ | ✓ | Supports inter-location/outlet transfers; rules defined in Phase 2 |
 | Inventory | Stock adjustments | Shared Engine | ✓ | ✓ | ✓ | |
 | Inventory | Wastage tracking | Shared Engine | ✓ | ✓ | ✓ | |
 | Inventory | Consumption tracking | Shared Engine | ✓ | ✓ | ✓ | |

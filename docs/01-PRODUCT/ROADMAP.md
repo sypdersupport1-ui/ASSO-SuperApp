@@ -87,6 +87,7 @@ The following are intentionally planned but **not in initial scope**:
 | Offline-first POS | `OPEN DECISION` — offline capability requirements not finalized |
 | Guest loyalty / rewards | Future enhancement |
 | Advanced reservation systems | Beyond basic table/room reservation |
+| Cross-vertical / cross-outlet folio charging | `PROPOSED / OPEN DECISION` — not in approved initial scope; requires separate product decision |
 
 ---
 
