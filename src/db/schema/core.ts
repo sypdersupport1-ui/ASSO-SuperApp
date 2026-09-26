@@ -89,3 +89,19 @@ export const permissions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }
 );
+
+export const customers = pgTable(
+  "customers",
+  {
+    customerId: uuid("customer_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    fullName: varchar("full_name", { length: 255 }).notNull(),
+    phone: varchar("phone", { length: 50 }),
+    email: varchar("email", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  }
+);
+
+export type Customer = typeof customers.$inferSelect;
+export type NewCustomer = typeof customers.$inferInsert;
