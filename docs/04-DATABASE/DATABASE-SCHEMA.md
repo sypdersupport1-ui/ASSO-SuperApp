@@ -179,6 +179,8 @@ CREATE TABLE tenant_entitlements (
     module_code VARCHAR(50) NOT NULL REFERENCES platform_modules(module_code) ON DELETE RESTRICT,
     is_enabled BOOLEAN NOT NULL DEFAULT true,
     granted_via VARCHAR(50) NOT NULL CHECK (granted_via IN ('PLAN', 'ADDON', 'OVERRIDE')),
+    pricing_version_id UUID REFERENCES pricing_configurations(pricing_id) ON DELETE SET NULL, -- Immutably links to commercial price version at grant time
+    applied_price NUMERIC(14, 4), -- Historical commercial price snapshot agreed at grant time (preserves billing audit integrity)
     valid_from TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     valid_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -186,21 +188,22 @@ CREATE TABLE tenant_entitlements (
     CONSTRAINT uq_tenant_module_entitlement UNIQUE (tenant_id, module_code)
 );
 
--- Pricing Configurations (DEC-024: Dynamic Super Admin Pricing)
+-- Pricing Configurations (DEC-024: Dynamic Super Admin Pricing; Version-Preserved)
 CREATE TABLE pricing_configurations (
     pricing_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('PLAN', 'MODULE', 'FEATURE', 'ADDON')),
     target_code VARCHAR(50) NOT NULL,
+    version_number INT NOT NULL DEFAULT 1, -- Version sequence for historical audit
     billing_period VARCHAR(50) NOT NULL CHECK (billing_period IN ('MONTHLY', 'ANNUAL', 'ONE_TIME')),
     base_price NUMERIC(14, 4) NOT NULL CHECK (base_price >= 0),
     currency VARCHAR(3) NOT NULL DEFAULT 'INR',
     effective_from TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    effective_until TIMESTAMPTZ,
+    effective_until TIMESTAMPTZ, -- Active version has NULL; historical version has timestamp
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
--- Tenant Pricing Overrides (DEC-024)
+-- Tenant Pricing Overrides (DEC-024: Historical Override Auditing)
 CREATE TABLE tenant_pricing_overrides (
     override_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES organizations(organization_id) ON DELETE CASCADE,
@@ -424,17 +427,16 @@ CREATE TABLE bill_orders (
     PRIMARY KEY (bill_id, order_id)
 );
 
--- Payment Transactions (DEC-002: Provider-Neutral Gateway Architecture)
+-- Payment Transactions (DEC-002: Provider-Neutral Gateway Architecture; Provider Implementation Deferred)
 CREATE TABLE payment_transactions (
     payment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES organizations(organization_id) ON DELETE RESTRICT,
     outlet_id UUID NOT NULL REFERENCES outlets(outlet_id) ON DELETE RESTRICT,
     bill_id UUID REFERENCES bills(bill_id) ON DELETE RESTRICT,
     payment_method VARCHAR(50) NOT NULL CHECK (payment_method IN ('CASH', 'UPI', 'CARD', 'NETBANKING', 'GATEWAY', 'HOUSE_ACCOUNT')),
-    gateway_provider VARCHAR(50) DEFAULT 'NONE', -- 'RAZORPAY', 'STRIPE', 'MOCK', 'NONE'
-    gateway_order_id VARCHAR(100),
-    gateway_payment_id VARCHAR(100),
-    gateway_signature VARCHAR(255),
+    gateway_provider VARCHAR(50) NOT NULL DEFAULT 'MOCK', -- 'MOCK' for dev/preview; production commercial gateway deferred
+    gateway_transaction_reference VARCHAR(100), -- Provider-neutral external transaction reference
+    gateway_metadata JSONB DEFAULT '{}'::jsonb, -- Provider-neutral attributes/payload (no provider-specific DB columns)
     amount NUMERIC(14, 4) NOT NULL CHECK (amount > 0),
     currency VARCHAR(3) NOT NULL DEFAULT 'INR',
     status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'CANCELLED', 'REFUNDED', 'PARTIALLY_REFUNDED')),

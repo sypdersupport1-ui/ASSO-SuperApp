@@ -18,14 +18,16 @@
 | **ORM / Query Builder** | Drizzle ORM | Latest Stable | Zero-overhead, lightweight SQL builder with first-class TypeScript schema definitions and native RLS support. |
 | **System of Record (DB)**| PostgreSQL (Supabase) | PostgreSQL 16+ | Enterprise relational ACID transactions, Row-Level Security (RLS), JSONB indexing, robust tooling. |
 | **Background Processing** | pg-boss (PostgreSQL Jobs) | Latest Stable | Reliable transactional job queue without adding Redis to initial infrastructure. |
-| **Real-Time Push** | Server-Sent Events (SSE) | HTTP/2 Standard | Lightweight unidirectional event streaming without stateful WebSocket connection overhead. |
+| **Real-Time Push** | Server-Sent Events (SSE) | HTTP/2 Standard | Lightweight unidirectional event streaming for initial monolith baseline. Note: HTTP/2 improves transport framing, but connection concurrency, worker memory, and fan-out scaling remain explicit future infrastructure considerations. |
+| **Payment Gateway** | Provider-Neutral Adapter | `PaymentGatewayAdapter` | Provider-neutral interface (DEC-002). `MockPaymentAdapter` for local/preview/test; commercial gateway implementation deferred. |
 | **Hosting & CI/CD** | Vercel | Production Tier | Instant preview environments for PRs, global edge routing, serverless execution. |
 
 ---
 
-## 2. Infrastructure-on-Demand Invariant
+## 2. Infrastructure-on-Demand & Scalability Invariant
 
-As established in `AGENTS.md`:
+As established in `AGENTS.md` and Phase 2 ADRs:
 - Speculative infrastructure (Redis, Kafka, RabbitMQ, Microservices) is strictly prohibited.
-- Scalability is achieved through clear architecture, transactional integrity, index optimization, and modular monolith boundaries.
-- Redis remains optional and can only be introduced when justified by a documented requirement approved by the Human Product Owner.
+- Scalability is achieved through clear domain boundaries, transactional integrity, index optimization, and modular monolith architecture.
+- **Real-Time Scaling:** SSE is the initial real-time delivery mechanism. If high-concurrency cross-instance event fan-out warrants it in later phases, a dedicated pub/sub or socket tier will be formally evaluated under documented ADR procedures.
+- **Redis:** Redis remains optional and can only be introduced when justified by a documented requirement approved by the Human Product Owner.

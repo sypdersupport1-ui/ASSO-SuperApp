@@ -51,7 +51,7 @@ getPaymentStatus(transactionId) → {status, amount, metadata}
 
 ### 2.2 Provider Selection
 
-> `OPEN DECISION` — Payment provider not finalized. Razorpay (India-first) or Stripe (international) are the primary candidates.
+> **RESOLVED (DEC-002 / ADR-011)** — Payment architecture is provider-neutral via `PaymentGatewayAdapter`. `MockPaymentAdapter` is used for development, preview, and automated testing; commercial provider implementation (Razorpay/Stripe) is deferred. No commercial SDK or credentials are implemented in current phases.
 
 Requirements for the selected provider:
 - India-centric payment methods (UPI, cards, net banking, wallets)

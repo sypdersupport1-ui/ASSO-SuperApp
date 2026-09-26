@@ -211,8 +211,9 @@ This document serves as the master catalog of all database entities in ASSO. Eve
 - **Tenant Scope**: Mandatory `tenant_id UUID REFERENCES organizations(organization_id)`.
 - **Outlet Scope**: Mandatory `outlet_id UUID REFERENCES outlets(outlet_id)`.
 - **Primary Key**: `entitlement_id UUID`
-- **Important Fields**: `tenant_id UUID NOT NULL`, `outlet_id UUID NOT NULL`, `module_id TEXT NOT NULL REFERENCES module_definitions(module_id)`, `status TEXT NOT NULL (ENABLED, DISABLED, SUSPENDED, TRIAL)`, `enabled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `expires_at TIMESTAMPTZ`, `enabled_by UUID NOT NULL`
+- **Important Fields**: `tenant_id UUID NOT NULL`, `outlet_id UUID NOT NULL`, `module_id TEXT NOT NULL REFERENCES module_definitions(module_id)`, `status TEXT NOT NULL (ENABLED, DISABLED, SUSPENDED, TRIAL)`, `pricing_version_id UUID REFERENCES pricing_configurations(pricing_id)`, `applied_price NUMERIC(14, 4)`, `enabled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `expires_at TIMESTAMPTZ`, `enabled_by UUID NOT NULL`
 - **Unique Constraints**: `(outlet_id, module_id)`
+- **Historical Integrity**: `applied_price` immutably captures the price at grant time, preserving historical billing integrity when catalog prices change.
 - **Indexes**: `idx_tenant_entitlements_lookup (tenant_id, outlet_id, status)`
 - **Security Sensitivity**: Critical (Access to business engines).
 
@@ -221,7 +222,8 @@ This document serves as the master catalog of all database entities in ASSO. Eve
 - **Purpose**: Configurable commercial price definitions maintained by Super Admin without hard-coded numbers.
 - **Tenant Scope**: Global platform pricing matrix.
 - **Primary Key**: `pricing_id UUID`
-- **Important Fields**: `plan_id UUID REFERENCES plans(plan_id)`, `addon_id UUID REFERENCES add_ons(addon_id)`, `feature_id TEXT REFERENCES module_features(feature_id)`, `currency VARCHAR(3) NOT NULL DEFAULT 'INR'`, `amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0)`, `billing_interval TEXT NOT NULL (MONTHLY, ANNUAL, ONE_OFF)`, `effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `effective_to TIMESTAMPTZ`, `is_active BOOLEAN NOT NULL DEFAULT TRUE`
+- **Important Fields**: `plan_id UUID REFERENCES plans(plan_id)`, `addon_id UUID REFERENCES add_ons(addon_id)`, `feature_id TEXT REFERENCES module_features(feature_id)`, `version_number INT NOT NULL DEFAULT 1`, `currency VARCHAR(3) NOT NULL DEFAULT 'INR'`, `amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0)`, `billing_interval TEXT NOT NULL (MONTHLY, ANNUAL, ONE_OFF)`, `effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `effective_to TIMESTAMPTZ`, `is_active BOOLEAN NOT NULL DEFAULT TRUE`
+- **Versioning Rule**: Price updates do not overwrite historical rows; they close existing rows via `effective_to` and create new versioned rows.
 - **Check Constraints**: Exactly one of `plan_id`, `addon_id`, or `feature_id` must be non-null.
 - **Security Sensitivity**: High (Commercial pricing).
 
@@ -407,7 +409,8 @@ This document serves as the master catalog of all database entities in ASSO. Eve
 - **Tenant Scope**: Mandatory `tenant_id UUID REFERENCES organizations(organization_id)`.
 - **Outlet Scope**: Mandatory `outlet_id UUID REFERENCES outlets(outlet_id)`.
 - **Primary Key**: `payment_id UUID`
-- **Important Fields**: `tenant_id UUID NOT NULL`, `outlet_id UUID NOT NULL`, `bill_id UUID REFERENCES bills(bill_id)`, `folio_id UUID REFERENCES guest_folios(folio_id)`, `payment_method TEXT NOT NULL (UPI, CARD, CASH, NET_BANKING, WALLET)`, `amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0)`, `currency VARCHAR(3) NOT NULL DEFAULT 'INR'`, `status TEXT NOT NULL DEFAULT 'PENDING' (PENDING, PROCESSING, COMPLETED, FAILED, EXPIRED, REFUNDED, PARTIALLY_REFUNDED)`, `provider_id TEXT NOT NULL DEFAULT 'MOCK' (MOCK, RAZORPAY, STRIPE)`, `provider_reference_id TEXT`, `idempotency_key UUID NOT NULL UNIQUE`, `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `completed_at TIMESTAMPTZ`
+- **Important Fields**: `tenant_id UUID NOT NULL`, `outlet_id UUID NOT NULL`, `bill_id UUID REFERENCES bills(bill_id)`, `folio_id UUID REFERENCES guest_folios(folio_id)`, `payment_method TEXT NOT NULL (UPI, CARD, CASH, NET_BANKING, GATEWAY, HOUSE_ACCOUNT)`, `amount NUMERIC(14, 4) NOT NULL CHECK (amount > 0)`, `currency VARCHAR(3) NOT NULL DEFAULT 'INR'`, `status TEXT NOT NULL DEFAULT 'PENDING' (PENDING, PROCESSING, COMPLETED, FAILED, EXPIRED, REFUNDED, PARTIALLY_REFUNDED)`, `gateway_provider TEXT NOT NULL DEFAULT 'MOCK'`, `gateway_transaction_reference TEXT`, `gateway_metadata JSONB DEFAULT '{}'::jsonb`, `idempotency_key UUID NOT NULL UNIQUE`, `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `completed_at TIMESTAMPTZ`
+- **Provider Neutrality (DEC-002)**: Payment gateway interactions are abstracted behind `PaymentGatewayAdapter`. Razorpay integration is deferred; development and preview utilize `MockPaymentAdapter`. No provider-specific DB columns.
 - **Check Constraints**: Exactly one of `bill_id` or `folio_id` must be non-null.
 - **Immutability**: Completed payment rows are immutable. Changes use `refund_transactions`.
 - **Security Sensitivity**: Critical (Financial Money Movement).

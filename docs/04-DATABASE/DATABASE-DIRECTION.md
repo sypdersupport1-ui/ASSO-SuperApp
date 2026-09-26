@@ -36,7 +36,7 @@ CREATE INDEX idx_orders_tenant_outlet ON orders (tenant_id, outlet_id, created_a
 -- RLS
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON orders
-  USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 ```
 
 ---

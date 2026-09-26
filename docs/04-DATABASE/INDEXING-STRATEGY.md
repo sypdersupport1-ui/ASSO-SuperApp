@@ -78,7 +78,7 @@ CREATE UNIQUE INDEX idx_payments_idempotency ON payment_transactions (idempotenc
     WHERE idempotency_key IS NOT NULL;
 
 -- Gateway Transaction Reference Lookup (for webhook event matching)
-CREATE INDEX idx_payments_gateway_ref ON payment_transactions (gateway_provider, gateway_order_id, gateway_payment_id);
+CREATE INDEX idx_payments_gateway_ref ON payment_transactions (gateway_provider, gateway_transaction_reference);
 ```
 
 ### 2.5 Shared Inventory & Movement Ledger Indexes

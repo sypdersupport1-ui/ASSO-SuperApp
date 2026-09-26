@@ -101,3 +101,27 @@ When an asynchronous payment gateway (such as UPI or card gateway) dispatches we
 2. Inbound event is stored in `inbound_webhook_events` with `UNIQUE(provider, event_id)`.
 3. If already processed, HTTP 200 is immediately returned without re-executing business logic.
 4. If fresh, a database transaction transitions `payment_transactions` to `CAPTURED`, adjusts `bills.settled_amount`, and emits a domain event `PaymentCapturedEvent`.
+
+---
+
+## 5. Architectural Distinction: Immutable Historical Record vs Current / Derived State
+
+ASSO strictly maintains the architectural boundary between immutable history and mutable operational state:
+
+```text
+Immutable Ledger / Historical Record (Source of Truth)
+                         ↓
+  Projection / Materialized Snapshot / Current Operational State
+```
+
+| Domain | Immutable Historical Ledger (Append-Only) | Current Operational / Derived State (Mutable Projection) | Relationship & Mechanics |
+| :--- | :--- | :--- | :--- |
+| **Inventory** | `inventory_stock_movements` | `inventory_stock_balances` (`current_quantity`) | Ledger is append-only. Stock balance is a materialized snapshot updated atomically under pessimistic row lock (`FOR UPDATE`). Balance can always be verified by summing ledger deltas. |
+| **Hotel Folio** | `hotel_folio_entries` | `hotel_folios` (`status`, `total_charges`, `total_payments`, `balance_due`) | Folio entries cannot be mutated; corrections require reversal entries. Folio header totals are transactional projections reflecting current settlement status. |
+| **Billing & Payments**| `payment_transactions`, `payment_refunds`, `cash_movements` | `bills` (`status`, `settled_amount`) | Payment rows record discrete financial events. Bill balance is an operational projection indicating whether the bill is OPEN, PARTIALLY_SETTLED, or SETTLED. |
+| **Orders** | `order_status_history` | `orders` (`status`), `order_items` (`item_status`) | History log records every status change with actor and timestamp. Order and item status represent live operational state on POS and KDS screens. |
+
+### Architectural Rules
+1. **Operational Tables are NOT Append-Only:** Operational state tables (`inventory_stock_balances`, `orders`, `bills`, `hotel_rooms`) are updated in place to support high-throughput lookups, POS feeds, and UI state rendering.
+2. **Ledgers are Strictly Append-Only:** Historical ledgers never permit `UPDATE` or `DELETE` statements.
+3. **Reconciliation Invariant:** The immutable ledger is the single source of truth. In any audit, dispute, or discrepancy, current state can be recomputed and verified directly from the ledger.

@@ -137,6 +137,18 @@ Every entity in ASSO is classified into one of three deletion lifecycles:
 
 | Lifecycle Policy | Applicable Tables | Behavior & Rationale |
 | :--- | :--- | :--- |
-| **Strictly Immutable (Append-Only)** | `inventory_stock_movements`, `hotel_folio_entries`, `cash_movements`, `audit_events`, `security_events`, `payment_transactions`, `order_status_history` | **NO UPDATES OR DELETES ALLOWED.** Enforced by database RLS (`FOR UPDATE USING (false)`). Corrections require a compensating entry. |
+| **Strictly Immutable (Append-Only Ledgers)** | `inventory_stock_movements`, `hotel_folio_entries`, `cash_movements`, `audit_events`, `security_events`, `payment_transactions`, `order_status_history` | **NO UPDATES OR DELETES ALLOWED.** Enforced by database RLS (`FOR UPDATE USING (false)`). Corrections require a compensating entry. Source of truth for all historical and financial events. |
+| **Mutable Current / Derived State** | `inventory_stock_balances` (`current_quantity`), `hotel_rooms` (`housekeeping_status`, `is_occupied`), `orders` (`status`), `bills` (`status`, `settled_amount`), `hotel_folios` (`status`, `balance_due`) | **UPDATED IN-PLACE TRANSACTIONALLY.** Represents the live operational snapshot of the system. In any dispute or audit, current state is derived/reconciled from the immutable ledgers. |
 | **Soft Delete** | `organizations`, `outlets`, `users`, `staff_profiles`, `catalog_items`, `restaurant_tables`, `hotel_rooms` | Uses `deleted_at TIMESTAMPTZ`. Records remain preserved for foreign key historical integrity and compliance. Filtered from UI via `WHERE deleted_at IS NULL`. |
 | **Hard Delete (Restricted Cascade)** | `order_item_modifiers`, `purchase_order_items`, `role_permissions` | Strictly restricted to child composition rows that have no independent lifecycle and exist purely as detail lines of an uncommitted or draft parent. |
+
+---
+
+## 5. Historical Commercial Price Integrity & Snapshot Immutability
+
+1. **Applied Price Snapshotting:** Whenever a financial transaction occurs (order placed, bill generated, folio charged, or tenant entitlement granted), the applied price is written as a permanent, immutable numerical value into the transaction record:
+   - `order_items.unit_price` captures item price at order time.
+   - `hotel_folio_entries.amount` captures tariff/charge at posting time.
+   - `tenant_entitlements.applied_price` captures agreed plan/module fee at subscription time.
+2. **Catalog Price Updates Never Mutate History:** Modifying prices in `catalog_items` or updating SaaS subscription fees in `pricing_configurations` only affects future transactions. Historical charges, settled invoices, and ledger entries remain immutable.
+3. **Pricing Versioning (DEC-024):** Changes to platform pricing in `pricing_configurations` do not overwrite existing records. The active record's `effective_until` timestamp is set to `clock_timestamp()`, and a new record with an incremented `version_number` is inserted. Historical subscriptions link to `pricing_version_id`, preserving full auditability.
