@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:security": "vitest run tests/security",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:verify:rls": "tsx scripts/verify-supabase-native-rls.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

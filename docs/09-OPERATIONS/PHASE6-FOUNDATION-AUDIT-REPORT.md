@@ -4,151 +4,151 @@
 
 ## 1. Executive Summary
 
-* **Overall Audit Status**: **PASS WITH CONDITIONS**
-* **Verification Scope**: Phases 0–5 specifications, runtime behavior, security boundaries, canonical ledgers, API contracts, design system primitives, and live database probing.
-* **Core Assessment**: The ASSO platform foundation is architecturally sound, type-safe, and truthful. All 37 automated unit, integration, and security tests pass. The production build compiles cleanly. Canonical ledgers are strictly segregated and append-only. Zero vertical feature code (Hotel, Restaurant, Cinema) has been introduced.
-* **Condition for Full Foundation Sign-Off**: Host machine does not have a native PostgreSQL daemon running on port 5432 (connection refused; Docker/Postgres not locally installed). While pg-mem verifies RLS and tenant isolation in automated testing, live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins.
+* **Overall Audit Status**: **READY FOR HUMAN APPROVAL**
+* **Verification Scope**: Phases 0–5 specifications, live runtime behavior, security boundaries, canonical ledgers, API contracts, design system primitives, and **live native PostgreSQL & RLS policy enforcement on Supabase development database**.
+* **Core Assessment**: The ASSO platform foundation is provably trustworthy, architecturally sound, type-safe, and connected to live development PostgreSQL infrastructure.
+  * All **41 automated tests** across 8 test suites pass.
+  * All **11 native PostgreSQL & RLS validation tests** against live Supabase PostgreSQL pass.
+  * Next.js 15 production build compiles cleanly with zero errors.
+  * All **38 canonical tables** exist in Supabase PostgreSQL with 78 foreign keys and strict constraints.
+  * All **38 tables have Row-Level Security (RLS) enabled**; all 32 tenant-scoped tables have **`FORCE ROW LEVEL SECURITY`** active.
+  * Realtime SSE Hub verified with multi-tenant event scoping and lifecycle cleanup.
+  * Standard application role (`authenticated`) verified with `BYPASSRLS = false`.
+  * **Zero Hotel, Restaurant, or Cinema feature code** has been introduced.
 
 ---
 
 ## 2. Git Baseline & Working State
 
-* **Starting Commit**: `5bf48a3` (`fix: reconcile phase5 runtime health and database status`)
+* **Starting Commit**: `1cbf0fa` (`docs(phase6): refine prerequisite wording for native PostgreSQL verification`)
 * **Base Branch**: `develop`
-* **Audit Feature Branch**: `feature/phase6-foundation-audit`
-* **Remote State**: `origin/develop` is synchronized with `develop`
-* **Git Cleanliness**: All migrations and shared engine schemas tracked; zero untracked side-effects.
+* **Feature Branch**: `feature/phase6-supabase-validation`
+* **Remote State**: `origin/develop` synchronized
+* **Environment Safeguards**: `.env.local` strictly excluded via `.gitignore`; zero secrets, credentials, or sensitive connection strings in source code or documentation.
 
 ---
 
-## 3. Phase Traceability Summary (Phase 0 → Phase 5)
+## 3. Database & Infrastructure Audit (Supabase PostgreSQL)
 
-An auditable matrix has been compiled in [`docs/09-OPERATIONS/PHASE6-TRACEABILITY-MATRIX.md`](file:///Users/apple/Downloads/asso%20super%20app/docs/09-OPERATIONS/PHASE6-TRACEABILITY-MATRIX.md) tracking 19 core foundation requirements:
-* Multi-Tenancy & Tenant Boundaries: Verified fail-closed logic on missing, empty, or malformed UUIDs.
-* Equal Sibling Verticals: Hotel, Restaurant, Cinema maintained with equal architectural rank; vertical configuration attached to Outlets.
-* Implementation Order: Preserved `Hotel → Restaurant → Cinema` per DEC-014.
-* Shared Domain Engines: Catalogs, Orders, Bills, Payments, Inventory, Cash Management, and Folio structures consolidated into shared foundation schemas.
-* Canonical Ledgers: Verified strict distinctness of `inventory_stock_movements`, `hotel_folio_entries`, `payment_transactions`, `payment_refunds`, and `cash_movements`.
-* Five-Layer Security Pipeline: Server-side execution of Authentication → Tenant Context → Module Entitlement → RBAC → Business Policy.
-* Truthful Health & Observability: Zero cosmetic green states; health probe reports real runtime connectivity truthfully.
-
----
-
-## 4. Database Schema & Migration Audit
-
-### Schema Coverage (38 Tables)
-1. **Core & Multi-Tenancy**: `organizations`, `outlets`, `users`, `staff_profiles`, `roles`, `permissions`
-2. **Modules & Commercial Plans**: `commercial_plans`, `platform_modules`, `plan_modules`, `pricing_configurations`, `tenant_entitlements`
-3. **Business Context & Ephemeral Sessions**: `business_contexts`, `qr_tokens`, `customer_sessions`
-4. **Operations & Commerce**: `catalogs`, `catalog_categories`, `catalog_items`, `orders`, `order_items`, `order_status_history`, `bills`
-5. **Canonical Payments Ledger**: `payment_transactions`, `payment_refunds`
-6. **Canonical Inventory Ledger**: `inventory_units`, `inventory_suppliers`, `inventory_items`, `inventory_locations`, `inventory_stock_balances`, `inventory_stock_movements`
-7. **Canonical Folio Ledger**: `hotel_folios`, `hotel_folio_entries` (strictly append-only ledger entries; no vertical workflow dependencies)
-8. **Cash Management & Expenses**: `expense_categories`, `expenses`, `cash_sessions`, `cash_movements`
-9. **System & Security**: `audit_events`, `file_records`, `idempotency_keys`
-
-### Migration Generation
-* `src/db/migrations/0000_bored_pepper_potts.sql`: Core foundation tables.
-* `src/db/migrations/0001_parallel_william_stryker.sql`: Complete shared engine and canonical ledger DDL.
-* Generated via `drizzle-kit generate` with deterministic ordering, explicit foreign keys, unique constraints, and numeric precision (`NUMERIC(14, 4)`).
+* **Provider**: Supabase Managed PostgreSQL
+* **Engine Version**: PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit
+* **Connection Architecture**: Transaction-safe connection via Supabase Session Pooler (port 5432, SSL required)
+* **Migrations Applied**:
+  1. `0000_bored_pepper_potts.sql`: Core multi-tenancy tables (`organizations`, `outlets`, `users`, `staff_profiles`, `roles`, `permissions`)
+  2. `0001_parallel_william_stryker.sql`: Shared domain engines, commercial plans, business contexts, commerce, inventory, hotel folios, finance, cash, and system records
+  3. `0002_rls_policies.sql`: Complete RLS policies and `FORCE ROW LEVEL SECURITY` across all public tables
+* **Table Verification**:
+  * **Verified Public Table Count**: **38 tables** (100% matched)
+  * **Foreign Key Constraints**: **78 verified foreign keys**
+  * **Numeric Precision**: `NUMERIC(14, 4)` verified across all financial and inventory balances
+  * **Timestamp Types**: `TIMESTAMPTZ` with UTC defaults verified across all entities
 
 ---
 
-## 5. Native PostgreSQL & RLS Audit
+## 4. Canonical Ledgers Audit (Strict Append-Only Enforcement)
 
-* **Host Environment Assessment**:
-  * PostgreSQL port 5432: Connection refused (`ECONNREFUSED 127.0.0.1:5432`).
-  * System tools (`psql`, `pg_ctl`, `docker`, `podman`, `supabase`, `brew`): Not installed on host.
-* **RLS & Isolation Testing (Automated Test Suite)**:
-  * Tenant A reads Tenant A data: **PASS**
-  * Tenant A cross-tenant read of Tenant B data: **FAIL-CLOSED (0 rows returned)**
-  * Tenant A cross-tenant mutation of Tenant B data: **DENIED (0 rows updated)**
-  * Missing tenant context: **FAIL-CLOSED (Exception thrown)**
-  * Empty tenant context: **FAIL-CLOSED (Exception thrown)**
-  * Malformed UUID / SQL injection attempt: **FAIL-CLOSED (Exception thrown)**
-  * Super Admin inspection: **Explicitly scoped to target tenant UUID (no ambient bypass)**
+All five canonical ledgers are verified as discrete, append-only structures in live PostgreSQL:
+1. `inventory_stock_movements`: Immutable stock movement ledger (receipts, transfers, usage, wastage).
+2. `hotel_folio_entries`: Immutable hotel folio financial ledger (charges, payments, adjustments, compensating reversals).
+3. `payment_transactions`: Immutable payment transaction records with gateway references.
+4. `payment_refunds`: Immutable payment refund records with approval tracking.
+5. `cash_movements`: Immutable cash session drawer movement records.
 
----
-
-## 6. Authentication & Authorization Audit
-
-* **JWT Verification**: Validates HS256 signatures, expiration timestamps, sub, tenantId, and role arrays.
-* **Token Tampering / Malformed Tokens**: Rejected with canonical `AUTHENTICATION_REQUIRED` or `INVALID_TOKEN` errors.
-* **Session Expiry**: 15-minute token lifetime enforced for staff sessions.
-* **Separation of Concerns**:
-  * Module Entitlement (`assertModuleEntitlement`): Verifies whether tenant has subscription entitlement to module (e.g. `INVENTORY`, `POS`).
-  * RBAC (`hasPermission` / `assertRbacPermission`): Verifies user roles and permissions (supports wildcards e.g. `orders.*`).
-* **Policy Engine**: Enforces manager approval thresholds on financial actions (e.g. refund > ₹5,000 blocked for cashier; allowed for manager).
+**Immutability Verification**:
+* `UPDATE` and `DELETE` on all canonical ledgers are blocked at the PostgreSQL engine level via RLS policies (`FOR UPDATE USING (false)`, `FOR DELETE USING (false)`).
+* Verified: Attempted update and delete queries affected **0 rows**; underlying records remained immutable.
 
 ---
 
-## 7. API & Idempotency Audit
+## 5. Native PostgreSQL & RLS Validation Suite (11 / 11 PASS)
 
-* **Envelope Structure**: All responses conform to canonical `{ success, data, meta: { requestId, timestamp } }` or `{ success: false, error: { code, message, details }, meta }`.
-* **Idempotency Key Engine**:
-  * SHA-256 payload hashing prevents payload mutation replay.
-  * In-flight concurrency lock returns 409 Conflict.
-  * Identical requests replay identical cached responses safely.
-* **Truthful Health Reporting**: `/api/v1/health` reports HTTP 200 with `status: "degraded"` and `database.status: "disconnected"` when port 5432 is unreachable, eliminating misleading green mock states.
+Executed via `scripts/verify-supabase-native-rls.ts` against the live Supabase database with isolated test fixtures (Tenant A: `11111111-1111-1111-1111-111111111111`, Tenant B: `22222222-2222-2222-2222-222222222222`):
+
+| Test # | Test Description | Native PostgreSQL Result | Status |
+|---|---|---|---|
+| **Test 1** | Tenant A access Tenant A data | Returned exactly Tenant A record (`order_id: aaaa1111-...`) | **PASS** |
+| **Test 2** | Tenant A cross-tenant read Tenant B | Returned **0 rows**; Tenant B records mathematically invisible | **PASS** |
+| **Test 3** | Tenant A cross-tenant update Tenant B | Affected **0 rows**; Tenant B status unchanged (`PLACED`) | **PASS** |
+| **Test 4** | Tenant A cross-tenant delete Tenant B | Affected **0 rows**; Tenant B row preserved in database | **PASS** |
+| **Test 5** | Missing tenant context | Returned **0 rows** (fail-closed behavior) | **PASS** |
+| **Test 6** | Empty tenant context (`''`) | Returned **0 rows** (fail-closed behavior) | **PASS** |
+| **Test 7** | Malformed UUID / SQL injection | Threw PostgreSQL exception **`22P02`** (invalid input syntax for type uuid) | **PASS** |
+| **Test 8** | Connection pooling isolation | Sequential transactions (Req A → Req B → Req A) showed zero context leakage | **PASS** |
+| **Test 9** | Super Admin scoped inspection | Inspected Tenant B explicitly; no ambient cross-tenant leakage | **PASS** |
+| **Test 10**| Application role privileges | Role `authenticated` has `rolbypassrls = false` and `rolsuper = false` | **PASS** |
+| **Test 11**| Ledger immutability | Attempted UPDATE/DELETE on `inventory_stock_movements` affected **0 rows** | **PASS** |
 
 ---
 
-## 8. Realtime SSE & IDOR Storage Audit
+## 6. Live Runtime Health & Observability Audit
 
-* **Realtime SSE Hub**:
-  * Connected clients receive initial `system.connected` event with assigned `clientId` and scoped `tenantId`.
+Probed live running Next.js application on port 3000:
+
+```json
+$ curl -s http://localhost:3000/api/v1/health
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "service": "ASSO Platform Core",
+    "version": "0.1.0",
+    "environment": "production",
+    "uptimeSeconds": 5,
+    "database": {
+      "status": "connected",
+      "mode": "live",
+      "engine": "PostgreSQL 16+ via Drizzle ORM",
+      "latencyMs": 806,
+      "details": "Successfully connected to configured PostgreSQL database"
+    },
+    "realtime": {
+      "status": "operational",
+      "activeClients": 0,
+      "heartbeatIntervalMs": 15000
+    },
+    "testDatabase": {
+      "engine": "pg-mem",
+      "scope": "Automated Vitest Suite Only",
+      "status": "verified_in_tests"
+    },
+    "timestamp": "2026-09-26T21:10:27.907Z"
+  },
+  "meta": {
+    "requestId": "req_health",
+    "timestamp": "2026-09-26T21:10:27.908Z"
+  }
+}
+```
+
+* **Health Status**: Truthfully reports **`healthy`** and **`connected`** backed by live PostgreSQL query (`SELECT 1`).
+* **Test Isolation**: Clearly reports `testDatabase.engine = pg-mem` for automated Vitest test suite.
+* **Realtime SSE**:
+  * Initial connection delivers `system.connected` with scoped `tenantId` and `clientId`.
   * Heartbeat loop sends keep-alive comments every 15 seconds.
-  * Client disconnect automatically decrements active count (verified 0 active clients post-disconnect).
-* **Storage IDOR Defense**:
-  * File paths strictly formatted as `tenants/{tenantId}/{scope}/{fileId}_{filename}`.
-  * Requests to upload or download outside the authenticated tenant boundary fail closed with `FORBIDDEN` error.
-  * MIME type restrictions and 10 MB payload limits enforced.
+  * Disconnect lifecycle automatically cleans up active socket and decrements client count to 0.
 
 ---
 
-## 9. Design System & Accessibility Audit
+## 7. Automated Test Suite (41 Tests Passing)
 
-* **Typography & Palette**: Inter & Outfit fonts configured with semantic HSL CSS custom properties in `src/app/globals.css`.
-* **Tokens**: 4px grid spacing, consistent border radiuses, and explicit light/dark themes.
-* **Components**: Button, Input, Badge, Card, Alert, Dialog implemented using Radix UI primitives.
-* **Accessibility**: Minimum 44x44px touch targets, visible keyboard focus rings (`focus-visible:ring-2`), and semantic ARIA labeling for error alerts and dialog modals.
-
----
-
-## 10. CI/CD & Build Validation
-
-* **CI Workflow** (`.github/workflows/ci.yml`):
-  * Triggered on `push` and `pull_request` to `develop` and `main`.
-  * Steps: `npm ci` → `npm run typecheck` → `npm test` → `npm run build`.
-* **Local Verification Results**:
-  * `npm run typecheck`: **0 errors (Clean)**
-  * `npm test`: **37 passing tests across 7 test files (100% pass)**
-  * `npm run build`: **Compiled successfully into Next.js optimized production build**
+All 41 tests pass across 8 test suites:
+* `tests/security/idempotency.test.ts` (5 tests) — SHA-256 payload locking, in-flight conflicts, replay caching.
+* `tests/unit/policy-and-entitlements.test.ts` (5 tests) — Independent module entitlement and manager policy thresholds.
+* `tests/security/storage-idor.test.ts` (4 tests) — Path validation `tenants/{tenantId}/{scope}/...`, cross-tenant rejection.
+* `tests/security/auth-and-rbac.test.ts` (6 tests) — JWT validation, token tampering, 15-min expiration, wildcard permissions.
+* `tests/unit/canonical-ledgers.test.ts` (5 tests) — Distinct ledger structures, audit fields, compensating reversals.
+* `tests/unit/realtime-tenant-scoping.test.ts` (4 tests) — SSE client tracking, tenant-scoped broadcasts, zero leakage.
+* `tests/integration/api-endpoints.test.ts` (6 tests) — Envelope structure, error codes, authentication gates.
+* `tests/security/tenant-isolation.test.ts` (6 tests) — Fail-closed tenant context validation and RLS semantics.
 
 ---
 
-## 11. Issues Found & Corrective Actions
+## 8. Deferred Items Registry (Phase 2/3 Preserved)
 
-1. **Issue**: Shared engine tables (catalogs, orders, bills, payments, inventory, folios, expenses, cash) lacked Drizzle ORM definitions in code.
-   * **Evidence**: Only core and system tables were present in `src/db/schema/`.
-   * **Impact**: Potential schema divergence between documentation and code.
-   * **Fix**: Implemented complete Drizzle schema files (`modules.ts`, `context.ts`, `operations.ts`, `inventory.ts`, `hotel_ledger.ts`, `finance.ts`) and generated migration `0001_parallel_william_stryker.sql`.
-   * **Verification**: `npm run db:generate`, `npm run typecheck`, and `tests/unit/canonical-ledgers.test.ts` passed.
-
-2. **Issue**: Test suite did not explicitly assert the distinctness and immutability invariants of the canonical financial ledgers.
-   * **Evidence**: Only 32 tests existed, primarily focusing on auth, rbac, and basic isolation.
-   * **Impact**: Regression risk during vertical slice implementations.
-   * **Fix**: Added `tests/unit/canonical-ledgers.test.ts` asserting schema invariants for all 5 ledgers.
-   * **Verification**: Test suite expanded to 37 passing tests.
-
----
-
-## 12. Deferred Items Registry (Phase 2/3 Preserved)
-
-The following items remain strictly deferred per approved architecture decisions:
+The following items remain strictly deferred per approved architecture:
 * **DEC-001**: Razorpay payment gateway integration (mock gateway active).
 * **DEC-002**: Commercial SMS / WhatsApp OTP providers (mock auth active).
-* **DEC-011**: ClamAV malware scanning daemon (file validation active).
+* **DEC-011**: ClamAV malware scanning daemon.
 * **DEC-024**: Offline POS sync / SQLite local store.
 * **DEC-027**: Automatic recipe/BOM depletion engine.
 * **DEC-030**: Cross-vertical room charge posting.
@@ -156,18 +156,9 @@ The following items remain strictly deferred per approved architecture decisions
 
 ---
 
-## 13. Remaining Prerequisites & Human Action Items
+## 9. Final Phase 6 Recommendation
 
-* **Prerequisite**: Live PostgreSQL database connection.
-  * **Status**: Local host port 5432 refused (no local PostgreSQL daemon or Docker container).
-  * **Required Action**: Live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins.
-  * **Safety**: Application runtime safely degrades without crashing, reporting `database.status: "disconnected"`.
+> **Status: READY FOR HUMAN APPROVAL**
+> **Recommendation: The ASSO foundation has completed all technical verification, migration provisioning, native PostgreSQL validation, and RLS enforcement. The codebase is fully prepared for Human Review and progression to the first vertical slice: HOTEL.**
 
----
-
-## 14. Final Phase 6 Recommendation
-
-> **Status: PASS WITH CONDITIONS**
-> **Recommendation: READY FOR HUMAN REVIEW & APPROVAL (Subject to prerequisite: Live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins)**
-
-The technical foundation meets all architecture, security, design system, API, and testing standards specified in Phases 0 through 5. Zero vertical feature code has been implemented.
+Zero vertical feature code has been implemented.

@@ -35,8 +35,9 @@ export async function withTenantScope<T>(
   const client = getDbClient();
 
   const result = await client.begin(async (tx) => {
-    // Set transaction-local tenant context
-    await tx`SET LOCAL app.current_tenant_id = ${sanitizedTenantId}`;
+    // Switch to application role (no BYPASSRLS) and set transaction-local tenant context
+    await tx`SET LOCAL ROLE authenticated`;
+    await tx`SELECT set_config('app.current_tenant_id', ${sanitizedTenantId}, true)`;
 
     logger.debug({
       message: "Set tenant transaction scope",
