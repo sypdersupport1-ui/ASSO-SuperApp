@@ -15,7 +15,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { CheckCircle2, AlertTriangle, ShieldCheck, Database, Radio, Layers, Server, ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, AlertTriangle, ShieldCheck, Database, Radio, Layers, Server, ExternalLink, Hotel, ArrowRight, DoorOpen, BedDouble } from "lucide-react";
 
 interface HealthData {
   status: "healthy" | "degraded";
@@ -172,10 +173,56 @@ export default function Home() {
               Technical Foundation Operational
             </AlertTitle>
             <AlertDescription>
-              All core platform capabilities, database connections, and realtime streaming hubs are fully active. Feature development for Hotel, Restaurant, and Cinema verticals remains paused until human approval.
+              All core platform capabilities, Supabase PostgreSQL database, and realtime streaming hubs are fully active. Phase 7 Hotel Vertical Slice 1 is live! (Restaurant and Cinema verticals remain strictly paused).
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Phase 7: Hotel Vertical Live Launcher Banner */}
+        <Card className="border-primary/40 bg-gradient-to-r from-primary/5 via-card to-primary/5 shadow-sm">
+          <CardContent className="pt-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <Hotel className="h-4 w-4" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">
+                    Phase 7 — HOTEL VERTICAL (Slice 1 Active)
+                  </h3>
+                  <Badge variant="success" className="text-[10px] uppercase font-mono">
+                    Production DB Ready
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground max-w-2xl">
+                  First business vertical slice established: Hotel Property, Room Types, Rooms, 1:1 Business Context mapping, and Operational Dashboard with PostgreSQL RLS.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Link href="/hotel">
+                  <Button className="flex items-center gap-2 shadow-sm">
+                    <Hotel className="h-4 w-4" />
+                    Hotel Dashboard
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link href="/hotel/rooms">
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <DoorOpen className="h-4 w-4" />
+                    Room Rack
+                  </Button>
+                </Link>
+                <Link href="/hotel/room-types">
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <BedDouble className="h-4 w-4" />
+                    Room Types
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Foundation Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
