@@ -7,7 +7,7 @@
 * **Overall Audit Status**: **PASS WITH CONDITIONS**
 * **Verification Scope**: Phases 0–5 specifications, runtime behavior, security boundaries, canonical ledgers, API contracts, design system primitives, and live database probing.
 * **Core Assessment**: The ASSO platform foundation is architecturally sound, type-safe, and truthful. All 37 automated unit, integration, and security tests pass. The production build compiles cleanly. Canonical ledgers are strictly segregated and append-only. Zero vertical feature code (Hotel, Restaurant, Cinema) has been introduced.
-* **Condition for Vertical Slice Progression**: Host machine does not have a native PostgreSQL daemon running on port 5432 (connection refused; Docker/Postgres not locally installed). While pg-mem verifies RLS and tenant isolation in automated testing, native PostgreSQL/RLS persistence must be provisioned (via Supabase or local PostgreSQL instance configured in `.env.local`) prior to live data persistence in the Hotel vertical slice.
+* **Condition for Full Foundation Sign-Off**: Host machine does not have a native PostgreSQL daemon running on port 5432 (connection refused; Docker/Postgres not locally installed). While pg-mem verifies RLS and tenant isolation in automated testing, live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins.
 
 ---
 
@@ -160,7 +160,7 @@ The following items remain strictly deferred per approved architecture decisions
 
 * **Prerequisite**: Live PostgreSQL database connection.
   * **Status**: Local host port 5432 refused (no local PostgreSQL daemon or Docker container).
-  * **Required Action**: The human developer / operator must provide a reachable PostgreSQL connection string in `.env.local` (e.g. Supabase development database or local PostgreSQL service) before live data writes can be tested during the Hotel vertical slice.
+  * **Required Action**: Live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins.
   * **Safety**: Application runtime safely degrades without crashing, reporting `database.status: "disconnected"`.
 
 ---
@@ -168,6 +168,6 @@ The following items remain strictly deferred per approved architecture decisions
 ## 14. Final Phase 6 Recommendation
 
 > **Status: PASS WITH CONDITIONS**
-> **Recommendation: READY FOR HUMAN REVIEW & APPROVAL (Subject to database provisioning prerequisite prior to live Hotel vertical data writes)**
+> **Recommendation: READY FOR HUMAN REVIEW & APPROVAL (Subject to prerequisite: Live development PostgreSQL must be provisioned and native PostgreSQL/RLS verification completed before Phase 6 receives full foundation sign-off and before any Hotel vertical implementation begins)**
 
 The technical foundation meets all architecture, security, design system, API, and testing standards specified in Phases 0 through 5. Zero vertical feature code has been implemented.
