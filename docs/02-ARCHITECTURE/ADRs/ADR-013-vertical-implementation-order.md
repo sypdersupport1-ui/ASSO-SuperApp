@@ -1,6 +1,6 @@
 # ADR-013: Vertical Implementation Order
 
-**Status**: Proposed / Human Approval Required  
+**Status**: Accepted / Resolved  
 **Date**: 2026-09-26  
 **Deciders**: Human Product Owner, Antigravity  
 **Resolves**: Open Decision #14 (Vertical implementation order in Phase 3/4)
@@ -48,20 +48,25 @@ Two primary sequencing options exist:
 
 ---
 
-## Decision Proposal
+## Decision
 
-1. **Proposed Implementation Sequence**:
-   ```text
-   Stage 1: Shared Core Platform & Infrastructure Baseline
-   Stage 2: Hotel Vertical (Deepest architectural validation)
-   Stage 3: Restaurant Vertical (High-throughput validation, KDS, Tables)
-   Stage 4: Cinema Vertical (Auditoriums, Seats, Shows, Concessions)
-   ```
+The Human Product Owner has explicitly approved **Sequence B**:
 
-2. **Governance Status**:
-   - Because commercial priorities and time-to-market milestones may favor launching Restaurant first if early customer pilots demand it, this sequencing recommendation is marked:
-   - **`HUMAN APPROVAL REQUIRED`**
-   - The Human Product Owner must confirm this sequence prior to the commencement of Phase 3 database migration planning and Phase 4 implementation.
+```text
+Stage 1: Shared Core Platform & Infrastructure Baseline
+Stage 2: Hotel Vertical (Deepest architectural validation)
+Stage 3: Restaurant Vertical (High-throughput validation, KDS, Tables)
+Stage 4: Cinema Vertical (Auditoriums, Seats, Shows, Concessions)
+```
+
+### Important Architectural Boundaries
+This decision establishes the **implementation sequence only**. It does **NOT** mean:
+- Hotel is the parent vertical.
+- Restaurant depends on Hotel.
+- Cinema depends on Restaurant.
+- Shared engines belong to Hotel.
+
+Hotel, Restaurant, and Cinema remain **equal sibling verticals** configured on top of shared ASSO domain engines. Shared engines belong exclusively to the platform. No vertical has structural hierarchy or dependency over another.
 
 ---
 

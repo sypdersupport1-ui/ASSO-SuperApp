@@ -98,21 +98,48 @@ When a tenant attempts to disable a module, the system warns that dependent modu
 
 ---
 
-## 4. Plans
+## 4. Plans and Commercial Configuration Architecture (DEC-024)
 
-A Plan defines a curated set of modules available to a tenant for a given subscription:
+ASSO implements a flexible, configurable commercial pricing architecture controlled entirely by the Super Admin without code changes:
+
+```text
+Plans
+  ↓
+Modules
+  ↓
+Features / Capabilities
+  ↓
+Add-ons
+  ↓
+Tenant Entitlements
+```
+
+### 4.1 Plan Entity
+A Plan defines a curated bundle of modules available to a tenant organization:
 
 ```text
 Plan = {
   plan_id
-  name              — e.g. "Restaurant Starter", "Hotel Full Suite"
-  business_types[]  — Which business types can subscribe
-  included_modules[]— Modules included in this plan
+  name              — e.g. "Hotel Starter", "Restaurant Pro", "Cinema Suite"
+  business_types[]  — Which business types can subscribe [HOTEL, RESTAURANT, CINEMA]
+  included_modules[]— Module IDs bundled into base plan
   status            — ACTIVE | DEPRECATED
+  billing_cycle     — MONTHLY | ANNUAL
+  pricing_config    — JSON structure for adjustable base prices and currency
 }
 ```
 
-> `OPEN DECISION` — Pricing model and plan structure (per-module pricing vs tiered plans vs custom enterprise) is not finalized. See [OPEN-DECISIONS.md](./OPEN-DECISIONS.md).
+### 4.2 Configurable Pricing Capabilities
+The platform supports:
+1. **Base Plan Pricing**: Configurable monthly/annual base price per plan.
+2. **Modular Add-On Pricing**: Individual modules (e.g. `kds`, `chat`, `advanced-reporting`) can be priced as modular add-ons.
+3. **Feature-Level Pricing**: Specific capabilities within modules can be priced where commercially applicable.
+4. **Tenant-Specific Overrides**: Super Admin can apply custom discounts, custom fee schedules, or promotional waivers per tenant.
+5. **Activation & Effective Dates**: Time-bounded pricing, promotional periods, and trial expiry dates without code changes.
+
+### 4.3 Pricing Boundaries
+- **No Hard-Coded Price Values**: Specific price numbers (e.g. ₹999/mo or ₹4999/mo) are **never** hard-coded in database schemas, seed migrations, or application logic. Prices remain completely adjustable via Super Admin configuration.
+- **SaaS Billing Deferred**: This architecture defines commercial pricing configuration. Automated SaaS recurring subscription billing (charging business credit cards via payment gateway) is deferred to future operational phases and is not built in Phase 2 or 3.
 
 ---
 

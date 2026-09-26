@@ -660,7 +660,7 @@ Context lifecycle event → Session INVALIDATED
 **Adapter Pattern (ADR-011)**:
 - Payment Engine domain logic is **100% provider-agnostic**.
 - External payment gateways integrate through the `PaymentGatewayAdapter` interface.
-- Initial directional production gateway: **Razorpay** (India-first UPI, cards, netbanking).
+- **Provider implementation is deferred**: No commercial gateway (such as Razorpay or Stripe) SDK, API integration, webhooks, or credentials will be implemented now. The domain model remains completely neutral.
 - Development / Preview / CI environments strictly utilize **`MockPaymentAdapter`** for deterministic sandbox testing without external banking dependencies.
 
 **Responsibilities**:

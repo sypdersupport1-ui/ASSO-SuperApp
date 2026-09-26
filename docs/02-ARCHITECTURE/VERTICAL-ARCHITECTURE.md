@@ -21,6 +21,26 @@ A vertical module:
 - Does NOT re-implement capabilities that belong to shared engines
 - Does NOT depend on other vertical modules
 
+### Approved Vertical Implementation Sequence (DEC-014, ADR-013)
+
+The Human Product Owner has approved the following implementation sequence:
+
+```text
+Stage 1: Shared Core Platform & Infrastructure Baseline
+Stage 2: Hotel Vertical (Deepest architectural validation)
+Stage 3: Restaurant Vertical (High-throughput validation, KDS, Tables)
+Stage 4: Cinema Vertical (Auditoriums, Seats, Shows, Concessions)
+```
+
+> **Important Architectural Rule**:
+> This establishes the **implementation sequence only**. It does **NOT** mean:
+> - Hotel is the parent vertical.
+> - Restaurant depends on Hotel.
+> - Cinema depends on Restaurant.
+> - Shared engines belong to Hotel.
+>
+> Hotel, Restaurant, and Cinema remain **equal sibling verticals** configured on top of shared ASSO domain engines. Shared engines belong exclusively to the platform. No vertical has structural hierarchy or dependency over another.
+
 ---
 
 ## 1. Hotel Vertical

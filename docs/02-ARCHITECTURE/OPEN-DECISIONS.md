@@ -30,8 +30,8 @@ Allowed Statuses:
 
 | # | Title | Category | Blocking Level | Status | Owner | Needed By |
 |---|---|---|---|---|---|---|
-| 1 | Cross-vertical folio charging | Commerce / Hotel | **C** | PROPOSED / OPEN | Product Owner | Phase 4+ |
-| 2 | Payment provider selection | Commerce | **A** | RESOLVED (Dir) / HUMAN APPROVAL | Product Owner | Phase 3 Gate |
+| 1 | Cross-vertical folio charging | Commerce / Hotel | **C** | DEFERRED / FUTURE CAPABILITY | Product Owner | Future Phase |
+| 2 | Payment provider selection | Commerce | **A** | RESOLVED — ARCHITECTURE | Product Owner | Phase 3 Gate |
 | 3 | Frontend framework & design system | Technology | **A** | RESOLVED | Antigravity + PO | Phase 3 Gate |
 | 4 | Real-time technology (SSE vs WS) | Technology | **A** | RESOLVED | Antigravity | Phase 3 Gate |
 | 5 | Module entitlement cache invalidation | Platform | **B** | RESOLVED | Antigravity | Phase 3 Gate |
@@ -43,7 +43,7 @@ Allowed Statuses:
 | 11 | Multi-language (i18n) scope | Platform | **C** | DEFERRED | Product Owner | Phase 5 |
 | 12 | Transactional email provider | Technology | **B** | RESOLVED (Dir) | Antigravity | Phase 4 |
 | 13 | SMS provider selection | Technology | **B** | DEFERRED / HUMAN APPROVAL | Product Owner | Phase 4 |
-| 14 | Vertical implementation order | Roadmap | **A** | PROPOSED / HUMAN APPROVAL | Product Owner | Phase 3 Gate |
+| 14 | Vertical implementation order | Roadmap | **A** | RESOLVED | Product Owner | Phase 3 Gate |
 | 15 | Restaurant queue / waitlist scope | Restaurant | **B** | RESOLVED | Antigravity + PO | Phase 4 |
 | 16 | Table reservations depth | Restaurant | **B** | RESOLVED | Antigravity + PO | Phase 4 |
 | 17 | KDS feature depth | Operations | **B** | RESOLVED | Antigravity | Phase 4 |
@@ -53,7 +53,7 @@ Allowed Statuses:
 | 21 | Hotel reservation deposit model | Hotel | **B** | RESOLVED | Antigravity | Phase 3/4 |
 | 22 | Hotel maintenance module depth | Hotel | **B** | RESOLVED | Antigravity | Phase 4 |
 | 23 | Hotel minibar management | Hotel | **C** | DEFERRED | Product Owner | Phase 5 |
-| 24 | Pricing & subscription plan model | Platform | **A** | RESOLVED (Arch) / HUMAN APPROVAL | Product Owner | Phase 3 Gate |
+| 24 | Pricing & subscription plan model | Platform | **A** | RESOLVED | Product Owner | Phase 3 Gate |
 | 25 | Cross-tenant customer data sharing | Customer | **C** | RESOLVED (Security Rule) | Antigravity | Phase 3 Gate |
 | 26 | Hardware printing requirements | Operations | **B** | RESOLVED | Antigravity | Phase 4 |
 | 27 | Recipe & auto-consumption scope | Inventory | **C** | DEFERRED | Product Owner | Phase 5 |
@@ -78,13 +78,17 @@ Allowed Statuses:
 - **Title**: Cross-Vertical Folio Charging (Restaurant / Cinema to Hotel)
 - **Category**: Commerce / Hotel
 - **Blocking Level**: **Category C** (Can safely remain open; designed as extension point)
-- **Status**: `PROPOSED / OPEN DECISION`
+- **Status**: `DEFERRED / FUTURE CAPABILITY`
 - **Owner**: Human Product Owner
-- **Decision Needed By**: Phase 4+ (Mixed property deployment)
+- **Decision Needed By**: Future Phase (Mixed-Property Advanced Milestone)
 - **Options**:
   1. *Option 1*: Not supported in initial scope; each outlet bills and settles independently.
   2. *Option 2*: Supported via shared Billing Engine inter-outlet folio charge posting.
-- **Current Direction**: **Option 1**. Cross-vertical folio charging is **not** part of approved initial scope. The shared Billing Engine design provides the data hooks to post external charges to a `guest_folio`, but the workflow remains disabled by default until explicitly authorized by the Product Owner.
+- **Final Decision**: **Option 1 (Deferred / Future Capability)**. Cross-vertical folio charging (e.g. charging a restaurant meal or cinema concession order to an active hotel room folio) is **explicitly not part of the initial approved implementation scope**. The initial model strictly enforces independent vertical settlement:
+  - `Hotel → Hotel Billing / Folio`
+  - `Restaurant → Restaurant Billing / Payment`
+  - `Cinema → Cinema Billing / Payment`
+  The shared Billing Engine maintains a clean extension boundary for inter-outlet charge postings in future phases, but no cross-vertical folio charging workflow or database coupling is implemented in the initial build.
 - **Dependencies**: Billing Engine, Hotel Guest Folio, Multi-Tenancy.
 
 ---
@@ -95,14 +99,18 @@ Allowed Statuses:
 - **Title**: Payment Provider Selection and Gateway Integration Architecture
 - **Category**: Commerce
 - **Blocking Level**: **Category A** (Must be resolved before Phase 3)
-- **Status**: `RESOLVED (Directional Architecture) / HUMAN APPROVAL REQUIRED (Commercial Gateway)`
+- **Status**: `RESOLVED — ARCHITECTURE` (Provider Implementation Deferred)
 - **Owner**: Human Product Owner & Antigravity
 - **Decision Needed By**: Phase 3 Gate
 - **Options**:
   1. *Option 1*: Tight coupling to Razorpay.
   2. *Option 2*: Tight coupling to Stripe.
   3. *Option 3*: Provider-neutral Payment Gateway Adapter pattern (`PaymentGatewayAdapter`).
-- **Current Direction**: **Option 3 (ADR-011)**. Domain logic is 100% provider-agnostic. The recommended production directional gateway for India-first launch is **Razorpay** (native UPI, cards, netbanking), while local development, preview, and CI environments strictly use **`MockPaymentAdapter`**. Final commercial provider selection requires human sign-off.
+- **Final Decision**: **Option 3 (ADR-011) — Provider-neutral payment architecture; do not implement Razorpay yet**.
+  - The payment domain remains strictly provider-neutral via the `PaymentGatewayAdapter` interface.
+  - **DO NOT implement Razorpay now**: No Razorpay SDK integration, no production credentials, no Razorpay API calls, no Razorpay webhooks, and no hard-coded Razorpay identifiers in the domain model.
+  - Local development, preview deployments, and automated testing strictly utilize **`MockPaymentAdapter`**.
+  - Commercial gateway integration is deferred and will plug in cleanly behind the adapter boundary when approved.
 - **Dependencies**: Payment Engine, Billing Engine.
 
 ---
@@ -294,13 +302,21 @@ Allowed Statuses:
 - **Title**: Sequence of Vertical Implementation for Phase 3 and Phase 4
 - **Category**: Roadmap
 - **Blocking Level**: **Category A** (Must be resolved before Phase 3)
-- **Status**: `PROPOSED / HUMAN APPROVAL REQUIRED`
+- **Status**: `RESOLVED`
 - **Owner**: Human Product Owner
 - **Decision Needed By**: Phase 3 Gate
 - **Options**:
   1. *Option 1*: Restaurant → Hotel → Cinema
   2. *Option 2*: Hotel → Restaurant → Cinema
-- **Current Direction**: **Option 2 Proposed (ADR-013)**. Hotel first exercises 18+ shared engines, proving the most complex stay lifecycles, guest folio billing, and multi-outlet tenancy from Day 1. Restaurant and Cinema follow as streamlined subsets. Final confirmation requires Human Product Owner sign-off.
+- **Final Decision**: **Option 2 (ADR-013) — Hotel → Restaurant → Cinema**.
+  - **Approved Sequence**:
+    ```text
+    Stage 1: Shared Core Platform & Infrastructure Baseline
+    Stage 2: Hotel Vertical (Deepest architectural validation)
+    Stage 3: Restaurant Vertical (High-throughput validation, KDS, Tables)
+    Stage 4: Cinema Vertical (Auditoriums, Seats, Shows, Concessions)
+    ```
+  - **Important Architectural Clarification**: This is the implementation sequence only. It does **NOT** mean Hotel is the parent vertical, Restaurant depends on Hotel, Cinema depends on Restaurant, or that shared engines belong to Hotel. Hotel, Restaurant, and Cinema remain equal sibling verticals using shared ASSO engines.
 - **Dependencies**: Roadmap, Vertical Architecture, Delivery Strategy.
 
 ---
@@ -437,13 +453,33 @@ Allowed Statuses:
 - **Title**: SaaS Pricing, Plan Packaging, and Entitlement Structure
 - **Category**: Platform
 - **Blocking Level**: **Category A** (Must be resolved before Phase 3)
-- **Status**: `RESOLVED (Architectural Model) / HUMAN APPROVAL REQUIRED (Commercial Pricing)`
+- **Status**: `RESOLVED`
 - **Owner**: Human Product Owner
 - **Decision Needed By**: Phase 3 Gate
 - **Options**:
   1. *Option 1*: Hard-coded feature flags.
-  2. *Option 2*: Multi-tiered plans + modular add-ons + tenant-level manual overrides (`Business Type → Available Modules → Plan → Plan Modules → Tenant Entitlements → Staff Permissions`).
-- **Current Direction**: **Option 2**. The data model supports tiered base plans (Starter, Standard, Pro) plus add-on modules and manual tenant overrides. Super Admin manages assignments. Commercial fee amounts (₹/month) remain an open business decision for the Product Owner.
+  2. *Option 2*: Configurable plans, add-ons, and module-feature pricing controlled by Super Admin with adjustable commercial values.
+- **Final Decision**: **Option 2 — Configurable plans/add-ons/module-feature pricing; Super Admin controls pricing; actual prices remain adjustable**.
+  - **Commercial Configuration Hierarchy**:
+    ```text
+    Plans
+      ↓
+    Modules
+      ↓
+    Features / Capabilities
+      ↓
+    Add-ons
+      ↓
+    Tenant Entitlements
+    ```
+  - **Super Admin Control**: The architecture allows the platform owner / Super Admin to configure commercial pricing without requiring code changes:
+    - Base plan pricing
+    - Module and add-on pricing
+    - Feature-level pricing where commercially applicable
+    - Tenant-specific custom overrides
+    - Activation / deactivation and effective dates
+  - **No Hard-Coded Price Values**: Specific price numbers (monthly, annual, module fees) are not hard-coded in schemas or domain logic. Prices remain completely adjustable via Super Admin configuration.
+  - **Scope Boundary**: This decision defines the commercial configuration architecture. Full subscription billing / payment gateway billing for SaaS fees is deferred and not implemented in Phase 2 or 3.
 - **Dependencies**: Module Entitlement Engine, Multi-Tenancy Engine.
 
 ---
@@ -603,16 +639,18 @@ Allowed Statuses:
 
 ## 4. Pre-Phase-3 Decision Gate Status
 
-All **Category A (Pre-Phase-3 Blocking)** decisions are now resolved or formulated with clear directional architecture awaiting Human sign-off:
+All **Category A (Pre-Phase-3 Blocking)** decisions have been resolved and approved:
 
-1. **DEC-002 (Payment Provider)**: `RESOLVED (Directional: Adapter + Razorpay/Mock)` / `HUMAN APPROVAL REQUIRED (Commercial)`
-2. **DEC-003 (Frontend Framework & Design System)**: `RESOLVED` (ADR-009: Next.js App Router, 3 surfaces, Radix/shadcn, Tailwind)
+1. **DEC-002 (Payment Provider)**: `RESOLVED — ARCHITECTURE` (ADR-011: Provider-neutral PaymentGatewayAdapter; Razorpay implementation deferred; Mock adapter for test/preview)
+2. **DEC-003 (Frontend Framework & Design System)**: `RESOLVED` (ADR-009: Next.js App Router, 3 surfaces in 1 codebase, Radix/shadcn, Tailwind)
 3. **DEC-004 (Real-Time Architecture)**: `RESOLVED` (ADR-010: Hybrid SSE + HTTP Actions + Polling Fallback)
 4. **DEC-006 (Super Admin MFA)**: `RESOLVED` (Mandatory in production; bypassable in dev)
 5. **DEC-009 (Offline POS)**: `RESOLVED` (ADR-012: Online-First POS with network resilience; offline sync deferred)
-6. **DEC-014 (Vertical Implementation Order)**: `PROPOSED (Hotel → Restaurant → Cinema)` / `HUMAN APPROVAL REQUIRED`
-7. **DEC-024 (Pricing / Plan Model)**: `RESOLVED (Architectural Hierarchy)` / `HUMAN APPROVAL REQUIRED (Commercial Fees)`
-8. **DEC-025 (Cross-Tenant Data Sharing)**: `RESOLVED (Strict Isolation Rule)`
-9. **DEC-033 (Chat Encryption)**: `RESOLVED (Standard Encryption at Rest & Transit)`
+6. **DEC-014 (Vertical Implementation Order)**: `RESOLVED` (ADR-013: Hotel → Restaurant → Cinema approved implementation sequence)
+7. **DEC-024 (Pricing / Plan Model)**: `RESOLVED` (Configurable hierarchy: Plans → Modules → Features → Add-ons → Entitlements; Super Admin controlled; prices adjustable)
+8. **DEC-025 (Cross-Tenant Data Sharing)**: `RESOLVED` (Strict Isolation Rule)
+9. **DEC-033 (Chat Encryption)**: `RESOLVED` (Standard Encryption at Rest & Transit)
 
-**No architectural blockers remain for Phase 3 database and API contract design.**
+**Phase 2 Status**: **APPROVED FOR PHASE 3**
+
+No architectural blockers remain for Phase 3 canonical database schema, migrations, and API contract design.

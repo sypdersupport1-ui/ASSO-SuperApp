@@ -16,6 +16,6 @@ This directory contains the immutable Architectural Decision Records for the ASS
 | [ADR-008](./ADR-008-qr-session-architecture.md) | QR and Customer Session Architecture | Accepted | Product Owner, Antigravity | 2026-09-26 |
 | [ADR-009](./ADR-009-frontend-framework-design-system.md) | Frontend Framework and Design System Architecture | Accepted | Product Owner, Antigravity | 2026-09-26 |
 | [ADR-010](./ADR-010-real-time-architecture.md) | Real-Time Architecture (Hybrid SSE + HTTP) | Accepted | Product Owner, Antigravity | 2026-09-26 |
-| [ADR-011](./ADR-011-payment-gateway-adapter.md) | Payment Gateway Adapter Architecture | Accepted (Dir) / Human Approval (Commercial) | Product Owner, Antigravity | 2026-09-26 |
+| [ADR-011](./ADR-011-payment-gateway-adapter.md) | Payment Gateway Adapter Architecture | Accepted (Architecture Resolved; Provider Deferred) | Product Owner, Antigravity | 2026-09-26 |
 | [ADR-012](./ADR-012-offline-pos-scope.md) | Offline POS Architectural Scope | Accepted | Product Owner, Antigravity | 2026-09-26 |
-| [ADR-013](./ADR-013-vertical-implementation-order.md) | Vertical Implementation Order (Hotel → Restaurant → Cinema) | Proposed / Human Approval Required | Product Owner, Antigravity | 2026-09-26 |
+| [ADR-013](./ADR-013-vertical-implementation-order.md) | Vertical Implementation Order (Hotel → Restaurant → Cinema) | Accepted / Resolved | Product Owner, Antigravity | 2026-09-26 |

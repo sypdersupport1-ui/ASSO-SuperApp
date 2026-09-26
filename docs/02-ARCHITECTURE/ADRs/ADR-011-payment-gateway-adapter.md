@@ -1,6 +1,6 @@
 # ADR-011: Payment Gateway Adapter Architecture
 
-**Status**: Accepted (Directional Architecture) / Human Approval Required (Commercial Gateway Selection)  
+**Status**: Accepted (Architecture Resolved; Provider Implementation Deferred)  
 **Date**: 2026-09-26  
 **Deciders**: Human Product Owner, Antigravity  
 **Resolves**: Open Decision #2 (Payment provider selection)
@@ -31,17 +31,24 @@ An architectural decision is required to ensure the Payment Engine remains stric
              ↓
    ┌───────────────────────┬───────────────────────┬───────────────────────┐
    │ MockPaymentAdapter    │ RazorpayAdapter       │ StripeAdapter         │
-   │ (Local / Preview / CI)│ (India-First Direction│ (International Future)│
+   │ (Local / Preview / CI)│ (Deferred Future)     │ (Deferred Future)     │
    └───────────────────────┴───────────────────────┴───────────────────────┘
    ```
 
-2. **Directional Initial Provider Selection**:
-   - **Production (India-First)**: **Razorpay** is selected as the *recommended initial directional provider* due to comprehensive support for UPI deep-linking, QR dynamic payment strings, netbanking, cards, and Indian compliance.
-   - **Local / Preview / Automated Testing**: A **`MockPaymentAdapter`** is mandatory, allowing full checkout simulations, webhooks, and refund flows in non-production environments without external API keys or live banking rails.
-   - **International Expansion**: Stripe or regional gateways can be introduced as additional adapter implementations without altering domain logic.
+2. **Provider Implementation Deferred — DO NOT Implement Razorpay Now**:
+   The Human Product Owner has finalized the decision: **build provider-neutral payment architecture; do not implement Razorpay yet**.
+   Specifically:
+   - **DO NOT** add Razorpay SDK dependencies.
+   - **DO NOT** create or require Razorpay production credentials.
+   - **DO NOT** implement live Razorpay API calls or endpoints.
+   - **DO NOT** implement Razorpay webhooks.
+   - **DO NOT** hard-code Razorpay identifiers or entities into the domain model.
+   - **DO NOT** make Razorpay a mandatory platform dependency.
 
-3. **Human Approval Boundary**:
-   - The commercial partnership, fee negotiation, merchant onboarding structure, and final gateway contract remain **`HUMAN APPROVAL REQUIRED`** for the Product Owner before production deployment.
+3. **Development, Preview & CI via `MockPaymentAdapter`**:
+   - A **`MockPaymentAdapter`** is the standard adapter for non-production environments (Local, Preview, CI).
+   - Allows full checkout simulations, callback verification, and refund lifecycles without external API keys or live banking networks.
+   - Any future commercial provider (Razorpay, Stripe, or others) will be introduced purely as an adapter implementation behind this boundary when commercially approved.
 
 ---
 

@@ -243,11 +243,16 @@ Inter-outlet inventory transfers are an approved architectural capability. Imple
 - Authorization is checked at both outlets
 - A single transfer record links both movements
 
-### 7.3 Cross-Vertical Folio Charging (PROPOSED / OPEN DECISION)
+### 7.3 Cross-Vertical Folio Charging (DEFERRED / FUTURE CAPABILITY)
 
-Cross-vertical folio charging (e.g., charging a restaurant meal to a hotel room folio) is architecturally possible given the shared billing engine and shared tenant model, but **is not approved scope for initial implementation**.
+Cross-vertical folio charging (e.g., charging a restaurant meal or cinema concession order to an active hotel room folio) is **explicitly deferred to future phases and is NOT part of the initial approved implementation scope**.
 
-See [OPEN-DECISIONS.md](./OPEN-DECISIONS.md) — Decision #1.
+The initial model enforces independent billing and settlement per vertical:
+- `Hotel → Hotel Billing / Folio`
+- `Restaurant → Restaurant Billing / Payment`
+- `Cinema → Cinema Billing / Payment`
+
+The shared Billing Engine maintains a clean architectural extension point for inter-outlet charge postings in future phases, but no cross-vertical folio charging workflow or database coupling is implemented in the initial build. See [OPEN-DECISIONS.md](./OPEN-DECISIONS.md) — Decision #1 (`DEC-001`).
 
 ---
 

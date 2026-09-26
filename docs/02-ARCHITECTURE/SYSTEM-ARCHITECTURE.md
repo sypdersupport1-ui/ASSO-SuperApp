@@ -285,9 +285,9 @@ See [SCALABILITY.md](./SCALABILITY.md) for full details.
 | **Web Framework** | Next.js (App Router, TypeScript) — 3 surfaces (`/c`, `/b`, `/sa`) | **Accepted** (ADR-009) |
 | **Design System** | Tailwind CSS + CSS custom property tokens + Radix UI primitives | **Accepted** (ADR-009) |
 | **Real-Time** | Hybrid: Server-Sent Events (SSE) push + HTTP mutations + polling fallback | **Accepted** (ADR-010) |
-| **Payment Gateway** | Adapter Pattern: Razorpay (India-first direction) + Mock Adapter (Dev/Preview) | **Accepted** (ADR-011) |
+| **Payment Gateway** | Adapter Pattern: Provider-neutral PaymentGatewayAdapter (Provider implementation deferred; Mock Adapter for Dev/Preview) | **Accepted** (ADR-011) |
 | **POS Architecture**| Online-first with network resilience (memory cart, optimistic UI, retries) | **Accepted** (ADR-012) |
-| **Vertical Order**  | Hotel → Restaurant → Cinema | **Proposed / Human Approval** (ADR-013) |
+| **Vertical Order**  | Hotel → Restaurant → Cinema (Equal Sibling Verticals) | **Accepted / Resolved** (ADR-013) |
 | **Database** | PostgreSQL via Supabase | Evaluated Direction (ADR-002) |
 | **API Style** | REST with JSON + typed API client | Phase 3 Specification |
 | **Auth** | NextAuth.js or Supabase Auth | Phase 3 Specification |
