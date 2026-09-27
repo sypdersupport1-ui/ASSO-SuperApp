@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, integer, boolean, numeric, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, boolean, numeric, jsonb, timestamp, index } from "drizzle-orm/pg-core";
 import { organizations, outlets, users, staffProfiles } from "./core";
 import { businessContexts, customerSessions } from "./context";
 
@@ -139,3 +139,84 @@ export const paymentRefunds = pgTable("payment_refunds", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ============================================================================
+// Shared Operations: Service Requests Engine
+// ============================================================================
+
+export const SERVICE_REQUEST_TYPES = [
+  "MAINTENANCE",
+  "HOUSEKEEPING_AMENITY",
+  "BILL_ASSISTANCE",
+  "CINEMA_CLEANUP",
+  "OTHER",
+] as const;
+export type ServiceRequestType = typeof SERVICE_REQUEST_TYPES[number];
+
+export const SERVICE_REQUEST_PRIORITIES = [
+  "LOW",
+  "NORMAL",
+  "HIGH",
+  "URGENT",
+] as const;
+export type ServiceRequestPriority = typeof SERVICE_REQUEST_PRIORITIES[number];
+
+export const SERVICE_REQUEST_STATUSES = [
+  "OPEN",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "RESOLVED",
+  "CLOSED",
+  "CANCELLED",
+] as const;
+export type ServiceRequestStatus = typeof SERVICE_REQUEST_STATUSES[number];
+
+export const HOTEL_MAINTENANCE_CATEGORIES = [
+  "PLUMBING",
+  "ELECTRICAL",
+  "HVAC",
+  "APPLIANCE",
+  "FURNITURE",
+  "STRUCTURAL",
+  "OTHER",
+] as const;
+export type HotelMaintenanceCategory = typeof HOTEL_MAINTENANCE_CATEGORIES[number];
+
+/**
+ * Shared Operations: Service Requests Table
+ * Owned by Shared Service Request Engine; represents operational and maintenance work requests.
+ */
+export const serviceRequests = pgTable(
+  "service_requests",
+  {
+    requestId: uuid("request_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    contextId: uuid("context_id").references(() => businessContexts.contextId),
+    requestType: varchar("request_type", { length: 100 }).notNull().default("MAINTENANCE"),
+    category: varchar("category", { length: 100 }).notNull().default("OTHER"),
+    priority: varchar("priority", { length: 50 }).notNull().default("NORMAL"),
+    status: varchar("status", { length: 50 }).notNull().default("OPEN"),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description").notNull(),
+    assignedToStaffId: uuid("assigned_to_staff_id").references(() => users.userId),
+    reportedByStaffId: uuid("reported_by_staff_id").references(() => users.userId),
+    resolutionNotes: text("resolution_notes"),
+    metadata: jsonb("metadata").default({}),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_service_requests_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_service_requests_context").on(table.contextId),
+    index("idx_service_requests_status").on(table.status),
+    index("idx_service_requests_assigned").on(table.assignedToStaffId),
+    index("idx_service_requests_created_at").on(table.createdAt),
+  ]
+);
+
+export type ServiceRequest = typeof serviceRequests.$inferSelect;
+export type NewServiceRequest = typeof serviceRequests.$inferInsert;
+

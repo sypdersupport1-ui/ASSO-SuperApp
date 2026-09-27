@@ -332,13 +332,24 @@ export async function getFrontOfficeSummary(
             actionLabel: "Reassign Room",
             actionHref: `/hotel/reservations`,
           });
-        } else if (assignedRoom.housekeepingStatus === "DIRTY" || assignedRoom.housekeepingStatus === "CLEANING") {
+        } else if (assignedRoom.operationalStatus === "OUT_OF_ORDER" || assignedRoom.operationalStatus === "OUT_OF_SERVICE") {
+          attentionItems.push({
+            id: `att-maintenance-${arr.reservationId}`,
+            type: "ROOM_NOT_READY",
+            severity: "critical",
+            title: `Assigned Room ${assignedRoom.roomNumber} ${assignedRoom.operationalStatus.replace(/_/g, " ")}`,
+            description: `Room ${assignedRoom.roomNumber} for ${arr.guestName} is currently ${assignedRoom.operationalStatus.replace(/_/g, " ")}. Maintenance intervention or reassignment required.`,
+            targetId: arr.reservationId,
+            actionLabel: "Reassign Room",
+            actionHref: `/hotel/reservations`,
+          });
+        } else if (assignedRoom.housekeepingStatus === "DIRTY" || assignedRoom.housekeepingStatus === "CLEANING" || assignedRoom.housekeepingStatus === "MAINTENANCE") {
           attentionItems.push({
             id: `att-dirty-${arr.reservationId}`,
             type: "ROOM_NOT_READY",
             severity: "warning",
-            title: `Room ${assignedRoom.roomNumber} Awaiting Cleaning`,
-            description: `Assigned room ${assignedRoom.roomNumber} is currently ${assignedRoom.housekeepingStatus}. Needs priority cleaning before arrival.`,
+            title: `Room ${assignedRoom.roomNumber} Not Ready (${assignedRoom.housekeepingStatus})`,
+            description: `Assigned room ${assignedRoom.roomNumber} is currently ${assignedRoom.housekeepingStatus}. Needs priority attention before arrival.`,
             targetId: assignedRoom.roomId,
             actionLabel: "View Room",
             actionHref: `/hotel/rooms`,
