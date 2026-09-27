@@ -11,6 +11,7 @@ import {
 } from "./service";
 import { listHotelGuests, createHotelGuest } from "./guest-service";
 import { listReservations, createReservation } from "./reservation-service";
+import { listStays, executeCheckIn } from "./stay-service";
 import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 
@@ -181,11 +182,54 @@ export async function ensureHotelSeedData(tenantId: string = DEMO_TENANT_ID) {
     logger.info({ message: "Seeded demo hotel reservation" });
   }
 
+  // 8. Ensure sample active stay exists
+  const existingStays = await listStays(tenantId, { outletId, status: "ACTIVE", limit: 1 });
+  if (existingStays.length === 0 && primaryGuestId && deluxeType) {
+    const allRooms = await listRooms(tenantId, outletId);
+    let targetRoomId = allRooms.find(
+      (r) => r.roomTypeId === deluxeType!.roomTypeId && r.operationalStatus === "AVAILABLE" && !r.isOccupied
+    )?.roomId;
+
+    if (!targetRoomId) {
+      const created = await createRoom(tenantId, outletId, {
+        roomNumber: `10${allRooms.length + 1}`,
+        floorNumber: "1",
+        roomTypeId: deluxeType.roomTypeId,
+        operationalStatus: "AVAILABLE",
+        housekeepingStatus: "CLEAN",
+      });
+      targetRoomId = created.roomId;
+    }
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const inTwoDays = new Date();
+    inTwoDays.setDate(inTwoDays.getDate() + 2);
+
+    const seedRes = await createReservation(tenantId, outletId, {
+      guestId: primaryGuestId,
+      roomTypeId: deluxeType.roomTypeId,
+      assignedRoomId: targetRoomId,
+      arrivalDate: yesterday,
+      departureDate: inTwoDays,
+      adultCount: 1,
+      status: "CONFIRMED",
+    });
+
+    await executeCheckIn(tenantId, outletId, {
+      reservationId: seedRes.reservationId,
+      roomId: targetRoomId,
+      notes: "Demo active in-house stay",
+    });
+    logger.info({ message: "Seeded demo hotel active stay" });
+  }
+
   return {
     property,
     roomTypes: await listRoomTypes(tenantId, outletId),
     roomsCount: (await listRooms(tenantId, outletId)).length,
     guestsCount: (await listHotelGuests(tenantId, { limit: 100 })).total,
     reservationsCount: (await listReservations(tenantId, outletId, { limit: 100 })).total,
+    staysCount: (await listStays(tenantId, { outletId, limit: 100 })).length,
   };
 }

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
 import { organizations, outlets, customers } from "./core";
 import { businessContexts } from "./context";
 
@@ -79,6 +79,8 @@ export type NewHotelRoom = typeof hotelRooms.$inferInsert;
 export const HOTEL_RESERVATION_STATUSES = [
   "PENDING",
   "CONFIRMED",
+  "CHECKED_IN",
+  "COMPLETED",
   "CANCELLED",
   "NO_SHOW",
 ] as const;
@@ -134,3 +136,45 @@ export const hotelReservations = pgTable(
 
 export type HotelReservation = typeof hotelReservations.$inferSelect;
 export type NewHotelReservation = typeof hotelReservations.$inferInsert;
+
+export const HOTEL_STAY_STATUSES = [
+  "ACTIVE",
+  "CHECKED_OUT",
+] as const;
+export type HotelStayStatus = typeof HOTEL_STAY_STATUSES[number];
+
+/**
+ * Hotel Stays (Actual in-house occupancy lifecycle)
+ */
+export const hotelStays = pgTable(
+  "hotel_stays",
+  {
+    stayId: uuid("stay_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    reservationId: uuid("reservation_id").notNull().references(() => hotelReservations.reservationId),
+    guestId: uuid("guest_id").notNull().references(() => hotelGuests.guestId),
+    roomId: uuid("room_id").notNull().references(() => hotelRooms.roomId),
+    stayNumber: varchar("stay_number", { length: 50 }).notNull(),
+    checkInAt: timestamp("check_in_at", { withTimezone: true }).notNull().defaultNow(),
+    expectedCheckOutAt: timestamp("expected_check_out_at", { withTimezone: true }).notNull(),
+    actualCheckOutAt: timestamp("actual_check_out_at", { withTimezone: true }),
+    status: varchar("status", { length: 50 }).notNull().default("ACTIVE"),
+    adultCount: integer("adult_count").notNull().default(1),
+    childrenCount: integer("children_count").notNull().default(0),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_hotel_stays_outlet_number").on(table.outletId, table.stayNumber),
+    index("idx_hotel_stays_tenant_status").on(table.tenantId, table.status),
+    index("idx_hotel_stays_reservation").on(table.reservationId),
+    index("idx_hotel_stays_room").on(table.roomId),
+    index("idx_hotel_stays_guest").on(table.guestId),
+  ]
+);
+
+export type HotelStay = typeof hotelStays.$inferSelect;
+export type NewHotelStay = typeof hotelStays.$inferInsert;
+

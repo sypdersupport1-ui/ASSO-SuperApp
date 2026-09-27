@@ -6,8 +6,8 @@ import { GET as reservationsGet, POST as reservationsPost } from "@/app/api/v1/h
 import { GET as reservationIdGet, PATCH as reservationIdPatch } from "@/app/api/v1/hotel/reservations/[id]/route";
 import { GET as availabilityGet } from "@/app/api/v1/hotel/reservations/availability/route";
 import { GET as propertiesGet } from "@/app/api/v1/hotel/properties/route";
-import { GET as roomTypesGet } from "@/app/api/v1/hotel/room-types/route";
-import { GET as roomsGet } from "@/app/api/v1/hotel/rooms/route";
+import { GET as roomTypesGet, POST as roomTypesPost } from "@/app/api/v1/hotel/room-types/route";
+import { GET as roomsGet, POST as roomsPost } from "@/app/api/v1/hotel/rooms/route";
 import { signJwt } from "@/lib/auth/jwt";
 import { setTenantEntitlements } from "@/lib/entitlements/checker";
 
@@ -52,33 +52,51 @@ describe("Phase 7 Hotel Vertical — Slice 2 (Guests & Reservations) Integration
     setTenantEntitlements(TENANT_A, ["CORE", "HOTEL", "POS", "ORDERING"]);
     setTenantEntitlements(TENANT_B, ["CORE", "POS", "ORDERING"]); // Tenant B NOT entitled for HOTEL
 
-    // Fetch active rooms to find an existing room, property, and room type
-    const roomsReq = new NextRequest("http://localhost:3000/api/v1/hotel/rooms", {
+    const propReq = new NextRequest("http://localhost:3000/api/v1/hotel/properties", {
       headers: { Authorization: `Bearer ${hotelAdminToken}` },
     });
-    const roomsRes = await roomsGet(roomsReq);
-    const roomsJson = await roomsRes.json();
-    
-    if (roomsJson.data && roomsJson.data.length > 0) {
-      const room = roomsJson.data[0];
-      specificRoomId = room.roomId;
-      roomTypeId = room.roomTypeId;
-      outletId = room.outletId;
-    } else {
-      const propReq = new NextRequest("http://localhost:3000/api/v1/hotel/properties", {
-        headers: { Authorization: `Bearer ${hotelAdminToken}` },
-      });
-      const propRes = await propertiesGet(propReq);
-      const propJson = await propRes.json();
-      outletId = propJson.data[0].outletId;
+    const propRes = await propertiesGet(propReq);
+    const propJson = await propRes.json();
+    outletId = propJson.data[0].outletId;
 
-      const typeReq = new NextRequest(`http://localhost:3000/api/v1/hotel/room-types?outletId=${outletId}`, {
-        headers: { Authorization: `Bearer ${hotelAdminToken}` },
-      });
-      const typeRes = await roomTypesGet(typeReq);
-      const typeJson = await typeRes.json();
-      roomTypeId = typeJson.data[0].roomTypeId;
-    }
+    const uniqueSuffix = Date.now().toString().slice(-4);
+    const typeRes = await roomTypesPost(
+      new NextRequest("http://localhost:3000/api/v1/hotel/room-types", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId,
+          code: `S2_${uniqueSuffix}`,
+          name: `Slice2 Suite ${uniqueSuffix}`,
+          baseOccupancy: 2,
+          maxOccupancy: 4,
+          baseRate: 7500,
+        }),
+      })
+    );
+    const typeJson = await typeRes.json();
+    roomTypeId = typeJson.data.roomTypeId;
+
+    const roomRes = await roomsPost(
+      new NextRequest("http://localhost:3000/api/v1/hotel/rooms", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId,
+          roomTypeId,
+          roomNumber: `S2-${uniqueSuffix}`,
+          floorNumber: "4",
+        }),
+      })
+    );
+    const roomJson = await roomRes.json();
+    specificRoomId = roomJson.data.roomId;
   });
 
   describe("1. Hotel Guests Domain & Shared Customer Integration", () => {
@@ -285,10 +303,10 @@ describe("Phase 7 Hotel Vertical — Slice 2 (Guests & Reservations) Integration
 
     it("supports idempotency on reservation creation", async () => {
       const idempKey = `key_res_${Date.now()}`;
+      const randomDays = 100 + Math.floor(Math.random() * 400);
       const arrival = new Date();
-      arrival.setDate(arrival.getDate() + 35);
-      const departure = new Date();
-      departure.setDate(departure.getDate() + 38);
+      arrival.setDate(arrival.getDate() + randomDays);
+      const departure = new Date(arrival.getTime() + 3 * 24 * 60 * 60 * 1000);
 
       const payload = {
         outletId,

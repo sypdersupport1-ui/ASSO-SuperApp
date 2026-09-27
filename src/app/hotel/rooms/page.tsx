@@ -28,6 +28,8 @@ import {
   Wrench,
   BedDouble,
   SlidersHorizontal,
+  User,
+  LogOut,
 } from "lucide-react";
 import {
   HOTEL_OPERATIONAL_STATUSES,
@@ -49,6 +51,10 @@ interface RoomItem {
   housekeepingStatus: HotelHousekeepingStatus;
   isOccupied: boolean;
   isActive: boolean;
+  currentOccupant?: string | null;
+  currentStayNumber?: string | null;
+  currentStayId?: string | null;
+  expectedCheckOutAt?: string | null;
 }
 
 interface RoomTypeItem {
@@ -444,14 +450,28 @@ export default function HotelRoomsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground truncate max-w-[130px]">
-                      {room.roomTypeName}
-                    </span>
-                    <span className="font-semibold text-muted-foreground">
-                      ₹{Number(room.baseRate).toLocaleString("en-IN")}
-                    </span>
-                  </div>
+                  {room.currentOccupant ? (
+                    <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold truncate max-w-[130px]">
+                        <User className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{room.currentOccupant}</span>
+                      </div>
+                      {room.expectedCheckOutAt && (
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          Out: {new Date(room.expectedCheckOutAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between text-xs">
+                      <span className="font-medium text-foreground truncate max-w-[130px]">
+                        {room.roomTypeName}
+                      </span>
+                      <span className="font-semibold text-muted-foreground">
+                        ₹{Number(room.baseRate).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="mt-2 text-[10px] text-muted-foreground/70 font-mono truncate">
                     ctx: {room.contextId.slice(0, 8)}...
@@ -477,6 +497,52 @@ export default function HotelRoomsPage() {
               </DialogHeader>
 
               <div className="space-y-5 py-4">
+                {selectedRoom.currentOccupant && selectedRoom.currentStayId && (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300 font-semibold">
+                        <User className="h-4 w-4" />
+                        <span>In-House Guest: {selectedRoom.currentOccupant}</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] font-mono text-blue-500 border-blue-500/30">
+                        {selectedRoom.currentStayNumber}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Expected departure: {selectedRoom.expectedCheckOutAt ? new Date(selectedRoom.expectedCheckOutAt).toLocaleDateString() : "Unscheduled"}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs text-rose-600 border-rose-500/30 hover:bg-rose-500/10 gap-1.5"
+                      onClick={async () => {
+                        if (!confirm(`Check out ${selectedRoom.currentOccupant} from Room ${selectedRoom.roomNumber}?`)) return;
+                        setUpdating(true);
+                        try {
+                          const res = await fetch(`/api/v1/hotel/stays/${selectedRoom.currentStayId}/check-out`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ notes: "Checked out from Room Rack" }),
+                          });
+                          const json = await res.json();
+                          if (json.success) {
+                            setSelectedRoom(null);
+                            await fetchRoomsAndTypes();
+                          } else {
+                            alert("Check-out failed: " + json.error?.message);
+                          }
+                        } catch {
+                          alert("Error processing check-out.");
+                        } finally {
+                          setUpdating(false);
+                        }
+                      }}
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Check Out Guest Now
+                    </Button>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span>Operational State Transition</span>

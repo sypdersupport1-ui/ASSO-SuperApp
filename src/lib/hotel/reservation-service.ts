@@ -92,7 +92,11 @@ export async function checkSpecificRoomConflict(
     eq(hotelReservations.tenantId, tenantId),
     eq(hotelReservations.outletId, outletId),
     eq(hotelReservations.assignedRoomId, roomId),
-    or(eq(hotelReservations.status, "CONFIRMED"), eq(hotelReservations.status, "PENDING"))!,
+    or(
+      eq(hotelReservations.status, "CONFIRMED"),
+      eq(hotelReservations.status, "PENDING"),
+      eq(hotelReservations.status, "CHECKED_IN")
+    )!,
     // Overlapping condition: existing.arrival < new.departure AND existing.departure > new.arrival
     lt(hotelReservations.arrivalDate, departureDate),
     gt(hotelReservations.departureDate, arrivalDate),
@@ -167,7 +171,11 @@ export async function calculateAvailability(
       and(
         eq(hotelReservations.tenantId, tenantId),
         eq(hotelReservations.outletId, outletId),
-        or(eq(hotelReservations.status, "CONFIRMED"), eq(hotelReservations.status, "PENDING")),
+        or(
+          eq(hotelReservations.status, "CONFIRMED"),
+          eq(hotelReservations.status, "PENDING"),
+          eq(hotelReservations.status, "CHECKED_IN")
+        ),
         lt(hotelReservations.arrivalDate, departureDate),
         gt(hotelReservations.departureDate, arrivalDate)
       )

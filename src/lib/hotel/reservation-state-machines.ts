@@ -6,7 +6,9 @@ import { ValidationError } from "@/lib/api/errors";
 
 const VALID_RESERVATION_TRANSITIONS: Record<HotelReservationStatus, HotelReservationStatus[]> = {
   PENDING: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["CANCELLED", "NO_SHOW"],
+  CONFIRMED: ["CHECKED_IN", "CANCELLED", "NO_SHOW"],
+  CHECKED_IN: ["COMPLETED"],
+  COMPLETED: [],
   CANCELLED: [],
   NO_SHOW: [],
 };
