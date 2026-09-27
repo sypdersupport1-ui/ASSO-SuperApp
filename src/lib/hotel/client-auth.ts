@@ -1,3 +1,12 @@
+/**
+ * Client-Side Hotel Staff Authentication Helper
+ * 
+ * Manages Bearer tokens for staff browser requests to Hotel API endpoints.
+ * In local development and preview, it attempts to acquire a staff demo token
+ * if no active session token exists. In production, demo-token endpoint is disabled,
+ * and standard session credentials from sessionStorage or cookies are utilized.
+ */
+
 let cachedToken: string | null = null;
 
 export async function getStaffAuthHeaders(): Promise<Record<string, string>> {

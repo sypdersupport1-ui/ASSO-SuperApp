@@ -75,4 +75,62 @@ describe("Authentication & RBAC Security Verification", () => {
 
     expect(hasPermission(superAdmin, "anything.anywhere")).toBe(true);
   });
+
+  describe("Development Demo-Token Security Gates", () => {
+    it("7. Demo token route issues valid staff token in non-production mode with fixed claims", async () => {
+      const { GET } = await import("@/app/api/v1/auth/demo-token/route");
+      const { NextRequest } = await import("next/server");
+
+      const req = new NextRequest("http://localhost:3000/api/v1/auth/demo-token");
+      const res = await GET(req);
+      expect(res.status).toBe(200);
+
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data?.token).toBeDefined();
+
+      const decoded = verifyJwt(json.data.token);
+      expect(decoded.sub).toBe("00000000-0000-0000-0000-000000000001");
+      expect(decoded.isSuperAdmin).toBe(false);
+      expect(decoded.sessionType).toBe("STAFF");
+      expect(decoded.roles).toContain("HOTEL_ADMIN");
+    });
+
+    it("8. Demo token route is strictly blocked in production mode (returns 403)", async () => {
+      const origEnv = process.env.NODE_ENV;
+      try {
+        (process.env as Record<string, string | undefined>).NODE_ENV = "production";
+        const { GET } = await import("@/app/api/v1/auth/demo-token/route");
+        const { NextRequest } = await import("next/server");
+
+        const req = new NextRequest("http://localhost:3000/api/v1/auth/demo-token");
+        const res = await GET(req);
+        expect(res.status).toBe(403);
+
+        const json = await res.json();
+        expect(json.success).toBe(false);
+        expect(json.error?.code).toBe("PERMISSION_DENIED");
+      } finally {
+        (process.env as Record<string, string | undefined>).NODE_ENV = origEnv;
+      }
+    });
+
+    it("9. Demo token ignores request attempts to mint Super Admin or arbitrary tenant", async () => {
+      const { GET } = await import("@/app/api/v1/auth/demo-token/route");
+      const { NextRequest } = await import("next/server");
+
+      const maliciousUrl = "http://localhost:3000/api/v1/auth/demo-token?isSuperAdmin=true&tenantId=99999999-9999-9999-9999-999999999999&sub=hacker";
+      const req = new NextRequest(maliciousUrl);
+      const res = await GET(req);
+      expect(res.status).toBe(200);
+
+      const json = await res.json();
+      const decoded = verifyJwt(json.data.token);
+
+      expect(decoded.isSuperAdmin).toBe(false);
+      expect(decoded.sub).toBe("00000000-0000-0000-0000-000000000001");
+      expect(decoded.tenantId).toBe("11111111-1111-1111-1111-111111111111");
+    });
+  });
 });
+
