@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
-import { organizations, outlets, customers } from "./core";
+import { organizations, outlets, customers, users } from "./core";
 import { businessContexts } from "./context";
 
 // Operational and housekeeping status enums for type safety
@@ -177,4 +177,67 @@ export const hotelStays = pgTable(
 
 export type HotelStay = typeof hotelStays.$inferSelect;
 export type NewHotelStay = typeof hotelStays.$inferInsert;
+
+export const HOTEL_HOUSEKEEPING_TASK_TYPES = [
+  "DEPARTURE_TURNOVER",
+  "ROUTINE_CLEANING",
+  "DEEP_CLEANING",
+  "INSPECTION",
+] as const;
+export type HotelHousekeepingTaskType = typeof HOTEL_HOUSEKEEPING_TASK_TYPES[number];
+
+export const HOTEL_HOUSEKEEPING_TASK_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "CLEANED",
+  "INSPECTED",
+  "CANCELLED",
+] as const;
+export type HotelHousekeepingTaskStatus = typeof HOTEL_HOUSEKEEPING_TASK_STATUSES[number];
+
+export const HOTEL_HOUSEKEEPING_TASK_PRIORITIES = [
+  "LOW",
+  "NORMAL",
+  "HIGH",
+  "URGENT",
+] as const;
+export type HotelHousekeepingTaskPriority = typeof HOTEL_HOUSEKEEPING_TASK_PRIORITIES[number];
+
+/**
+ * Hotel Housekeeping Tasks (Operational work items associated with physical rooms)
+ */
+export const hotelHousekeepingTasks = pgTable(
+  "hotel_housekeeping_tasks",
+  {
+    taskId: uuid("task_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    roomId: uuid("room_id").notNull().references(() => hotelRooms.roomId),
+    taskType: varchar("task_type", { length: 50 }).notNull().default("DEPARTURE_TURNOVER"),
+    triggerSource: varchar("trigger_source", { length: 50 }).notNull().default("MANUAL"),
+    assignedStaffId: uuid("assigned_staff_id").references(() => users.userId),
+    status: varchar("status", { length: 50 }).notNull().default("PENDING"),
+    priority: varchar("priority", { length: 50 }).notNull().default("NORMAL"),
+    notes: text("notes"),
+    inspectionNotes: text("inspection_notes"),
+    inspectedBy: uuid("inspected_by").references(() => users.userId),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    inspectedAt: timestamp("inspected_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_hk_tasks_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_hk_tasks_room").on(table.roomId),
+    index("idx_hk_tasks_status").on(table.status),
+    index("idx_hk_tasks_assigned").on(table.assignedStaffId),
+    index("idx_hk_tasks_created_at").on(table.createdAt),
+  ]
+);
+
+export type HotelHousekeepingTask = typeof hotelHousekeepingTasks.$inferSelect;
+export type NewHotelHousekeepingTask = typeof hotelHousekeepingTasks.$inferInsert;
 

@@ -43,6 +43,13 @@
       "when": 1790493108578,
       "tag": "0005_military_human_fly",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790500000000,
+      "tag": "0006_fluffy_housekeeping",
+      "breakpoints": true
     }
   ]
 }

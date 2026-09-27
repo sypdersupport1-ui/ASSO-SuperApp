@@ -23,6 +23,7 @@ import {
 } from "./state-machines";
 import { recordAuditEvent } from "@/lib/audit";
 import { realtimeHub } from "@/lib/realtime/sse";
+import { createTurnoverTaskForRoom } from "./housekeeping-service";
 
 export interface StayDetail {
   stayId: string;
@@ -419,6 +420,15 @@ export async function executeCheckOut(
           updatedAt: now,
         })
         .where(eq(businessContexts.contextId, room.contextId));
+
+      // Auto-create Housekeeping departure turnover task
+      await createTurnoverTaskForRoom(tx, {
+        tenantId,
+        outletId: stay.outletId,
+        roomId: room.roomId,
+        priority: "HIGH",
+        notes: `Turnover task automatically created from checkout of Stay ${stay.stayNumber} (Room ${room.roomNumber})`,
+      });
     }
 
     // 7. Update Reservation to COMPLETED
