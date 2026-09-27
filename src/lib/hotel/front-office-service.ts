@@ -86,7 +86,7 @@ export interface FrontOfficeInHouseStay {
 
 export interface FrontOfficeAttentionItem {
   id: string;
-  type: "UNASSIGNED_ARRIVAL" | "ROOM_NOT_READY" | "DEPARTURE_OVERDUE" | "DIRTY_VACANT";
+  type: "UNASSIGNED_ARRIVAL" | "ROOM_NOT_READY" | "DEPARTURE_OVERDUE" | "DIRTY_VACANT" | "OUT_OF_ORDER_ROOM";
   severity: "critical" | "warning" | "info";
   title: string;
   description: string;
@@ -385,7 +385,21 @@ export async function getFrontOfficeSummary(
       description: `${dirtyAvailable} vacant rooms are ready to clean to release more guest inventory.`,
       targetId: "rooms-dirty",
       actionLabel: "View Rack",
-      actionHref: `/hotel/rooms`,
+      actionHref: "/hotel/rooms",
+    });
+  }
+
+  // Attention E: Out of Order / Out of Service rooms
+  if (outOfServiceRooms > 0) {
+    attentionItems.push({
+      id: "att-out-of-order-rooms",
+      type: "OUT_OF_ORDER_ROOM",
+      severity: "critical",
+      title: `${outOfServiceRooms} Room${outOfServiceRooms > 1 ? "s" : ""} Out of Service / Order`,
+      description: `${outOfServiceRooms} room${outOfServiceRooms > 1 ? "s are" : " is"} currently unavailable due to maintenance or service restrictions.`,
+      targetId: "rooms-maintenance",
+      actionLabel: "View Maintenance",
+      actionHref: `/hotel/maintenance`,
     });
   }
 

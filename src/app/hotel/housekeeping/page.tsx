@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
+import { hotelFetch } from "@/lib/hotel/client-auth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,9 +76,9 @@ export default function HousekeepingPage() {
 
       // Fetch summary, tasks, and rooms in parallel
       const [summaryRes, tasksRes, roomsRes] = await Promise.all([
-        fetch("/api/v1/hotel/housekeeping/summary"),
-        fetch("/api/v1/hotel/housekeeping/tasks"),
-        fetch("/api/v1/hotel/rooms"),
+        hotelFetch("/api/v1/hotel/housekeeping/summary"),
+        hotelFetch("/api/v1/hotel/housekeeping/tasks"),
+        hotelFetch("/api/v1/hotel/rooms"),
       ]);
 
       const [summaryJson, tasksJson, roomsJson] = await Promise.all([
@@ -136,7 +137,7 @@ export default function HousekeepingPage() {
   const handleStartTask = async (taskId: string) => {
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/housekeeping/tasks/${taskId}/start`, {
+      const res = await hotelFetch(`/api/v1/hotel/housekeeping/tasks/${taskId}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -155,7 +156,7 @@ export default function HousekeepingPage() {
   const handleCompleteTask = async (taskId: string) => {
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/housekeeping/tasks/${taskId}/complete`, {
+      const res = await hotelFetch(`/api/v1/hotel/housekeeping/tasks/${taskId}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -179,7 +180,7 @@ export default function HousekeepingPage() {
     }
     try {
       setActionLoading(true);
-      const res = await fetch("/api/v1/hotel/housekeeping/tasks", {
+      const res = await hotelFetch("/api/v1/hotel/housekeeping/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +211,7 @@ export default function HousekeepingPage() {
 
     try {
       setActionLoading(true);
-      const res = await fetch(
+      const res = await hotelFetch(
         `/api/v1/hotel/housekeeping/tasks/${selectedTask.taskId}/inspect`,
         {
           method: "POST",

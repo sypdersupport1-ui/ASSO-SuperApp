@@ -762,8 +762,12 @@ export async function resolveMaintenanceRequest(
   if (!input.resolutionNotes || !input.resolutionNotes.trim()) {
     throw new ValidationError("Resolution notes are required when resolving a maintenance request.");
   }
-
-  const restoreTarget = input.restoreRoomOperationalStatus || "AVAILABLE";
+  let restoreTarget: "AVAILABLE" | "OUT_OF_SERVICE" | "OUT_OF_ORDER" | "KEEP_CURRENT" = "AVAILABLE";
+  if (typeof input.restoreRoomOperationalStatus === "string") {
+    restoreTarget = input.restoreRoomOperationalStatus;
+  } else if ((input.restoreRoomOperationalStatus as any) === false) {
+    restoreTarget = "KEEP_CURRENT";
+  }
 
   const outletId = await db.transaction(async (tx) => {
     // 1. Lock request row

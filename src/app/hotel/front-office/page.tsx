@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
+import { hotelFetch } from "@/lib/hotel/client-auth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -87,7 +88,7 @@ export default function FrontOfficePage() {
         ? `/api/v1/hotel/front-office?search=${encodeURIComponent(searchTerm.trim())}`
         : "/api/v1/hotel/front-office";
 
-      const res = await fetch(url);
+      const res = await hotelFetch(url);
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -104,7 +105,7 @@ export default function FrontOfficePage() {
   // Fetch room options for check-in
   const fetchRoomOptions = async (roomTypeId?: string) => {
     try {
-      const res = await fetch("/api/v1/hotel/rooms");
+      const res = await hotelFetch("/api/v1/hotel/rooms");
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const rooms: RoomOption[] = json.data
@@ -165,7 +166,7 @@ export default function FrontOfficePage() {
 
     setCheckInLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/reservations/${selectedArrival.reservationId}/check-in`, {
+      const res = await hotelFetch(`/api/v1/hotel/reservations/${selectedArrival.reservationId}/check-in`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -201,7 +202,7 @@ export default function FrontOfficePage() {
 
     setCheckoutLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/stays/${selectedDeparture.stayId}/check-out`, {
+      const res = await hotelFetch(`/api/v1/hotel/stays/${selectedDeparture.stayId}/check-out`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

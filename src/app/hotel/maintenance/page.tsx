@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
+import { hotelFetch } from "@/lib/hotel/client-auth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,9 +86,9 @@ export default function MaintenancePage() {
       setError(null);
 
       const [reqRes, sumRes, roomsRes] = await Promise.all([
-        fetch("/api/v1/hotel/maintenance"),
-        fetch("/api/v1/hotel/maintenance/summary"),
-        fetch("/api/v1/hotel/rooms"),
+        hotelFetch("/api/v1/hotel/maintenance"),
+        hotelFetch("/api/v1/hotel/maintenance/summary"),
+        hotelFetch("/api/v1/hotel/rooms"),
       ]);
 
       if (!reqRes.ok || !sumRes.ok) {
@@ -148,7 +149,7 @@ export default function MaintenancePage() {
 
     try {
       setActionLoading(true);
-      const res = await fetch("/api/v1/hotel/maintenance", {
+      const res = await hotelFetch("/api/v1/hotel/maintenance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -188,7 +189,7 @@ export default function MaintenancePage() {
   const handleStartWork = async (requestId: string) => {
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/maintenance/${requestId}/start`, {
+      const res = await hotelFetch(`/api/v1/hotel/maintenance/${requestId}/start`, {
         method: "POST",
       });
       const json = await res.json();
@@ -216,7 +217,7 @@ export default function MaintenancePage() {
 
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/maintenance/${selectedRequest.requestId}/resolve`, {
+      const res = await hotelFetch(`/api/v1/hotel/maintenance/${selectedRequest.requestId}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -250,7 +251,7 @@ export default function MaintenancePage() {
     if (!confirm("Are you sure you want to officially close this resolved request?")) return;
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/maintenance/${requestId}/close`, {
+      const res = await hotelFetch(`/api/v1/hotel/maintenance/${requestId}/close`, {
         method: "POST",
       });
       const json = await res.json();
@@ -274,7 +275,7 @@ export default function MaintenancePage() {
 
     try {
       setActionLoading(true);
-      const res = await fetch(`/api/v1/hotel/maintenance/${requestId}/reopen`, {
+      const res = await hotelFetch(`/api/v1/hotel/maintenance/${requestId}/reopen`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
