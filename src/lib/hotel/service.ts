@@ -1,10 +1,12 @@
 import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { outlets } from "@/db/schema/core";
+import { outlets, customers } from "@/db/schema/core";
 import { businessContexts } from "@/db/schema/context";
 import {
   hotelRoomTypes,
   hotelRooms,
+  hotelStays,
+  hotelGuests,
   type HotelOperationalStatus,
   type HotelHousekeepingStatus,
   type HotelRoomType,
@@ -76,6 +78,9 @@ export interface HotelDashboardMetrics {
   reservedRooms: number;
   outOfServiceRooms: number;
   occupancyRatePct: number;
+  activeStaysCount: number;
+  todayCheckInsCount: number;
+  todayCheckOutsCount: number;
   housekeepingBreakdown: {
     clean: number;
     dirty: number;
@@ -356,7 +361,38 @@ export async function listRooms(
     .where(and(...conditions))
     .orderBy(hotelRooms.floorNumber, hotelRooms.roomNumber);
 
-  return rows;
+  // Fetch active stays for rooms in this property
+  const activeStays = await db
+    .select({
+      roomId: hotelStays.roomId,
+      stayId: hotelStays.stayId,
+      stayNumber: hotelStays.stayNumber,
+      expectedCheckOutAt: hotelStays.expectedCheckOutAt,
+      guestName: customers.fullName,
+    })
+    .from(hotelStays)
+    .innerJoin(hotelGuests, eq(hotelStays.guestId, hotelGuests.guestId))
+    .innerJoin(customers, eq(hotelGuests.customerId, customers.customerId))
+    .where(
+      and(
+        eq(hotelStays.tenantId, tenantId),
+        eq(hotelStays.outletId, outletId),
+        eq(hotelStays.status, "ACTIVE")
+      )
+    );
+
+  const stayMap = new Map(activeStays.map((s) => [s.roomId, s]));
+
+  return rows.map((r) => {
+    const activeStay = stayMap.get(r.roomId);
+    return {
+      ...r,
+      currentOccupant: activeStay?.guestName || null,
+      currentStayNumber: activeStay?.stayNumber || null,
+      currentStayId: activeStay?.stayId || null,
+      expectedCheckOutAt: activeStay?.expectedCheckOutAt || null,
+    };
+  });
 }
 
 /**
@@ -631,6 +667,39 @@ export async function getHotelDashboardMetrics(
 
   const occupancyRatePct = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
 
+  // Compute stay metrics from PostgreSQL
+  const stays = await db
+    .select({
+      stayId: hotelStays.stayId,
+      checkInAt: hotelStays.checkInAt,
+      actualCheckOutAt: hotelStays.actualCheckOutAt,
+      status: hotelStays.status,
+    })
+    .from(hotelStays)
+    .where(
+      and(
+        eq(hotelStays.tenantId, tenantId),
+        eq(hotelStays.outletId, outletId)
+      )
+    );
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  let activeStaysCount = 0;
+  let todayCheckInsCount = 0;
+  let todayCheckOutsCount = 0;
+
+  for (const s of stays) {
+    if (s.status === "ACTIVE") activeStaysCount++;
+    if (s.checkInAt >= todayStart && s.checkInAt <= todayEnd) todayCheckInsCount++;
+    if (s.actualCheckOutAt && s.actualCheckOutAt >= todayStart && s.actualCheckOutAt <= todayEnd) {
+      todayCheckOutsCount++;
+    }
+  }
+
   return {
     totalRooms,
     availableRooms,
@@ -638,6 +707,9 @@ export async function getHotelDashboardMetrics(
     reservedRooms,
     outOfServiceRooms,
     occupancyRatePct,
+    activeStaysCount,
+    todayCheckInsCount,
+    todayCheckOutsCount,
     housekeepingBreakdown,
     roomTypeBreakdown: Array.from(typeMap.values()),
   };

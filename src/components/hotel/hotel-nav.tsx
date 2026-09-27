@@ -10,6 +10,7 @@ import {
   BedDouble,
   Users,
   CalendarDays,
+  KeyRound,
   Settings,
   ArrowLeft,
   Menu,
@@ -34,6 +35,7 @@ export function HotelNav({ propertyName = "ASSO Grand Hotel", propertyCode = "AG
     { label: "Room Types", href: "/hotel/room-types", icon: BedDouble },
     { label: "Guests", href: "/hotel/guests", icon: Users },
     { label: "Reservations", href: "/hotel/reservations", icon: CalendarDays },
+    { label: "Stays", href: "/hotel/stays", icon: KeyRound },
     { label: "Settings", href: "/hotel/settings", icon: Settings },
   ];
 

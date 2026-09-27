@@ -20,6 +20,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Building,
+  KeyRound,
 } from "lucide-react";
 
 interface DashboardData {
@@ -29,6 +30,9 @@ interface DashboardData {
   reservedRooms: number;
   outOfServiceRooms: number;
   occupancyRatePct: number;
+  activeStaysCount: number;
+  todayCheckInsCount: number;
+  todayCheckOutsCount: number;
   housekeepingBreakdown: {
     clean: number;
     dirty: number;
@@ -103,8 +107,8 @@ export default function HotelDashboardPage() {
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
                 Hotel Operations Dashboard
               </h1>
-              <Badge variant="outline" className="text-xs font-mono">
-                Slice 1
+              <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
+                Slice 3: Stays &amp; Occupancy
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
@@ -270,6 +274,75 @@ export default function HotelDashboardPage() {
               </Card>
             </div>
 
+            {/* Front Office Stays Lifecycle Grid (Slice 3) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardDescription className="text-xs uppercase font-semibold text-primary">
+                      Active In-House Stays
+                    </CardDescription>
+                    <KeyRound className="h-4 w-4 text-primary" />
+                  </div>
+                  <CardTitle className="text-2xl font-black text-foreground">
+                    {data.activeStaysCount ?? 0}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between pt-0">
+                  <p className="text-xs text-muted-foreground">Currently occupying hotel rooms</p>
+                  <Link href="/hotel/stays">
+                    <Button variant="ghost" size="sm" className="text-xs h-7 text-primary hover:text-primary">
+                      View Ledger <ArrowRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardDescription className="text-xs uppercase font-semibold text-muted-foreground">
+                      Today&apos;s Check-Ins
+                    </CardDescription>
+                    <Badge variant="outline" className="text-[10px]">Arrivals</Badge>
+                  </div>
+                  <CardTitle className="text-2xl font-black text-foreground">
+                    {data.todayCheckInsCount ?? 0}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between pt-0">
+                  <p className="text-xs text-muted-foreground">Reservations arriving today</p>
+                  <Link href="/hotel/reservations">
+                    <Button variant="ghost" size="sm" className="text-xs h-7">
+                      Check-In <ArrowRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardDescription className="text-xs uppercase font-semibold text-muted-foreground">
+                      Today&apos;s Check-Outs
+                    </CardDescription>
+                    <Badge variant="outline" className="text-[10px]">Departures</Badge>
+                  </div>
+                  <CardTitle className="text-2xl font-black text-foreground">
+                    {data.todayCheckOutsCount ?? 0}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between pt-0">
+                  <p className="text-xs text-muted-foreground">Stays scheduled to depart</p>
+                  <Link href="/hotel/stays">
+                    <Button variant="ghost" size="sm" className="text-xs h-7">
+                      Departures <ArrowRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Middle Section: Housekeeping & Room Types */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Housekeeping Operational Status */}
@@ -392,8 +465,14 @@ export default function HotelDashboardPage() {
                       </Button>
                     </Link>
                     <Link href="/hotel/reservations">
+                      <Button variant="outline" size="sm">
+                        Reservations
+                      </Button>
+                    </Link>
+                    <Link href="/hotel/stays">
                       <Button size="sm">
-                        Reservations Ledger
+                        <KeyRound className="h-3.5 w-3.5 mr-1" />
+                        Stays Ledger
                       </Button>
                     </Link>
                   </div>

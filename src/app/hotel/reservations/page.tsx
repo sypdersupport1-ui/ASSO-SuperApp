@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import {
   Users,
   Check,
   AlertTriangle,
+  KeyRound,
 } from "lucide-react";
 
 interface ReservationItem {
@@ -51,7 +53,7 @@ interface ReservationItem {
   departureDate: string;
   adultCount: number;
   childrenCount: number;
-  status: "PENDING" | "CONFIRMED" | "CANCELLED" | "NO_SHOW";
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "COMPLETED" | "CANCELLED" | "NO_SHOW";
   specialRequests: string | null;
   totalAmount: string | null;
   createdAt: string;
@@ -112,6 +114,13 @@ export default function HotelReservationsPage() {
   const [selectedRes, setSelectedRes] = useState<ReservationItem | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [assignRoomId, setAssignRoomId] = useState("");
+
+  // Check-In Modal State
+  const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
+  const [checkInRes, setCheckInRes] = useState<ReservationItem | null>(null);
+  const [checkInRoomId, setCheckInRoomId] = useState("");
+  const [checkInNotes, setCheckInNotes] = useState("");
+  const [checkInLoading, setCheckInLoading] = useState(false);
 
   // Initialize dates to tomorrow / 3 days ahead
   useEffect(() => {
@@ -315,8 +324,52 @@ export default function HotelReservationsPage() {
     }
   };
 
+  const handleCheckInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkInRes || !checkInRoomId) return;
+
+    setCheckInLoading(true);
+    try {
+      const res = await fetch(`/api/v1/hotel/reservations/${checkInRes.reservationId}/check-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: checkInRoomId,
+          notes: checkInNotes.trim() || undefined,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setCheckInDialogOpen(false);
+        setCheckInRes(null);
+        setCheckInNotes("");
+        setDetailDialogOpen(false);
+        await fetchReservations();
+      } else {
+        alert("Check-in failed: " + (json.error?.message || "Unknown error"));
+      }
+    } catch {
+      alert("Error submitting check-in.");
+    } finally {
+      setCheckInLoading(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "CHECKED_IN":
+        return (
+          <Badge variant="default" className="text-xs flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white">
+            <KeyRound className="h-3 w-3" /> CHECKED IN
+          </Badge>
+        );
+      case "COMPLETED":
+        return (
+          <Badge variant="outline" className="text-xs flex items-center gap-1 text-emerald-500 border-emerald-500/30">
+            <CheckCircle2 className="h-3 w-3" /> COMPLETED
+          </Badge>
+        );
       case "CONFIRMED":
         return (
           <Badge variant="success" className="text-xs flex items-center gap-1">
@@ -568,7 +621,7 @@ export default function HotelReservationsPage() {
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            {(["ALL", "CONFIRMED", "PENDING", "CANCELLED", "NO_SHOW"] as const).map((st) => (
+            {(["ALL", "CONFIRMED", "CHECKED_IN", "PENDING", "COMPLETED", "CANCELLED", "NO_SHOW"] as const).map((st) => (
               <Button
                 key={st}
                 variant={statusFilter === st ? "default" : "outline"}
@@ -576,7 +629,7 @@ export default function HotelReservationsPage() {
                 className="text-xs h-9 px-3"
                 onClick={() => setStatusFilter(st)}
               >
-                {st}
+                {st === "CHECKED_IN" ? "Checked In" : st}
               </Button>
             ))}
           </div>
@@ -671,7 +724,22 @@ export default function HotelReservationsPage() {
                         <td className="px-6 py-4">
                           {getStatusBadge(res.status)}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-right space-x-1.5">
+                          {res.status === "CONFIRMED" && (
+                            <Button
+                              size="sm"
+                              className="h-8 gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                              onClick={() => {
+                                setCheckInRes(res);
+                                setCheckInRoomId(res.assignedRoomId || "");
+                                setCheckInNotes("");
+                                setCheckInDialogOpen(true);
+                              }}
+                            >
+                              <KeyRound className="h-3.5 w-3.5" />
+                              Check In
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -822,6 +890,20 @@ export default function HotelReservationsPage() {
                   {selectedRes.status === "CONFIRMED" && (
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
+                        size="sm"
+                        className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                        onClick={() => {
+                          setCheckInRes(selectedRes);
+                          setCheckInRoomId(selectedRes.assignedRoomId || "");
+                          setCheckInNotes("");
+                          setCheckInDialogOpen(true);
+                        }}
+                        disabled={actionLoading}
+                      >
+                        <KeyRound className="h-4 w-4" />
+                        Check In Guest
+                      </Button>
+                      <Button
                         variant="destructive"
                         size="sm"
                         className="gap-1.5"
@@ -844,6 +926,29 @@ export default function HotelReservationsPage() {
                     </div>
                   )}
 
+                  {selectedRes.status === "CHECKED_IN" && (
+                    <div className="flex items-center justify-between p-3 rounded-md bg-blue-500/10 border border-blue-500/30 text-xs">
+                      <div className="flex items-center gap-2 text-blue-400">
+                        <KeyRound className="h-4 w-4 shrink-0" />
+                        <span>Guest is currently in-house. Manage occupancy or check-out in Stays Ledger.</span>
+                      </div>
+                      <Link href="/hotel/stays">
+                        <Button size="sm" variant="outline" className="h-7 text-xs whitespace-nowrap">
+                          Open Stays Ledger
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
+
+                  {selectedRes.status === "COMPLETED" && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 rounded-md bg-muted/40 border border-border">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <span>
+                        This reservation has concluded and is <strong>COMPLETED</strong>.
+                      </span>
+                    </div>
+                  )}
+
                   {(selectedRes.status === "CANCELLED" || selectedRes.status === "NO_SHOW") && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 rounded-md bg-muted/40 border border-border">
                       <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
@@ -861,6 +966,92 @@ export default function HotelReservationsPage() {
                 Close
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Check-In Dialog */}
+        <Dialog open={checkInDialogOpen} onOpenChange={setCheckInDialogOpen}>
+          <DialogContent className="max-w-md">
+            <form onSubmit={handleCheckInSubmit}>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-5 w-5 text-emerald-500" />
+                  Check In Guest
+                </DialogTitle>
+                <DialogDescription>
+                  Initiates an active Stay, assigns the physical room, and marks the room as OCCUPIED.
+                </DialogDescription>
+              </DialogHeader>
+
+              {checkInRes && (
+                <div className="space-y-4 py-4 text-xs">
+                  <div className="rounded-lg border border-border p-3.5 bg-muted/20 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Guest:</span>
+                      <span className="font-semibold text-foreground">{checkInRes.guestName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Room Type:</span>
+                      <span className="font-medium text-foreground">{checkInRes.roomTypeName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Stay Dates:</span>
+                      <span className="font-mono text-foreground">{checkInRes.arrivalDate} → {checkInRes.departureDate}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-foreground">Select Physical Room *</label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      value={checkInRoomId}
+                      onChange={(e) => setCheckInRoomId(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Choose available room --</option>
+                      {availableRooms
+                        .filter(
+                          (r) =>
+                            r.roomTypeId === checkInRes.roomTypeId &&
+                            (r.operationalStatus === "AVAILABLE" || r.roomId === checkInRes.assignedRoomId)
+                        )
+                        .map((r) => (
+                          <option key={r.roomId} value={r.roomId}>
+                            Room {r.roomNumber} ({r.operationalStatus})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-foreground">Check-in Notes</label>
+                    <Input
+                      placeholder="e.g. VIP welcome kit provided, keycard issued"
+                      value={checkInNotes}
+                      onChange={(e) => setCheckInNotes(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCheckInDialogOpen(false)}
+                  disabled={checkInLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={checkInLoading || !checkInRoomId}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                >
+                  {checkInLoading ? "Checking In..." : "Confirm Check-In"}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
       </main>
