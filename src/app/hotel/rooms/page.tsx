@@ -30,6 +30,11 @@ import {
   SlidersHorizontal,
   User,
   LogOut,
+  QrCode,
+  RotateCcw,
+  Ban,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import {
   HOTEL_OPERATIONAL_STATUSES,
@@ -88,6 +93,84 @@ export default function HotelRoomsPage() {
   const [updateOpStatus, setUpdateOpStatus] = useState<HotelOperationalStatus>("AVAILABLE");
   const [updateHkStatus, setUpdateHkStatus] = useState<HotelHousekeepingStatus>("CLEAN");
   const [updating, setUpdating] = useState(false);
+
+  // QR Code Management State
+  const [qrRoom, setQrRoom] = useState<RoomItem | null>(null);
+  const [qrData, setQrData] = useState<{
+    tokenId: string;
+    opaqueToken: string;
+    tokenStatus: string;
+    qrUrl: string;
+    qrSvgDataUri: string;
+    createdAt: string;
+  } | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrActionLoading, setQrActionLoading] = useState(false);
+
+  const openQrModal = async (room: RoomItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQrRoom(room);
+    setQrData(null);
+    setQrLoading(true);
+    try {
+      const res = await fetch(`/api/v1/hotel/rooms/${room.roomId}/qr?outletId=${room.roomTypeId ? "00000000-0000-0000-0000-000000000001" : ""}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        setQrData(json.data);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleRotateQr = async () => {
+    if (!qrRoom) return;
+    if (!confirm(`Rotate QR code for Room ${qrRoom.roomNumber}? Previous QR token and guest sessions will be invalidated.`)) return;
+    setQrActionLoading(true);
+    try {
+      const res = await fetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/rotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "STAFF_REQUESTED_ROTATION" }),
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        setQrData(json.data);
+      } else {
+        alert(json.error?.message || "Failed to rotate QR code.");
+      }
+    } catch {
+      alert("Error rotating QR code.");
+    } finally {
+      setQrActionLoading(false);
+    }
+  };
+
+  const handleRevokeQr = async () => {
+    if (!qrRoom) return;
+    const reason = prompt(`Enter revocation reason for Room ${qrRoom.roomNumber} QR code:`, "MAINTENANCE_OR_SUSPECTED_TAMPERING");
+    if (!reason) return;
+    setQrActionLoading(true);
+    try {
+      const res = await fetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setQrData((prev) => prev ? { ...prev, tokenStatus: "REVOKED" } : null);
+      } else {
+        alert(json.error?.message || "Failed to revoke QR code.");
+      }
+    } catch {
+      alert("Error revoking QR code.");
+    } finally {
+      setQrActionLoading(false);
+    }
+  };
 
   const fetchRoomsAndTypes = async () => {
     setLoading(true);
@@ -473,8 +556,16 @@ export default function HotelRoomsPage() {
                     </div>
                   )}
 
-                  <div className="mt-2 text-[10px] text-muted-foreground/70 font-mono truncate">
-                    ctx: {room.contextId.slice(0, 8)}...
+                  <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between text-[10px] text-muted-foreground/80 font-mono">
+                    <span className="truncate max-w-[120px]">ctx: {room.contextId.slice(0, 8)}...</span>
+                    <button
+                      type="button"
+                      onClick={(e) => openQrModal(room, e)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary font-sans font-semibold text-[11px] transition"
+                    >
+                      <QrCode className="h-3 w-3" />
+                      <span>QR Code</span>
+                    </button>
                   </div>
                 </div>
               );
@@ -592,6 +683,127 @@ export default function HotelRoomsPage() {
                 </Button>
                 <Button onClick={handleUpdateStatus} disabled={updating}>
                   {updating ? "Saving..." : "Apply Transition"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* QR Code Administration Dialog */}
+        {qrRoom && (
+          <Dialog open={!!qrRoom} onOpenChange={(open) => !open && setQrRoom(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-primary" />
+                  Room {qrRoom.roomNumber} QR Administration
+                </DialogTitle>
+                <DialogDescription>
+                  Digital guest entry token for Room {qrRoom.roomNumber} ({qrRoom.roomTypeName})
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-3">
+                {qrLoading && (
+                  <div className="py-10 text-center space-y-2">
+                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-xs text-muted-foreground">Loading room QR code...</p>
+                  </div>
+                )}
+
+                {!qrLoading && qrData && (
+                  <div className="space-y-4">
+                    {/* Visual QR Card */}
+                    <div className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-2xl shadow-inner">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={qrData.qrSvgDataUri}
+                        alt={`QR code for Room ${qrRoom.roomNumber}`}
+                        className="w-48 h-48 rounded-lg shadow-sm"
+                      />
+                      <div className="mt-2 text-center">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Room {qrRoom.roomNumber} Guest Entry
+                        </span>
+                        <div className="flex items-center justify-center gap-1.5 mt-1">
+                          <Badge
+                            variant={qrData.tokenStatus === "ACTIVE" ? "default" : "destructive"}
+                            className="text-[10px]"
+                          >
+                            {qrData.tokenStatus}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {qrData.opaqueToken.slice(0, 10)}...
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Guest Landing URL Link */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-muted-foreground">Customer Landing URL</label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          readOnly
+                          value={qrData.qrUrl}
+                          className="text-xs font-mono bg-muted/50 h-8"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2.5 text-xs gap-1"
+                          onClick={() => {
+                            navigator.clipboard.writeText(qrData.qrUrl);
+                            alert("Copied guest link to clipboard!");
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          <span>Copy</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2.5 text-xs gap-1"
+                          onClick={() => window.open(qrData.qrUrl, "_blank")}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Administrative Actions */}
+                    <div className="pt-2 border-t flex flex-col gap-2">
+                      <div className="text-xs font-semibold text-muted-foreground">Lifecycle Operations</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={qrActionLoading}
+                          onClick={handleRotateQr}
+                          className="text-xs gap-1.5"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span>Rotate Token</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={qrActionLoading || qrData.tokenStatus === "REVOKED"}
+                          onClick={handleRevokeQr}
+                          className="text-xs gap-1.5 text-rose-600 border-rose-500/30 hover:bg-rose-500/10"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                          <span>Revoke QR</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setQrRoom(null)}>
+                  Close
                 </Button>
               </DialogFooter>
             </DialogContent>

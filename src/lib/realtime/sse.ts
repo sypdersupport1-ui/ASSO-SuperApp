@@ -4,6 +4,8 @@ export interface SseClient {
   id: string;
   tenantId: string;
   outletId?: string;
+  contextId?: string;
+  sessionType?: "STAFF" | "SUPER_ADMIN" | "CUSTOMER";
   send: (data: Uint8Array) => void;
   close: () => void;
 }
@@ -16,7 +18,7 @@ class RealtimeHub {
     logger.debug({
       message: `SSE client connected: ${client.id}`,
       tenantId: client.tenantId,
-      details: { totalClients: this.clients.size },
+      details: { totalClients: this.clients.size, sessionType: client.sessionType, contextId: client.contextId },
     });
   }
 
@@ -46,11 +48,54 @@ class RealtimeHub {
 
     for (const [id, client] of this.clients.entries()) {
       if (client.tenantId === tenantId) {
+        // If customer client, only receive tenant events if they don't leak room/staff context
+        if (client.sessionType === "CUSTOMER" && !client.contextId) {
+          continue;
+        }
         try {
           client.send(encoded);
           deliveredCount++;
         } catch {
           deadClients.push(id);
+        }
+      }
+    }
+
+    // Clean up dead sockets
+    for (const id of deadClients) {
+      this.unregisterClient(id);
+    }
+
+    return deliveredCount;
+  }
+
+  async broadcastToContext(
+    tenantId: string,
+    contextId: string,
+    eventName: string,
+    data: unknown,
+    eventId?: string
+  ): Promise<number> {
+    const payload = this.formatSseMessage(eventName, data, eventId);
+    const encoder = new TextEncoder();
+    const encoded = encoder.encode(payload);
+
+    let deliveredCount = 0;
+    const deadClients: string[] = [];
+
+    for (const [id, client] of this.clients.entries()) {
+      if (client.tenantId === tenantId) {
+        // Deliver if client matches room context OR is a staff member for the tenant
+        const isTargetRoomCustomer = client.sessionType === "CUSTOMER" && client.contextId === contextId;
+        const isStaff = client.sessionType !== "CUSTOMER";
+
+        if (isTargetRoomCustomer || isStaff) {
+          try {
+            client.send(encoded);
+            deliveredCount++;
+          } catch {
+            deadClients.push(id);
+          }
         }
       }
     }
@@ -83,3 +128,7 @@ class RealtimeHub {
 }
 
 export const realtimeHub = new RealtimeHub();
+export function getRealtimeHub(): RealtimeHub {
+  return realtimeHub;
+}
+
