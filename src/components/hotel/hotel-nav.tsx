@@ -17,6 +17,7 @@ import {
   X,
   Hotel,
   ConciergeBell,
+  Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function HotelNav({ propertyName = "ASSO Grand Hotel", propertyCode = "AG
     { label: "Guests", href: "/hotel/guests", icon: Users },
     { label: "Reservations", href: "/hotel/reservations", icon: CalendarDays },
     { label: "Stays", href: "/hotel/stays", icon: KeyRound },
+    { label: "Housekeeping", href: "/hotel/housekeeping", icon: Sparkles },
     { label: "Settings", href: "/hotel/settings", icon: Settings },
   ];
 
