@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useTransition, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Bell,
   Sparkles,
@@ -20,6 +21,7 @@ import {
   X,
   Smartphone,
   Plus,
+  UtensilsCrossed,
 } from "lucide-react";
 
 interface CustomerContext {
@@ -405,9 +407,33 @@ function HotelGuestPortalContent() {
 
         {/* TAB 1: Services List */}
         {activeTab === "services" && (
-          <section aria-label="Available hotel service categories" className="space-y-3.5">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-              Select a Service Category
+          <section aria-label="Available hotel service categories" className="space-y-4">
+            {/* Featured: In-Room Dining */}
+            <Link
+              href="/hotel/guest/room-service"
+              className="w-full text-left bg-gradient-to-r from-amber-500/10 via-slate-900/90 to-slate-900 border border-amber-500/30 hover:border-amber-500/50 p-4.5 rounded-3xl transition-all duration-200 flex items-center justify-between group shadow-xl relative overflow-hidden"
+            >
+              <div className="flex items-center space-x-4">
+                <div className="w-13 h-13 rounded-2xl flex items-center justify-center bg-amber-500/20 border border-amber-500/30 text-amber-400 group-hover:scale-105 transition-transform">
+                  <UtensilsCrossed className="w-6 h-6" />
+                </div>
+                <div className="space-y-0.5">
+                  <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase tracking-wider mb-0.5">
+                    <span>24/7 Available</span>
+                  </div>
+                  <div className="text-base font-bold text-white group-hover:text-amber-300 transition-colors">
+                    In-Room Dining & Room Service
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    Gourmet breakfast, all-day mains, desserts, and fresh refreshments.
+                  </div>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-amber-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            </Link>
+
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1 pt-1">
+              Guest Services & Requests
             </h2>
             <div className="grid grid-cols-1 gap-3.5">
               {SERVICE_CATEGORIES.map((cat) => {

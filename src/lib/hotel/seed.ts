@@ -162,66 +162,74 @@ export async function ensureHotelSeedData(tenantId: string = DEMO_TENANT_ID) {
   }
 
   // 7. Ensure sample reservations exist
-  const existingReservations = await listReservations(tenantId, outletId, { limit: 1 });
-  if (existingReservations.total === 0 && primaryGuestId && deluxeType) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const inThreeDays = new Date();
-    inThreeDays.setDate(inThreeDays.getDate() + 3);
+  try {
+    const existingReservations = await listReservations(tenantId, outletId, { limit: 1 });
+    if (existingReservations.total === 0 && primaryGuestId && deluxeType) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const inThreeDays = new Date();
+      inThreeDays.setDate(inThreeDays.getDate() + 3);
 
-    await createReservation(tenantId, outletId, {
-      guestId: primaryGuestId,
-      roomTypeId: deluxeType.roomTypeId,
-      arrivalDate: tomorrow,
-      departureDate: inThreeDays,
-      adultCount: 2,
-      childrenCount: 0,
-      specialRequests: "Anniversary stay. Non-smoking room preferred.",
-      status: "CONFIRMED",
-    });
-    logger.info({ message: "Seeded demo hotel reservation" });
+      await createReservation(tenantId, outletId, {
+        guestId: primaryGuestId,
+        roomTypeId: deluxeType.roomTypeId,
+        arrivalDate: tomorrow,
+        departureDate: inThreeDays,
+        adultCount: 2,
+        childrenCount: 0,
+        specialRequests: "Anniversary stay. Non-smoking room preferred.",
+        status: "CONFIRMED",
+      });
+      logger.info({ message: "Seeded demo hotel reservation" });
+    }
+  } catch (err) {
+    logger.warn({ message: "Notice: reservation seeding skipped or already allocated", details: { error: String(err) } });
   }
 
   // 8. Ensure sample active stay exists
-  const existingStays = await listStays(tenantId, { outletId, status: "ACTIVE", limit: 1 });
-  if (existingStays.length === 0 && primaryGuestId && deluxeType) {
-    const allRooms = await listRooms(tenantId, outletId);
-    let targetRoomId = allRooms.find(
-      (r) => r.roomTypeId === deluxeType!.roomTypeId && r.operationalStatus === "AVAILABLE" && !r.isOccupied
-    )?.roomId;
+  try {
+    const existingStays = await listStays(tenantId, { outletId, status: "ACTIVE", limit: 1 });
+    if (existingStays.length === 0 && primaryGuestId && deluxeType) {
+      const allRooms = await listRooms(tenantId, outletId);
+      let targetRoomId = allRooms.find(
+        (r) => r.roomTypeId === deluxeType!.roomTypeId && r.operationalStatus === "AVAILABLE" && !r.isOccupied
+      )?.roomId;
 
-    if (!targetRoomId) {
-      const created = await createRoom(tenantId, outletId, {
-        roomNumber: `10${allRooms.length + 1}`,
-        floorNumber: "1",
+      if (!targetRoomId) {
+        const created = await createRoom(tenantId, outletId, {
+          roomNumber: `10${allRooms.length + 1}`,
+          floorNumber: "1",
+          roomTypeId: deluxeType.roomTypeId,
+          operationalStatus: "AVAILABLE",
+          housekeepingStatus: "CLEAN",
+        });
+        targetRoomId = created.roomId;
+      }
+
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const inTwoDays = new Date();
+      inTwoDays.setDate(inTwoDays.getDate() + 2);
+
+      const seedRes = await createReservation(tenantId, outletId, {
+        guestId: primaryGuestId,
         roomTypeId: deluxeType.roomTypeId,
-        operationalStatus: "AVAILABLE",
-        housekeepingStatus: "CLEAN",
+        assignedRoomId: targetRoomId,
+        arrivalDate: yesterday,
+        departureDate: inTwoDays,
+        adultCount: 1,
+        status: "CONFIRMED",
       });
-      targetRoomId = created.roomId;
+
+      await executeCheckIn(tenantId, outletId, {
+        reservationId: seedRes.reservationId,
+        roomId: targetRoomId,
+        notes: "Demo active in-house stay",
+      });
+      logger.info({ message: "Seeded demo hotel active stay" });
     }
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const inTwoDays = new Date();
-    inTwoDays.setDate(inTwoDays.getDate() + 2);
-
-    const seedRes = await createReservation(tenantId, outletId, {
-      guestId: primaryGuestId,
-      roomTypeId: deluxeType.roomTypeId,
-      assignedRoomId: targetRoomId,
-      arrivalDate: yesterday,
-      departureDate: inTwoDays,
-      adultCount: 1,
-      status: "CONFIRMED",
-    });
-
-    await executeCheckIn(tenantId, outletId, {
-      reservationId: seedRes.reservationId,
-      roomId: targetRoomId,
-      notes: "Demo active in-house stay",
-    });
-    logger.info({ message: "Seeded demo hotel active stay" });
+  } catch (err) {
+    logger.warn({ message: "Notice: active stay seeding skipped or already present", details: { error: String(err) } });
   }
 
   return {
