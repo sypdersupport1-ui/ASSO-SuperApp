@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Hotel,
+  ConciergeBell,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ export function HotelNav({ propertyName = "ASSO Grand Hotel", propertyCode = "AG
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
+    { label: "Front Desk", href: "/hotel/front-office", icon: ConciergeBell },
     { label: "Dashboard", href: "/hotel", icon: LayoutDashboard },
     { label: "Rooms & Rack", href: "/hotel/rooms", icon: DoorOpen },
     { label: "Room Types", href: "/hotel/room-types", icon: BedDouble },
