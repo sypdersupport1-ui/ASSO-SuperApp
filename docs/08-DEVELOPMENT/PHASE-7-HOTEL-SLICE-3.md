@@ -35,7 +35,7 @@ Reservation (Planned)
 ### Strict Scope Boundaries
 * **In Scope**: Check-in, Stays, Occupancy, Check-out, single active stay invariants, room rack occupant display, front office stays ledger, native concurrency locking.
 * **Deferred to Later Slices (Out of Scope)**:
-  * Folio settlement, invoices, and split billing (Slice 4)
+  * Folio settlement, invoices, and split billing (Slice 9)
   * Payment gateways / refunds / Razorpay integration
   * Housekeeping shift assignment & cleaning inspection workflows
   * Maintenance work orders
@@ -220,6 +220,6 @@ All automated tests run sequentially (`fileParallelism: false`) against the live
 
 ## 9. Known Limitations & Deferred Decisions
 
-1. **Folio & Invoicing**: Stay records are architected to cleanly attach to upcoming Folio ledgers in Slice 4. No fake financial records are introduced.
+1. **Folio & Billing**: Stay records are architected to cleanly attach to upcoming Folio ledgers in Slice 9. No fake financial records are introduced.
 2. **Housekeeping Shifts**: Room checkout marks rooms as `DIRTY`. Cleaning schedules and inspection approvals belong to the housekeeping slice.
 3. **External Payment Providers**: Razorpay / credit card payments remain deferred as per platform roadmap.
