@@ -7,7 +7,12 @@
 **Vertical**: Hotel (First Production Vertical)  
 **Parent Platform**: ASSO SuperApp Architecture  
 **Database**: Dedicated Supabase PostgreSQL (`jtixaywlxkfgtgclgcka.supabase.co`)  
-**Git Branch**: `feature/phase7-hotel-slice5`  
+**Starting Commit**: `fec2bae`  
+**Final Commit**: `7dbd748`  
+**Branch**: `feature/phase7-hotel-slice5`  
+**Target Branch**: `develop`  
+**Remote**: `origin/develop`  
+**Working Tree**: Clean  
 **Dependencies**: Phase 0–6 Platform Foundation, Phase 7 Slice 1 (`7c9045d`), Phase 7 Slice 2 (`46e7080`), Phase 7 Slice 3 (`ef1a935`), Phase 7 Slice 4 (`fec2bae`)
 
 ---
@@ -131,7 +136,28 @@ Physical Room Housekeeping Status:
    - Upon guest checkout: Stay → `COMPLETED`, Room operational status → `AVAILABLE`, Room housekeeping status → `DIRTY`.
    - Automatically invokes `createTurnoverTaskForRoom`, creating a `DEPARTURE_TURNOVER` task with `URGENT`/`HIGH` priority and `CHECKOUT` trigger source.
 
+### 4.1 Housekeeping Readiness Policy & Certification Hierarchy
+
+To prevent operational ambiguity between physical room availability and guest readiness, the platform defines the following authoritative readiness policy based on current implementation:
+
+1. **Readiness Determination**:
+   - A room is determined to be ready for guest assignment (`readyForOccupancy`) when:
+     $$\text{operationalStatus} = \text{'AVAILABLE'} \quad \text{AND} \quad \text{housekeepingStatus} \in \{\text{'CLEAN'}, \text{'INSPECTED'}\}$$
+   - Operational availability alone never implies readiness: an `AVAILABLE + DIRTY` room cannot receive an arriving guest.
+2. **Certification Hierarchy (`CLEAN` vs. `INSPECTED`)**:
+   - **`CLEAN`**: Indicates that cleaning staff have completed physical turnover/cleaning procedures. In routine daily refreshes or touch-ups, `CLEAN` is acceptable for operational workflows.
+   - **`INSPECTED`**: Represents the highest, authoritative certification state. It confirms that an authorized supervisor or quality inspector (`hotel.housekeeping.inspect`) has verified cleanliness, linen quality, and amenity standards.
+3. **Mandatory Inspection for Departure Turnovers**:
+   - For `DEPARTURE_TURNOVER` tasks generated after guest check-out, the operational standard requires the room to pass inspection (`INSPECTED`) before it is released for new guest occupancy.
+4. **Inspection Failure & Revocation Policy**:
+   - If an inspection fails (`passed: false`):
+     - The physical room status is immediately revoked from `CLEAN` and reset to `DIRTY`.
+     - The task status is reopened to `PENDING` with `trigger_source = 'INSPECTION_FAILED'`.
+     - Detailed inspection notes documenting defects are recorded in `inspection_notes`.
+     - The room is completely excluded from `readyForOccupancy` until re-cleaned and successfully re-inspected.
+
 ---
+
 
 ## 5. API Endpoints Specification
 
