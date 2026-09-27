@@ -591,6 +591,9 @@ export async function createRoomServiceOrder(
   const randomSuffix = crypto.randomBytes(2).toString("hex").toUpperCase();
   const orderNumber = `RS-${dateStr}-${randomSuffix}`;
 
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const validSessionId = user.sub && uuidRegex.test(user.sub) ? user.sub : null;
+
   // 5. Insert Order
   const [createdOrder] = await db
     .insert(orders)
@@ -598,7 +601,7 @@ export async function createRoomServiceOrder(
       tenantId,
       outletId,
       contextId,
-      sessionId: user.sub,
+      sessionId: validSessionId,
       orderNumber,
       orderSource: "QR_CUSTOMER",
       status: "PLACED",
@@ -1163,6 +1166,22 @@ export async function updateStaffRoomServiceOrderStatus(params: {
   });
 
   const staffDto = await getStaffRoomServiceOrderById({ tenantId, outletId, orderId });
+
+  // Slice 9 Financial Posting: If order reaches DELIVERED status, post food charge to stay folio idempotently
+  if (nextStatus === "DELIVERED") {
+    try {
+      const { postRoomServiceOrderCharge } = await import("./folio-service");
+      await postRoomServiceOrderCharge({
+        tenantId,
+        outletId,
+        orderId,
+        postedByStaffId: staffUserId,
+      });
+    } catch (err) {
+      // Log warning but do not break operational fulfillment flow
+      console.warn("Folio posting error on order delivery:", err);
+    }
+  }
 
   // Broadcast realtime updates
   try {

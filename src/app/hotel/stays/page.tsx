@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ import {
   Star,
   Sparkles,
   ArrowRight,
+  Receipt,
 } from "lucide-react";
 
 interface StayItem {
@@ -307,6 +309,16 @@ export default function HotelStaysPage() {
                           {getStatusBadge(stay.status)}
                         </td>
                         <td className="px-6 py-4 text-right space-x-1.5">
+                          <Link href={`/hotel/folio/${stay.stayId}`}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1 text-xs border-emerald-800/40 text-emerald-500 hover:bg-emerald-950/20"
+                            >
+                              <Receipt className="h-3.5 w-3.5" />
+                              Folio
+                            </Button>
+                          </Link>
                           <Button
                             variant="ghost"
                             size="sm"

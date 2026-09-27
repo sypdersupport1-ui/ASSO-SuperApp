@@ -446,7 +446,6 @@ describe("ASSO — Pre-Slice-9 Hotel Master QA & Release-Gate Verification Suite
         priority: "URGENT",
         title: "Bathroom faucet drip",
         description: "Requires washer replacement",
-        assignedToStaffId: staffUserId,
       });
       expect(ticket.status).toBe("OPEN");
 

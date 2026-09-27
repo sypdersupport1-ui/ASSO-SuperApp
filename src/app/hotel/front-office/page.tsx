@@ -37,6 +37,7 @@ import {
   ExternalLink,
   ChevronRight,
   Building,
+  Receipt,
 } from "lucide-react";
 import type {
   FrontOfficeSummary,
@@ -668,15 +669,27 @@ export default function FrontOfficePage() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="h-8 text-xs gap-1 font-semibold"
-                                onClick={() => openCheckout(dep)}
-                              >
-                                <LogOut className="h-3.5 w-3.5" />
-                                Check Out
-                              </Button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Link href={`/hotel/folio/${dep.stayId}`}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
+                                  >
+                                    <Receipt className="h-3.5 w-3.5" />
+                                    Folio
+                                  </Button>
+                                </Link>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 text-xs gap-1 font-semibold"
+                                  onClick={() => openCheckout(dep)}
+                                >
+                                  <LogOut className="h-3.5 w-3.5" />
+                                  Check Out
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -764,6 +777,16 @@ export default function FrontOfficePage() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1.5">
+                                <Link href={`/hotel/folio/${stay.stayId}`}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
+                                  >
+                                    <Receipt className="h-3.5 w-3.5" />
+                                    Folio
+                                  </Button>
+                                </Link>
                                 <Button
                                   variant="ghost"
                                   size="sm"
