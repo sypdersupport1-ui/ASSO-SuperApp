@@ -49,7 +49,30 @@ describe("Phase 7 Hotel Vertical — Slice 8 Room Service Security & Isolation S
       .where(and(eq(hotelRooms.tenantId, DEMO_TENANT_ID), eq(hotelRooms.outletId, demoOutletId)));
 
     const r101 = rooms.find((r) => r.roomNumber === "101") || rooms[0];
-    const r102 = rooms.find((r) => r.roomNumber === "102") || rooms[1];
+
+    // Find a room that does not have an active stay
+    const activeStays = await db
+      .select({ roomId: hotelStays.roomId })
+      .from(hotelStays)
+      .where(and(eq(hotelStays.tenantId, DEMO_TENANT_ID), eq(hotelStays.status, "ACTIVE")));
+    const activeRoomIds = new Set(activeStays.map((s) => s.roomId));
+    
+    let r102 = rooms.find((r) => !activeRoomIds.has(r.roomId));
+    if (!r102) {
+      [r102] = await db
+        .insert(hotelRooms)
+        .values({
+          tenantId: DEMO_TENANT_ID,
+          outletId: demoOutletId,
+          roomTypeId: r101.roomTypeId,
+          roomNumber: "999-NOSTAY",
+          floorNumber: "9",
+          contextId: "00000000-0000-0000-0000-000000000999",
+          operationalStatus: "AVAILABLE",
+          housekeepingStatus: "CLEAN",
+        })
+        .returning();
+    }
 
     room101Id = r101.roomId;
     room101ContextId = r101.contextId;
