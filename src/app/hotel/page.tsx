@@ -108,7 +108,7 @@ export default function HotelDashboardPage() {
                 Hotel Operations Dashboard
               </h1>
               <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
-                Slice 3: Stays &amp; Occupancy
+                Slice 9: Folio &amp; Billing
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">

@@ -82,68 +82,92 @@ export function HotelNav({ propertyName = "ASSO Grand Hotel", propertyCode = "AG
         </div>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden lg:flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive =
+              item.href === "/hotel"
+                ? pathname === "/hotel"
+                : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors whitespace-nowrap ${
                   isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "bg-primary text-primary-foreground shadow-sm font-semibold"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 shrink-0" />
                 {item.label}
               </Link>
             );
           })}
+          <Link
+            href="/hotel/guest/room-service"
+            target="_blank"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium border border-accent/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors whitespace-nowrap ml-1"
+            title="Open Customer QR Digital Dining Experience"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            <span>Customer QR View</span>
+          </Link>
         </nav>
 
         {/* Status indicator & Mobile Toggle */}
         <div className="flex items-center gap-3">
-          <Badge variant="success" className="hidden sm:flex items-center gap-1.5 text-xs py-1">
+          <Badge variant="success" className="hidden sm:flex items-center gap-1.5 text-xs py-1 font-mono">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            Hotel Live DB (Supabase)
+            Supabase Live DB
           </Badge>
 
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden"
+            className="lg:hidden min-h-[44px] min-w-[44px] p-2"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle menu"
+            aria-label="Toggle navigation menu"
           >
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </Button>
         </div>
       </div>
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-border bg-card px-4 pt-2 pb-4 space-y-1">
+        <div className="lg:hidden border-t border-border bg-card px-4 pt-2 pb-4 space-y-1 shadow-lg max-h-[80vh] overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive =
+              item.href === "/hotel"
+                ? pathname === "/hotel"
+                : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors min-h-[44px] ${
                   isActive
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-primary-foreground font-semibold"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-5 w-5 shrink-0" />
                 {item.label}
               </Link>
             );
           })}
+          <Link
+            href="/hotel/guest/room-service"
+            target="_blank"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 min-h-[44px]"
+          >
+            <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
+            <span>Customer QR Digital Dining</span>
+          </Link>
         </div>
       )}
     </header>

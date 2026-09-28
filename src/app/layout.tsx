@@ -1,5 +1,24 @@
 import type { Metadata } from "next";
+import { Inter, Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const outfit = Outfit({
+  subsets: ["latin"],
+  variable: "--font-outfit",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "ASSO Platform — Unified Hospitality SuperApp",
@@ -13,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-background font-sans antialiased text-foreground">
+      <body className={`${inter.variable} ${outfit.variable} ${jetbrainsMono.variable} min-h-screen bg-background font-sans antialiased text-foreground`}>
         {children}
       </body>
     </html>
