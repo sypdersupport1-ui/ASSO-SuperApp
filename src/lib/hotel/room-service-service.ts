@@ -15,6 +15,8 @@ import { hotelRooms, hotelStays, hotelGuests } from "@/db/schema/hotel";
 import { customers, outlets, organizations } from "@/db/schema/core";
 import { recordAuditEvent } from "@/lib/audit";
 import { getRealtimeHub } from "@/lib/realtime/sse";
+import { createDomainEvent, recordOutboxEvent, processOutboxBatch } from "@/lib/events/outbox";
+import { OrderConfirmedPayload } from "@/lib/events/types";
 import { type JwtPayload } from "@/lib/auth/jwt";
 import {
   ValidationError,
@@ -594,65 +596,94 @@ export async function createRoomServiceOrder(
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const validSessionId = user.sub && uuidRegex.test(user.sub) ? user.sub : null;
 
-  // 5. Insert Order
-  const [createdOrder] = await db
-    .insert(orders)
-    .values({
-      tenantId,
-      outletId,
-      contextId,
-      sessionId: validSessionId,
-      orderNumber,
-      orderSource: "QR_CUSTOMER",
-      status: "PLACED",
-      idempotencyKey: input.idempotencyKey || null,
-      subtotalAmount: subtotalAmount.toFixed(4),
-      taxAmount: taxAmount.toFixed(4),
-      discountAmount: "0.0000",
-      totalAmount: totalAmount.toFixed(4),
-    })
-    .returning();
-
-  // 6. Insert Order Lines
-  const insertedItems: OrderLineItemDto[] = [];
-  for (const line of lineItemsToInsert) {
-    const [inserted] = await db
-      .insert(orderItems)
+  // 5. Insert Order & Outbox Event atomically
+  const { createdOrder, insertedItems } = await db.transaction(async (tx) => {
+    const [insertedOrder] = await tx
+      .insert(orders)
       .values({
         tenantId,
-        orderId: createdOrder.orderId,
-        itemId: line.itemId,
-        itemName: line.itemName,
-        unitPrice: line.unitPrice,
-        quantity: line.quantity,
-        subtotal: line.subtotal,
-        fulfillmentStation: line.fulfillmentStation,
-        itemStatus: "PLACED",
-        specialNotes: line.specialNotes || null,
+        outletId,
+        contextId,
+        sessionId: validSessionId,
+        orderNumber,
+        orderSource: "QR_CUSTOMER",
+        status: "PLACED",
+        idempotencyKey: input.idempotencyKey || null,
+        subtotalAmount: subtotalAmount.toFixed(4),
+        taxAmount: taxAmount.toFixed(4),
+        discountAmount: "0.0000",
+        totalAmount: totalAmount.toFixed(4),
       })
       .returning();
 
-    insertedItems.push({
-      orderItemId: inserted.orderItemId,
-      itemId: inserted.itemId,
-      itemName: inserted.itemName,
-      unitPrice: parseFloat(inserted.unitPrice).toFixed(2),
-      quantity: inserted.quantity,
-      subtotal: parseFloat(inserted.subtotal).toFixed(2),
-      specialNotes: inserted.specialNotes,
-    });
-  }
+    // 6. Insert Order Lines
+    const itemsList: OrderLineItemDto[] = [];
+    for (const line of lineItemsToInsert) {
+      const [inserted] = await tx
+        .insert(orderItems)
+        .values({
+          tenantId,
+          orderId: insertedOrder.orderId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          unitPrice: line.unitPrice,
+          quantity: line.quantity,
+          subtotal: line.subtotal,
+          fulfillmentStation: line.fulfillmentStation,
+          itemStatus: "PLACED",
+          specialNotes: line.specialNotes || null,
+        })
+        .returning();
 
-  // 7. Initial Status History
-  await db.insert(orderStatusHistory).values({
-    tenantId,
-    orderId: createdOrder.orderId,
-    fromStatus: "PLACED",
-    toStatus: "PLACED",
-    reason: input.guestNotes || "Customer submitted room service order",
+      itemsList.push({
+        orderItemId: inserted.orderItemId,
+        itemId: inserted.itemId,
+        itemName: inserted.itemName,
+        unitPrice: parseFloat(inserted.unitPrice).toFixed(2),
+        quantity: inserted.quantity,
+        subtotal: parseFloat(inserted.subtotal).toFixed(2),
+        specialNotes: inserted.specialNotes,
+      });
+    }
+
+    // 7. Initial Status History
+    await tx.insert(orderStatusHistory).values({
+      tenantId,
+      orderId: insertedOrder.orderId,
+      fromStatus: "PLACED",
+      toStatus: "PLACED",
+      reason: input.guestNotes || "Customer submitted room service order",
+    });
+
+    // 8. Record ORDER_CONFIRMED Trusted Domain Event into Outbox
+    const orderConfirmedEvent = createDomainEvent<OrderConfirmedPayload>({
+      tenantId,
+      outletId,
+      vertical: "HOTEL",
+      eventType: "ORDER_CONFIRMED",
+      aggregateType: "ORDER",
+      aggregateId: insertedOrder.orderId,
+      payload: {
+        vertical: "HOTEL",
+        orderId: insertedOrder.orderId,
+        orderNumber: insertedOrder.orderNumber,
+        orderSource: "CUSTOMER_WEB",
+        contextId,
+        roomNumber: room.roomNumber,
+        totalAmount: totalAmount.toFixed(2),
+        itemCount: itemsList.length,
+        customerId: user.sub,
+        customerName: guestFullName || undefined,
+      },
+      idempotencyKey: `ORDER_CONFIRMED:${insertedOrder.orderId}`,
+    });
+
+    await recordOutboxEvent(tx, orderConfirmedEvent);
+
+    return { createdOrder: insertedOrder, insertedItems: itemsList };
   });
 
-  // 8. Audit creation
+  // 9. Audit creation
   await recordAuditEvent({
     tenantId,
     userId: user.sub,
@@ -668,6 +699,9 @@ export async function createRoomServiceOrder(
       itemCount: insertedItems.length,
     },
   });
+
+  // 10. Trigger Outbox Processing post-commit
+  processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
 
   const orderDto: CustomerOrderDto = {
     orderId: createdOrder.orderId,

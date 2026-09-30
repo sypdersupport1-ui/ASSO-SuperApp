@@ -24,6 +24,9 @@ import {
 import { recordAuditEvent } from "@/lib/audit";
 import { realtimeHub } from "@/lib/realtime/sse";
 import { createTurnoverTaskForRoom } from "./housekeeping-service";
+import { hotelFolios } from "@/db/schema/hotel_ledger";
+import { createDomainEvent, recordOutboxEvent, processOutboxBatch } from "@/lib/events/outbox";
+import { HotelCheckInPayload, HotelCheckOutPayload, generateSecureReceiptUrl } from "@/lib/events/types";
 
 export interface StayDetail {
   stayId: string;
@@ -275,6 +278,46 @@ export async function executeCheckIn(
       },
     });
 
+    // 13. Resolve Guest details & Record Trusted Domain Event into Outbox
+    const [guestRec] = await tx
+      .select({
+        guestId: hotelGuests.guestId,
+        customerId: hotelGuests.customerId,
+        fullName: customers.fullName,
+        phone: customers.phone,
+        email: customers.email,
+      })
+      .from(hotelGuests)
+      .leftJoin(customers, eq(hotelGuests.customerId, customers.customerId))
+      .where(eq(hotelGuests.guestId, reservation.guestId))
+      .limit(1);
+
+    const checkInEvent = createDomainEvent<HotelCheckInPayload>({
+      tenantId,
+      outletId: effectiveOutletId,
+      vertical: "HOTEL",
+      eventType: "HOTEL_CHECK_IN_SUCCESS",
+      aggregateType: "HOTEL_STAY",
+      aggregateId: createdStay.stayId,
+      payload: {
+        stayId: createdStay.stayId,
+        stayNumber: createdStay.stayNumber,
+        reservationId: reservation.reservationId,
+        reservationNumber: reservation.reservationNumber,
+        guestId: reservation.guestId,
+        customerId: guestRec?.customerId || undefined,
+        guestName: guestRec?.fullName || "Valued Guest",
+        guestPhone: guestRec?.phone || null,
+        guestEmail: guestRec?.email || null,
+        roomId: targetRoomId,
+        roomNumber: room.roomNumber,
+        expectedCheckOutAt: reservation.departureDate.toISOString(),
+      },
+      idempotencyKey: `HOTEL_CHECK_IN:${createdStay.stayId}`,
+    });
+
+    await recordOutboxEvent(tx, checkInEvent);
+
     return {
       stay: createdStay,
       roomNumber: room.roomNumber,
@@ -285,7 +328,7 @@ export async function executeCheckIn(
     };
   });
 
-  // 13. Emit Realtime events post-commit
+  // 14. Emit Realtime events post-commit
   realtimeHub.broadcastToTenant(tenantId, "stay.checked_in", {
     stayId: result.stay.stayId,
     stayNumber: result.stay.stayNumber,
@@ -298,6 +341,9 @@ export async function executeCheckIn(
     roomId: result.stay.roomId,
     roomNumber: result.roomNumber,
   });
+
+  // 15. Trigger Outbox Processing for in-app / communications
+  processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
 
   return getStayById(tenantId, result.stay.stayId);
 }
@@ -458,6 +504,70 @@ export async function executeCheckOut(
       },
     });
 
+    // 9. Resolve Guest & Folio & Record Trusted Domain Event into Outbox
+    const [guestRec] = await tx
+      .select({
+        guestId: hotelGuests.guestId,
+        customerId: hotelGuests.customerId,
+        fullName: customers.fullName,
+        phone: customers.phone,
+        email: customers.email,
+      })
+      .from(hotelGuests)
+      .leftJoin(customers, eq(hotelGuests.customerId, customers.customerId))
+      .where(eq(hotelGuests.guestId, stay.guestId))
+      .limit(1);
+
+    const [folio] = await tx
+      .select({
+        folioId: hotelFolios.folioId,
+        balanceDue: hotelFolios.balanceDue,
+      })
+      .from(hotelFolios)
+      .where(
+        and(
+          eq(hotelFolios.stayId, stay.stayId),
+          eq(hotelFolios.tenantId, tenantId)
+        )
+      )
+      .limit(1);
+
+    const receiptUrl = generateSecureReceiptUrl({
+      tenantId,
+      vertical: "HOTEL",
+      referenceType: "FOLIO",
+      referenceId: folio?.folioId || stay.stayId,
+      amount: folio?.balanceDue || "0.0000",
+    });
+
+    const checkOutEvent = createDomainEvent<HotelCheckOutPayload>({
+      tenantId,
+      outletId: stay.outletId,
+      vertical: "HOTEL",
+      eventType: "HOTEL_CHECK_OUT_SUCCESS",
+      aggregateType: "HOTEL_STAY",
+      aggregateId: stay.stayId,
+      payload: {
+        stayId: stay.stayId,
+        stayNumber: stay.stayNumber,
+        reservationId: stay.reservationId,
+        guestId: stay.guestId,
+        customerId: guestRec?.customerId || undefined,
+        guestName: guestRec?.fullName || "Valued Guest",
+        guestPhone: guestRec?.phone || null,
+        guestEmail: guestRec?.email || null,
+        roomId: stay.roomId,
+        roomNumber: room?.roomNumber || "",
+        actualCheckOutAt: now.toISOString(),
+        folioId: folio?.folioId,
+        balanceDue: folio?.balanceDue || "0.0000",
+        receiptUrl,
+      },
+      idempotencyKey: `HOTEL_CHECK_OUT:${stay.stayId}`,
+    });
+
+    await recordOutboxEvent(tx, checkOutEvent);
+
     return {
       stay: updatedStay,
       roomId: room?.roomId,
@@ -465,7 +575,7 @@ export async function executeCheckOut(
     };
   });
 
-  // 9. Emit Realtime events post-commit
+  // 10. Emit Realtime events post-commit
   realtimeHub.broadcastToTenant(tenantId, "stay.checked_out", {
     stayId: result.stay.stayId,
     stayNumber: result.stay.stayNumber,
@@ -481,6 +591,9 @@ export async function executeCheckOut(
       housekeepingStatus: "DIRTY",
     });
   }
+
+  // 11. Trigger Outbox Processing for in-app / communications
+  processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
 
   return getStayById(tenantId, result.stay.stayId);
 }

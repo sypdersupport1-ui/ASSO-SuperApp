@@ -29,6 +29,8 @@ import {
 } from "./folio-state-machines";
 import { recordAuditEvent } from "@/lib/audit";
 import { getRealtimeHub } from "@/lib/realtime/sse";
+import { createDomainEvent, recordOutboxEvent, processOutboxBatch } from "@/lib/events/outbox";
+import { BillPaymentSuccessPayload, BillGeneratedPayload, generateSecureReceiptUrl } from "@/lib/events/types";
 
 // ============================================================================
 // DTOs & Interfaces
@@ -1004,7 +1006,7 @@ export async function recordPayment(params: {
     throw new ValidationError("Payment amount must be a positive number.");
   }
 
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // 1. Lock Folio
     const [folio] = await tx
       .select()
@@ -1092,6 +1094,37 @@ export async function recordPayment(params: {
       },
     });
 
+    // Record Trusted Domain Event into Outbox
+    const receiptUrl = generateSecureReceiptUrl({
+      tenantId,
+      vertical: "HOTEL",
+      referenceType: "FOLIO",
+      referenceId: folio.folioId,
+      amount: numAmt.toFixed(4),
+    });
+
+    const paymentEvent = createDomainEvent<BillPaymentSuccessPayload>({
+      tenantId,
+      outletId,
+      vertical: "HOTEL",
+      eventType: "BILL_PAYMENT_SUCCESS",
+      aggregateType: "HOTEL_FOLIO",
+      aggregateId: folio.folioId,
+      payload: {
+        vertical: "HOTEL",
+        folioId: folio.folioId,
+        stayId,
+        amount: numAmt.toFixed(4),
+        paymentMethod: input.paymentMethod,
+        referenceNumber: input.referenceNumber || null,
+        newBalanceDue: balances.balanceDue,
+        receiptUrl,
+      },
+      idempotencyKey: `FOLIO_PAYMENT:${entry.entryId}`,
+    });
+
+    await recordOutboxEvent(tx, paymentEvent);
+
     // Realtime emission
     try {
       const hub = getRealtimeHub();
@@ -1107,6 +1140,11 @@ export async function recordPayment(params: {
 
     return await getFolioDetailByStayId(tenantId, outletId, stayId, postedByStaffId, tx);
   });
+
+  // Trigger Outbox Processing post-commit
+  processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
+
+  return result;
 }
 
 // ============================================================================
@@ -1256,7 +1294,7 @@ export async function closeFolio(params: {
   const { tenantId, outletId, stayId, staffUserId, input } = params;
   const db = getDb();
 
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [folio] = await tx
       .select()
       .from(hotelFolios)
@@ -1299,6 +1337,36 @@ export async function closeFolio(params: {
       },
     });
 
+    // Record Trusted Domain Event into Outbox
+    const receiptUrl = generateSecureReceiptUrl({
+      tenantId,
+      vertical: "HOTEL",
+      referenceType: "FOLIO",
+      referenceId: folio.folioId,
+      amount: folio.totalCharges,
+    });
+
+    const billGenEvent = createDomainEvent<BillGeneratedPayload>({
+      tenantId,
+      outletId,
+      vertical: "HOTEL",
+      eventType: "BILL_GENERATED",
+      aggregateType: "HOTEL_FOLIO",
+      aggregateId: folio.folioId,
+      payload: {
+        vertical: "HOTEL",
+        folioId: folio.folioId,
+        stayId,
+        totalCharges: folio.totalCharges,
+        totalPayments: folio.totalPayments,
+        balanceDue: folio.balanceDue,
+        receiptUrl,
+      },
+      idempotencyKey: `FOLIO_CLOSE:${folio.folioId}`,
+    });
+
+    await recordOutboxEvent(tx, billGenEvent);
+
     // Realtime emission
     try {
       const hub = getRealtimeHub();
@@ -1313,6 +1381,11 @@ export async function closeFolio(params: {
 
     return await getFolioDetailByStayId(tenantId, outletId, stayId, staffUserId, tx);
   });
+
+  // Trigger Outbox Processing post-commit
+  processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
+
+  return result;
 }
 
 // ============================================================================
