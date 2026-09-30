@@ -230,3 +230,32 @@ All domain events include:
 - Minimal payload — consumers should query additional data if needed, not receive the full entity
 
 Events must not contain sensitive data (e.g., full payment card numbers, passwords).
+
+---
+
+## 6. Phase 8 Slice 1: Transactional Outbox & Communication Architecture
+
+In Phase 8 Slice 1, ASSO implemented the durable PostgreSQL Transactional Outbox pattern and unified Communication Engine:
+
+```text
+Business Transaction
+    ↓
+Authoritative Server Validation
+    ↓
+Atomic Database Commit (BEGIN ... business mutation + outbox row ... COMMIT)
+    ↓
+Trusted Domain Event (domain_outbox_events)
+    ↓
+Communication Processing Engine
+    ├── In-App Adapter (Active & Durable: in_app_notifications)
+    ├── SMS / TRAI DLT Adapter (Architecture-Ready Stub)
+    └── WhatsApp Cloud API Adapter (Architecture-Ready Stub)
+```
+
+### Key Properties:
+- **Core Security Rule**: Client → fake success event → notification is blocked. Only authoritative server commits create trusted outbox rows.
+- **Deduplication**: `domain_outbox_events` enforces a unique constraint on `(tenant_id, idempotency_key)`.
+- **Channel Decoupling**: Business modules never call external SMS/WhatsApp providers directly.
+- **Secure Receipt URLs**: HMAC-SHA256 signed verification URLs (`/api/v1/bills/receipt?token=...`) protect internal IDs.
+- **Adapter-Ready**: In-app notifications are live; TRAI DLT SMS and Meta WhatsApp Cloud API adapters are structured for plug-and-play credentials injection without modifying business logic.
+

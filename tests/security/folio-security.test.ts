@@ -8,7 +8,7 @@ import { createReservation } from "@/lib/hotel/reservation-service";
 import { executeCheckIn, executeCheckOut } from "@/lib/hotel/stay-service";
 import { getDb } from "@/db/client";
 import { hotelRooms, hotelRoomTypes, hotelStays, hotelReservations } from "@/db/schema/hotel";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 // Routes
 import { GET as getFolioRoute } from "@/app/api/v1/hotel/folios/[stayId]/route";
@@ -53,7 +53,7 @@ describe("Phase 7 Hotel Vertical — Slice 9 (Folio & Billing) Security Suite", 
     await db
       .update(hotelReservations)
       .set({ status: "CANCELLED" })
-      .where(and(eq(hotelReservations.assignedRoomId, rm.roomId), eq(hotelReservations.status, "CONFIRMED")));
+      .where(and(eq(hotelReservations.assignedRoomId, rm.roomId), inArray(hotelReservations.status, ["CONFIRMED", "CHECKED_IN"])));
 
     // Reset room 102 state
     await db.update(hotelRooms).set({ operationalStatus: "AVAILABLE", isOccupied: false, housekeepingStatus: "CLEAN" }).where(eq(hotelRooms.roomId, rm.roomId));

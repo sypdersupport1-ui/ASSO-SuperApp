@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { describe, it, expect, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
 import { signJwt } from "@/lib/auth/jwt";
@@ -57,17 +58,18 @@ describe("Phase 7 Hotel Vertical — Slice 8 Room Service Security & Isolation S
       .where(and(eq(hotelStays.tenantId, DEMO_TENANT_ID), eq(hotelStays.status, "ACTIVE")));
     const activeRoomIds = new Set(activeStays.map((s) => s.roomId));
     
-    let r102 = rooms.find((r) => !activeRoomIds.has(r.roomId));
+    let r102 = rooms.find((r) => r.roomId !== r101.roomId && !activeRoomIds.has(r.roomId));
     if (!r102) {
+      const fallbackContextId = crypto.randomUUID();
       [r102] = await db
         .insert(hotelRooms)
         .values({
           tenantId: DEMO_TENANT_ID,
           outletId: demoOutletId,
           roomTypeId: r101.roomTypeId,
-          roomNumber: "999-NOSTAY",
+          roomNumber: `999-${Math.floor(1000 + Math.random() * 9000)}`,
           floorNumber: "9",
-          contextId: "00000000-0000-0000-0000-000000000999",
+          contextId: fallbackContextId,
           operationalStatus: "AVAILABLE",
           housekeepingStatus: "CLEAN",
         })

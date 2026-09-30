@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   hotelFolios,
@@ -86,7 +86,7 @@ describe("Phase 7 Hotel Vertical — Slice 9 (Folio & Billing) Integration Suite
     await db
       .update(hotelReservations)
       .set({ status: "CANCELLED" })
-      .where(and(eq(hotelReservations.assignedRoomId, testRoom.roomId), eq(hotelReservations.status, "CONFIRMED")));
+      .where(and(eq(hotelReservations.assignedRoomId, testRoom.roomId), inArray(hotelReservations.status, ["CONFIRMED", "CHECKED_IN", "PENDING"])));
 
     // Reset room state
     await db

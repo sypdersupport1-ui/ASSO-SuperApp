@@ -96,7 +96,7 @@ describe("Phase 7 Hotel Vertical — Slice 3 (Check-in, Stays & Check-out) Integ
     roomTypeId = typeJson.data.roomTypeId;
 
     // 3. Create isolated Physical Room
-    roomNumber = `30${uniqueSuffix.slice(-2)}`;
+    roomNumber = `3${Math.floor(1000 + Math.random() * 9000)}`;
     const roomRes = await roomsPost(
       new NextRequest("http://localhost:3000/api/v1/hotel/rooms", {
         method: "POST",
