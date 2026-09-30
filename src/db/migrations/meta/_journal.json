@@ -64,6 +64,13 @@
       "when": 1790520000000,
       "tag": "0008_shared_communication_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790530000000,
+      "tag": "0009_restaurant_foundation_tables",
+      "breakpoints": true
     }
   ]
 }

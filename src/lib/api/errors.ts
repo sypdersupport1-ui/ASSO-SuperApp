@@ -96,6 +96,12 @@ export class IdempotencyConflictError extends AppError {
   }
 }
 
+export class InvalidStateTransitionError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("INVALID_STATE_TRANSITION", message, 422, details);
+  }
+}
+
 export class BusinessRuleError extends AppError {
   constructor(message: string, details?: Record<string, unknown>) {
     super("BUSINESS_RULE_VIOLATION", message, 422, details);

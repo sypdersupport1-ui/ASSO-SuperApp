@@ -2,7 +2,7 @@ import { ModuleNotEntitledError } from "../api/errors";
 
 // In-memory reference set of standard tenant entitlements for testing and local dev
 const tenantEntitlementsStore = new Map<string, Set<string>>([
-  ["11111111-1111-1111-1111-111111111111", new Set(["CORE", "HOTEL", "POS", "ORDERING"])],
+  ["11111111-1111-1111-1111-111111111111", new Set(["CORE", "HOTEL", "RESTAURANT", "POS", "ORDERING"])],
 ]);
 
 export function setTenantEntitlements(tenantId: string, modules: string[]): void {

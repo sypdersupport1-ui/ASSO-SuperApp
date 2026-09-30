@@ -8,3 +8,4 @@ export * from "./hotel_ledger";
 export * from "./finance";
 export * from "./hotel";
 export * from "./communication";
+export * from "./restaurant";
