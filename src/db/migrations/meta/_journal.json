@@ -57,6 +57,13 @@
       "when": 1790510000000,
       "tag": "0007_amateur_service_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790520000000,
+      "tag": "0008_shared_communication_foundation",
+      "breakpoints": true
     }
   ]
 }
