@@ -16,7 +16,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import Link from "next/link";
-import { CheckCircle2, AlertTriangle, ShieldCheck, Database, Radio, Layers, Server, ExternalLink, Hotel, ArrowRight, DoorOpen, BedDouble } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ShieldCheck, Database, Radio, Layers, Server, ExternalLink, Hotel, ArrowRight, DoorOpen, BedDouble, UtensilsCrossed, Grid3X3 } from "lucide-react";
 
 interface HealthData {
   status: "healthy" | "degraded";
@@ -217,6 +217,47 @@ export default function Home() {
                   <Button variant="outline" className="flex items-center gap-2">
                     <BedDouble className="h-4 w-4" />
                     Room Types
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Feature Banner: RESTAURANT VERTICAL SLICE 1 */}
+        <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-orange-500/5 to-transparent relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl -mr-10 -mt-10" />
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-600 text-white shadow-sm">
+                    <UtensilsCrossed className="h-4 w-4" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">
+                    RESTAURANT VERTICAL (Slice 1 Active)
+                  </h3>
+                  <Badge className="bg-amber-600 text-white text-[10px] uppercase font-mono">
+                    R1 Tables & Floor Ready
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground max-w-2xl">
+                  Second first-class business vertical established: Restaurant Outlet, Tables, Floor Statuses, Dining Sessions foundation, High-Entropy Table QR, and Operations Console with PostgreSQL RLS.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Link href="/restaurant">
+                  <Button className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-2 shadow-sm">
+                    <UtensilsCrossed className="h-4 w-4" />
+                    Restaurant Operations
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link href="/restaurant/tables">
+                  <Button variant="outline" className="flex items-center gap-2 border-amber-500/30 text-amber-700 dark:text-amber-400">
+                    <Grid3X3 className="h-4 w-4" />
+                    Table Management
                   </Button>
                 </Link>
               </div>
