@@ -3,6 +3,7 @@ import { eq, and, desc, gt } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { qrTokens, businessContexts, customerSessions } from "@/db/schema/context";
 import { hotelRooms, hotelStays, hotelGuests } from "@/db/schema/hotel";
+import { restaurantTables } from "@/db/schema/restaurant";
 import { outlets, organizations, customers } from "@/db/schema/core";
 import { signJwt, verifyJwt, type JwtPayload } from "@/lib/auth/jwt";
 import { NotFoundError, BusinessRuleError, AuthenticationError } from "@/lib/api/errors";
@@ -13,19 +14,32 @@ export interface CustomerSessionResolution {
   expiresAt: string;
   context: {
     contextId: string;
+    contextType: string;
     identifier: string;
     displayLabel: string;
-    roomId: string;
-    roomNumber: string;
+    roomId?: string;
+    roomNumber?: string;
     floor?: string | null;
+    tableId?: string;
+    tableNumber?: string;
+    section?: string;
+    capacity?: number;
     propertyName: string;
-    hotelName: string;
+    hotelName?: string;
+    restaurantName?: string;
   };
-  stay: {
+  stay?: {
     hasActiveStay: boolean;
     guestFirstName?: string | null;
     checkInDate?: string | null;
     checkOutDate?: string | null;
+  };
+  table?: {
+    tableId: string;
+    tableNumber: string;
+    capacity: number;
+    section: string;
+    status: string;
   };
   availableServices: string[];
 }
@@ -89,21 +103,45 @@ export async function resolveCustomerQr(
     throw new NotFoundError("Room Context", "Associated room context is inactive or unavailable.");
   }
 
-  // B. Hotel Room
-  const [room] = await db
-    .select()
-    .from(hotelRooms)
-    .where(
-      and(
-        eq(hotelRooms.contextId, context.contextId),
-        eq(hotelRooms.tenantId, tenantId),
-        eq(hotelRooms.outletId, tokenRecord.outletId)
-      )
-    )
-    .limit(1);
+  // B. Context-Specific Domain Entity (Table vs Room)
+  const isRestaurantTable = context.contextType === "TABLE";
+  let room: typeof hotelRooms.$inferSelect | undefined;
+  let table: typeof restaurantTables.$inferSelect | undefined;
 
-  if (!room) {
-    throw new NotFoundError("Hotel Room", "Hotel room associated with this QR context was not found.");
+  if (isRestaurantTable) {
+    const [tableRow] = await db
+      .select()
+      .from(restaurantTables)
+      .where(
+        and(
+          eq(restaurantTables.contextId, context.contextId),
+          eq(restaurantTables.tenantId, tenantId),
+          eq(restaurantTables.outletId, tokenRecord.outletId)
+        )
+      )
+      .limit(1);
+
+    if (!tableRow) {
+      throw new NotFoundError("Restaurant Table", "Restaurant table associated with this QR context was not found.");
+    }
+    table = tableRow;
+  } else {
+    const [roomRow] = await db
+      .select()
+      .from(hotelRooms)
+      .where(
+        and(
+          eq(hotelRooms.contextId, context.contextId),
+          eq(hotelRooms.tenantId, tenantId),
+          eq(hotelRooms.outletId, tokenRecord.outletId)
+        )
+      )
+      .limit(1);
+
+    if (!roomRow) {
+      throw new NotFoundError("Hotel Room", "Hotel room associated with this QR context was not found.");
+    }
+    room = roomRow;
   }
 
   // C. Property & Organization Branding
@@ -119,43 +157,54 @@ export async function resolveCustomerQr(
     .where(eq(organizations.organizationId, tenantId))
     .limit(1);
 
-  // D. Safe Active Stay check
-  const [activeStay] = await db
-    .select({
-      stayId: hotelStays.stayId,
-      guestId: hotelStays.guestId,
-      checkInAt: hotelStays.checkInAt,
-      expectedCheckOutAt: hotelStays.expectedCheckOutAt,
-    })
-    .from(hotelStays)
-    .where(
-      and(
-        eq(hotelStays.roomId, room.roomId),
-        eq(hotelStays.tenantId, tenantId),
-        eq(hotelStays.status, "ACTIVE")
-      )
-    )
-    .orderBy(desc(hotelStays.checkInAt))
-    .limit(1);
-
+  // D. Safe Active Stay check (for hotel rooms only)
+  let activeStay: {
+    stayId: string;
+    guestId: string;
+    checkInAt: Date;
+    expectedCheckOutAt: Date;
+  } | undefined;
   let guestFirstName: string | null = null;
-  if (activeStay) {
-    const [guestRecord] = await db
+
+  if (room) {
+    const [foundStay] = await db
       .select({
-        customerName: customers.fullName,
+        stayId: hotelStays.stayId,
+        guestId: hotelStays.guestId,
+        checkInAt: hotelStays.checkInAt,
+        expectedCheckOutAt: hotelStays.expectedCheckOutAt,
       })
-      .from(hotelGuests)
-      .innerJoin(customers, eq(hotelGuests.customerId, customers.customerId))
+      .from(hotelStays)
       .where(
         and(
-          eq(hotelGuests.guestId, activeStay.guestId),
-          eq(hotelGuests.tenantId, tenantId)
+          eq(hotelStays.roomId, room.roomId),
+          eq(hotelStays.tenantId, tenantId),
+          eq(hotelStays.status, "ACTIVE")
         )
       )
+      .orderBy(desc(hotelStays.checkInAt))
       .limit(1);
 
-    if (guestRecord?.customerName) {
-      guestFirstName = guestRecord.customerName.split(" ")[0];
+    activeStay = foundStay;
+
+    if (activeStay) {
+      const [guestRecord] = await db
+        .select({
+          customerName: customers.fullName,
+        })
+        .from(hotelGuests)
+        .innerJoin(customers, eq(hotelGuests.customerId, customers.customerId))
+        .where(
+          and(
+            eq(hotelGuests.guestId, activeStay.guestId),
+            eq(hotelGuests.tenantId, tenantId)
+          )
+        )
+        .limit(1);
+
+      if (guestRecord?.customerName) {
+        guestFirstName = guestRecord.customerName.split(" ")[0];
+      }
     }
   }
 
@@ -197,17 +246,46 @@ export async function resolveCustomerQr(
     sessionDurationSeconds
   );
 
+  if (isRestaurantTable && table) {
+    return {
+      sessionToken,
+      sessionId: session.sessionId,
+      expiresAt: expiresAt.toISOString(),
+      context: {
+        contextId: context.contextId,
+        contextType: "TABLE",
+        identifier: context.identifier,
+        displayLabel: context.displayLabel,
+        tableId: table.tableId,
+        tableNumber: table.tableNumber,
+        section: table.section,
+        capacity: table.capacity,
+        propertyName: property?.name || "Restaurant Outlet",
+        restaurantName: org?.name || "ASSO Dining",
+      },
+      table: {
+        tableId: table.tableId,
+        tableNumber: table.tableNumber,
+        capacity: table.capacity,
+        section: table.section,
+        status: table.status,
+      },
+      availableServices: ["TABLE_ORDERING", "SERVICE_CALL", "BILL_REQUEST"],
+    };
+  }
+
   return {
     sessionToken,
     sessionId: session.sessionId,
     expiresAt: expiresAt.toISOString(),
     context: {
       contextId: context.contextId,
+      contextType: "HOTEL_ROOM",
       identifier: context.identifier,
       displayLabel: context.displayLabel,
-      roomId: room.roomId,
-      roomNumber: room.roomNumber,
-      floor: room.floorNumber,
+      roomId: room!.roomId,
+      roomNumber: room!.roomNumber,
+      floor: room!.floorNumber,
       propertyName: property?.name || "Hotel Property",
       hotelName: org?.name || "ASSO Hospitality",
     },
