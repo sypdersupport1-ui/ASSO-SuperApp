@@ -45,7 +45,11 @@ export interface RestaurantOrderSnapshot {
   diningContext: string;
   status: OrderStatus;
   subtotalAmount: string;
+  taxRate: string;
   taxAmount: string;
+  platformFeeType: string;
+  platformFeeRate: string;
+  platformFeeAmount: string;
   discountAmount: string;
   totalAmount: string;
   items: RestaurantOrderItemSnapshot[];
@@ -70,18 +74,52 @@ export function validateItemPriceSnapshot(
   return parseFloat(calculated) === parseFloat(subtotalNum.toFixed(4));
 }
 
+export interface OrderFinancialOptions {
+  taxRate?: number;
+  platformFeeRate?: number;
+  platformFeeFixed?: number;
+  platformFeeType?: "PERCENTAGE" | "FIXED";
+  discountAmount?: number;
+}
+
 /**
- * Authoritatively calculates order subtotal, 5% tax, and total from line items.
+ * Authoritatively calculates order subtotal, configured tax, platform fee, and total from line items.
+ * If no tax or platform fee options are passed, defaults to safe zero (no tax, no fee).
  */
 export function calculateAuthoritativeTotals(
   items: Array<{ unitPrice: string; quantity: number }>,
-  taxRate = 0.05
+  optionsOrTaxRate: number | OrderFinancialOptions = 0
 ): {
   subtotalAmount: string;
+  taxRate: string;
   taxAmount: string;
+  platformFeeType: string;
+  platformFeeRate: string;
+  platformFeeAmount: string;
   discountAmount: string;
   totalAmount: string;
 } {
+  const taxRate =
+    typeof optionsOrTaxRate === "number"
+      ? optionsOrTaxRate
+      : optionsOrTaxRate.taxRate ?? 0;
+  const platformFeeType =
+    typeof optionsOrTaxRate === "object"
+      ? optionsOrTaxRate.platformFeeType ?? "PERCENTAGE"
+      : "PERCENTAGE";
+  const platformFeeRate =
+    typeof optionsOrTaxRate === "object"
+      ? optionsOrTaxRate.platformFeeRate ?? 0
+      : 0;
+  const platformFeeFixed =
+    typeof optionsOrTaxRate === "object"
+      ? optionsOrTaxRate.platformFeeFixed ?? 0
+      : 0;
+  const discountAmount =
+    typeof optionsOrTaxRate === "object"
+      ? optionsOrTaxRate.discountAmount ?? 0
+      : 0;
+
   let subtotal = 0;
   for (const item of items) {
     const price = parseFloat(item.unitPrice);
@@ -91,14 +129,27 @@ export function calculateAuthoritativeTotals(
     subtotal += price * item.quantity;
   }
 
-  const tax = subtotal * taxRate;
-  const discount = 0;
-  const total = subtotal + tax - discount;
+  const tax = Math.round((subtotal * taxRate + Number.EPSILON) * 10000) / 10000;
+  let platformFee = 0;
+  if (platformFeeType === "PERCENTAGE") {
+    platformFee =
+      Math.round((subtotal * platformFeeRate + Number.EPSILON) * 10000) / 10000;
+  } else {
+    platformFee =
+      Math.round((platformFeeFixed + Number.EPSILON) * 10000) / 10000;
+  }
+  const total =
+    Math.round((subtotal + tax + platformFee - discountAmount + Number.EPSILON) * 10000) /
+    10000;
 
   return {
     subtotalAmount: subtotal.toFixed(4),
+    taxRate: taxRate.toFixed(4),
     taxAmount: tax.toFixed(4),
-    discountAmount: discount.toFixed(4),
+    platformFeeType,
+    platformFeeRate: platformFeeRate.toFixed(4),
+    platformFeeAmount: platformFee.toFixed(4),
+    discountAmount: discountAmount.toFixed(4),
     totalAmount: total.toFixed(4),
   };
 }
@@ -171,7 +222,11 @@ export async function getOrdersByTableSession(
       diningContext: o.diningContext,
       status: o.status as OrderStatus,
       subtotalAmount: o.subtotalAmount,
+      taxRate: o.taxRate || "0.0000",
       taxAmount: o.taxAmount,
+      platformFeeType: o.platformFeeType || "PERCENTAGE",
+      platformFeeRate: o.platformFeeRate || "0.0000",
+      platformFeeAmount: o.platformFeeAmount || "0.0000",
       discountAmount: o.discountAmount,
       totalAmount: o.totalAmount,
       items: itemRows.map((item) => ({
@@ -229,7 +284,11 @@ export async function getRestaurantOrderById(
     diningContext: order.diningContext,
     status: order.status as OrderStatus,
     subtotalAmount: order.subtotalAmount,
+    taxRate: order.taxRate || "0.0000",
     taxAmount: order.taxAmount,
+    platformFeeType: order.platformFeeType || "PERCENTAGE",
+    platformFeeRate: order.platformFeeRate || "0.0000",
+    platformFeeAmount: order.platformFeeAmount || "0.0000",
     discountAmount: order.discountAmount,
     totalAmount: order.totalAmount,
     items: items.map((item) => ({

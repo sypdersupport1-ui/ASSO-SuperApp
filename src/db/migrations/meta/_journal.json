@@ -85,6 +85,13 @@
       "when": 1790550000000,
       "tag": "0011_restaurant_order_domain",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790560000000,
+      "tag": "0012_restaurant_tax_and_platform_fee",
+      "breakpoints": true
     }
   ]
 }

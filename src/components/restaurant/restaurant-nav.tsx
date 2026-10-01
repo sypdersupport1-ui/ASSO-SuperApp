@@ -42,6 +42,7 @@ export function RestaurantNav({
     { label: "Dashboard", href: "/restaurant", icon: LayoutDashboard },
     { label: "Tables & Floor", href: "/restaurant/tables", icon: Grid3X3 },
     { label: "Digital Menu", href: "/restaurant/menu", icon: BookOpen },
+    { label: "Settings", href: "/restaurant/settings", icon: Settings },
   ];
 
   const upcomingModules = [

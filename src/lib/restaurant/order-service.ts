@@ -39,6 +39,10 @@ import type { OrderConfirmedPayload } from "@/lib/events/types";
 import { recordAuditEvent } from "@/lib/audit";
 import { realtimeHub } from "@/lib/realtime/sse";
 import type { JwtPayload } from "@/lib/auth/jwt";
+import {
+  getEffectiveTaxConfig,
+  getEffectivePlatformFeeConfig,
+} from "./financial-config-service";
 
 export interface CreateRestaurantOrderInput {
   guestNotes?: string;
@@ -69,7 +73,11 @@ export interface CustomerOrderResponseDto {
   diningContext: string;
   orderSource: string;
   subtotalAmount: string;
+  taxRate: string;
   taxAmount: string;
+  platformFeeType: string;
+  platformFeeRate: string;
+  platformFeeAmount: string;
   discountAmount: string;
   totalAmount: string;
   itemCount: number;
@@ -286,11 +294,34 @@ export async function createRestaurantOrder(
     });
   }
 
-  // Standard 5% GST for F&B dining
-  const taxRate = 0.05;
-  const taxNum = subtotalNum * taxRate;
+  // 9. Authoritatively resolve dynamic GST & ASSO Platform Fee configuration from DB
+  const taxConfig = await getEffectiveTaxConfig(tenantId, outletId);
+  const platformFeeConfig = await getEffectivePlatformFeeConfig(tenantId, outletId);
+
+  const taxRate = taxConfig.taxRate;
+  const taxNum = Math.round((subtotalNum * taxRate + Number.EPSILON) * 10000) / 10000;
+
+  const platformFeeType = platformFeeConfig.feeType;
+  let platformFeeRate = 0;
+  let platformFeeNum = 0;
+
+  if (platformFeeConfig.isEnabled) {
+    if (platformFeeType === "PERCENTAGE") {
+      platformFeeRate = platformFeeConfig.feeRate;
+      platformFeeNum =
+        Math.round((subtotalNum * platformFeeRate + Number.EPSILON) * 10000) / 10000;
+    } else {
+      platformFeeRate = 0;
+      platformFeeNum =
+        Math.round((platformFeeConfig.fixedAmount + Number.EPSILON) * 10000) / 10000;
+    }
+  }
+
   const discountNum = 0;
-  const totalNum = subtotalNum + taxNum - discountNum;
+  const totalNum =
+    Math.round(
+      (subtotalNum + taxNum + platformFeeNum - discountNum + Number.EPSILON) * 10000
+    ) / 10000;
 
   // Generate authoritative unique order number
   const orderNumber = generateRestaurantOrderNumber();
@@ -320,7 +351,11 @@ export async function createRestaurantOrder(
         status: "PLACED",
         idempotencyKey: input?.idempotencyKey || null,
         subtotalAmount: subtotalNum.toFixed(4),
+        taxRate: taxRate.toFixed(4),
         taxAmount: taxNum.toFixed(4),
+        platformFeeType: platformFeeType,
+        platformFeeRate: platformFeeRate.toFixed(4),
+        platformFeeAmount: platformFeeNum.toFixed(4),
         discountAmount: discountNum.toFixed(4),
         totalAmount: totalNum.toFixed(4),
       })
@@ -451,7 +486,11 @@ export async function createRestaurantOrder(
     diningContext: createdOrder.diningContext,
     orderSource: createdOrder.orderSource,
     subtotalAmount: parseFloat(createdOrder.subtotalAmount).toFixed(2),
+    taxRate: parseFloat(createdOrder.taxRate).toFixed(4),
     taxAmount: parseFloat(createdOrder.taxAmount).toFixed(2),
+    platformFeeType: createdOrder.platformFeeType,
+    platformFeeRate: parseFloat(createdOrder.platformFeeRate).toFixed(4),
+    platformFeeAmount: parseFloat(createdOrder.platformFeeAmount).toFixed(2),
     discountAmount: parseFloat(createdOrder.discountAmount).toFixed(2),
     totalAmount: parseFloat(createdOrder.totalAmount).toFixed(2),
     itemCount: insertedItems.length,
@@ -512,7 +551,11 @@ async function formatExistingOrderResponse(
     diningContext: existingOrder.diningContext,
     orderSource: existingOrder.orderSource,
     subtotalAmount: parseFloat(existingOrder.subtotalAmount).toFixed(2),
+    taxRate: parseFloat(existingOrder.taxRate || "0").toFixed(4),
     taxAmount: parseFloat(existingOrder.taxAmount).toFixed(2),
+    platformFeeType: existingOrder.platformFeeType || "PERCENTAGE",
+    platformFeeRate: parseFloat(existingOrder.platformFeeRate || "0").toFixed(4),
+    platformFeeAmount: parseFloat(existingOrder.platformFeeAmount || "0").toFixed(2),
     discountAmount: parseFloat(existingOrder.discountAmount).toFixed(2),
     totalAmount: parseFloat(existingOrder.totalAmount).toFixed(2),
     itemCount: items.length,

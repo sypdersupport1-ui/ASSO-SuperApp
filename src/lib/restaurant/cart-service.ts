@@ -4,6 +4,10 @@ import { restaurantCartItems } from "@/db/schema/restaurant";
 import { catalogItems } from "@/db/schema/operations";
 import { customerSessions } from "@/db/schema/context";
 import { NotFoundError, ValidationError, BusinessRuleError } from "@/lib/api/errors";
+import {
+  getEffectiveTaxConfig,
+  getEffectivePlatformFeeConfig,
+} from "./financial-config-service";
 
 export interface CartItemDto {
   cartItemId: string;
@@ -23,7 +27,9 @@ export interface RestaurantCartDto {
   items: CartItemDto[];
   totalItems: number;
   subtotalAmount: string;
+  estimatedTaxRate?: string;
   estimatedTaxAmount: string;
+  estimatedPlatformFeeAmount?: string;
   estimatedTotalAmount: string;
   isPreOrderNotice: string;
 }
@@ -59,7 +65,7 @@ export async function getCart(
   tenantId: string,
   sessionId: string
 ): Promise<RestaurantCartDto> {
-  await assertActiveSession(tenantId, sessionId);
+  const session = await assertActiveSession(tenantId, sessionId);
   const db = getDb();
 
   const cartRows = await db
@@ -110,17 +116,38 @@ export async function getCart(
     };
   });
 
-  const estimatedTaxNum = subtotalNum * 0.05; // 5% GST preview
-  const estimatedTotalNum = subtotalNum + estimatedTaxNum;
+  const taxConfig = await getEffectiveTaxConfig(
+    tenantId,
+    session.outletId || undefined
+  );
+  const platformFeeConfig = await getEffectivePlatformFeeConfig(
+    tenantId,
+    session.outletId || undefined
+  );
+
+  const estimatedTaxNum = subtotalNum * taxConfig.taxRate;
+  let estimatedPlatformFeeNum = 0;
+  if (platformFeeConfig.isEnabled) {
+    if (platformFeeConfig.feeType === "PERCENTAGE") {
+      estimatedPlatformFeeNum = subtotalNum * platformFeeConfig.feeRate;
+    } else {
+      estimatedPlatformFeeNum = platformFeeConfig.fixedAmount;
+    }
+  }
+  const estimatedTotalNum =
+    subtotalNum + estimatedTaxNum + estimatedPlatformFeeNum;
 
   return {
     sessionId,
     items,
     totalItems,
     subtotalAmount: subtotalNum.toFixed(2),
+    estimatedTaxRate: taxConfig.taxRate.toFixed(4),
     estimatedTaxAmount: estimatedTaxNum.toFixed(2),
+    estimatedPlatformFeeAmount: estimatedPlatformFeeNum.toFixed(2),
     estimatedTotalAmount: estimatedTotalNum.toFixed(2),
-    isPreOrderNotice: "Pre-order cart preview. Digital ordering will be finalized in Slice 3.",
+    isPreOrderNotice:
+      "Pre-order cart preview. Digital ordering will be finalized in Slice 3.",
   };
 }
 

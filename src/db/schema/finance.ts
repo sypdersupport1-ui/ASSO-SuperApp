@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, numeric, date, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, numeric, date, timestamp, boolean, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { organizations, outlets, staffProfiles } from "./core";
 
 export const expenseCategories = pgTable(
@@ -63,3 +63,56 @@ export const cashMovements = pgTable("cash_movements", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Tax Configurations (Business / Outlet Level GST Configuration)
+ * Authoritative source of tax rates per outlet/tenant.
+ */
+export const taxConfigurations = pgTable(
+  "tax_configurations",
+  {
+    configId: uuid("config_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId, { onDelete: "cascade" }),
+    outletId: uuid("outlet_id").references(() => outlets.outletId, { onDelete: "cascade" }),
+    taxName: varchar("tax_name", { length: 100 }).notNull().default("GST"),
+    taxRate: numeric("tax_rate", { precision: 6, scale: 4 }).notNull().default("0.0000"),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_tax_config_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_tax_config_tenant").on(table.tenantId),
+  ]
+);
+
+export type TaxConfiguration = typeof taxConfigurations.$inferSelect;
+export type NewTaxConfiguration = typeof taxConfigurations.$inferInsert;
+
+/**
+ * Platform Fee Configurations (ASSO Super Admin / Platform Level)
+ * Distinct financial charge configured at platform or tenant override level.
+ */
+export const platformFeeConfigurations = pgTable(
+  "platform_fee_configurations",
+  {
+    configId: uuid("config_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").references(() => organizations.organizationId, { onDelete: "cascade" }),
+    outletId: uuid("outlet_id").references(() => outlets.outletId, { onDelete: "cascade" }),
+    feeType: varchar("fee_type", { length: 20 }).notNull().default("PERCENTAGE"), // 'PERCENTAGE', 'FIXED'
+    feeRate: numeric("fee_rate", { precision: 6, scale: 4 }).notNull().default("0.0000"),
+    fixedAmount: numeric("fixed_amount", { precision: 14, scale: 4 }).notNull().default("0.0000"),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_platform_fee_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_platform_fee_tenant").on(table.tenantId),
+  ]
+);
+
+export type PlatformFeeConfiguration = typeof platformFeeConfigurations.$inferSelect;
+export type NewPlatformFeeConfiguration = typeof platformFeeConfigurations.$inferInsert;
+

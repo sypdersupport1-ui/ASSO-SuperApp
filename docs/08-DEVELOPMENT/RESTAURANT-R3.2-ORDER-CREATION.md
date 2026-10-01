@@ -58,22 +58,38 @@ Customer ordering does not rely on staff RBAC permissions; it operates under a c
 
 ---
 
-## 3. Authoritative Pricing & Total Calculation
+## 3. Authoritative Pricing, Configurable GST & Platform Fee Calculation
 
-The server never accepts or trusts client-submitted monetary values:
+The server never accepts or trusts client-submitted monetary values, tax rates, or fee figures:
 
 1. **Pre-Order Cart Source**: The order lines are read directly from server-side database storage (`restaurant_cart_items` for the customer's `sessionId`).
 2. **Re-Validation Against Live Catalog**:
    - The server queries `catalog_items`, joining `catalog_categories` and `catalogs`.
    - Re-checks that every item is active and available (`is_available = true`).
    - If any item in the cart is sold out or belongs to an inactive category, the order is rejected with a structured error, requiring the customer to adjust their cart.
-3. **Immutable Historical Price Snapshots**:
-   - `unit_price` is copied directly from `catalog_items.base_price` (stored with `numeric(14, 4)` precision).
-   - Line subtotal = `unit_price * quantity`.
-   - Order subtotal = `sum(line subtotals)`.
-   - Order tax = `subtotal * 0.05` (5% GST F&B dining rate).
-   - Order total = `subtotal + tax`.
-   - Future catalog price changes do not mutate historical order item prices.
+3. **Server-Authoritative GST Configuration (`tax_configurations`)**:
+   - GST rate is **never hard-coded**. It is stored as a precise numeric rate in `tax_configurations` with scope `(tenant_id, outlet_id)`.
+   - If no GST configuration is present, the engine defaults to a safe **0.00% (zero/no-tax)** policy rather than assuming 5%, 12%, or 18%.
+   - Business/Restaurant administrators configure GST for their outlet/property.
+4. **Server-Authoritative ASSO Platform Fee Configuration (`platform_fee_configurations`)**:
+   - Platform fee is separate from GST and distinct from item prices.
+   - Configurable as **PERCENTAGE** (e.g. 2.0%) or **FIXED** (e.g. ₹15.00 flat fee).
+   - If not enabled or not configured, it defaults to a safe **0.00** fee.
+   - Managed exclusively by ASSO Platform Super Administrators (`isSuperAdmin: true`).
+5. **Exact Mathematical Total Invariant (No Double Taxation / No Double Fee)**:
+   ```text
+   subtotal = SUM(order_items.unit_price * quantity)
+   tax_amount = ROUND(subtotal * tax_rate, 2)
+   platform_fee_amount = ROUND(subtotal * platform_fee_rate, 2)  [if fee_type == 'PERCENTAGE']
+                       = fixed_amount                             [if fee_type == 'FIXED']
+   total_amount = subtotal + tax_amount + platform_fee_amount - discount_amount
+   ```
+   - **No Double Taxation**: GST is calculated purely on item subtotal, never compounding onto platform fees.
+   - **No Double Fee**: Platform fee is calculated purely on item subtotal, never on tax or post-tax totals.
+6. **Immutable Historical Financial Snapshots**:
+   - Every committed order captures: `tax_rate`, `tax_amount`, `platform_fee_type`, `platform_fee_rate`, and `platform_fee_amount`.
+   - Later changes to GST rates or platform fees affect **only new orders**. Historical orders remain immutable.
+   - Idempotent replays always return the original committed snapshots.
 
 ---
 
@@ -118,7 +134,7 @@ Hotel Room Service continues to function independently:
 
 ---
 
-## 8. API Specification
+## 8. API & Administrative Specification
 
 ### `POST /api/v1/restaurant/orders`
 Creates an authoritative restaurant order from the customer's active session cart.
@@ -152,9 +168,13 @@ Creates an authoritative restaurant order from the customer's active session car
     "diningContext": "DINE_IN",
     "orderSource": "CUSTOMER_WEB",
     "subtotalAmount": "890.00",
+    "taxRate": "0.0500",
     "taxAmount": "44.50",
+    "platformFeeType": "PERCENTAGE",
+    "platformFeeRate": "0.0200",
+    "platformFeeAmount": "17.80",
     "discountAmount": "0.00",
-    "totalAmount": "934.50",
+    "totalAmount": "952.30",
     "itemCount": 2,
     "items": [
       {
@@ -188,8 +208,19 @@ Creates an authoritative restaurant order from the customer's active session car
 }
 ```
 
-### `GET /api/v1/restaurant/orders`
-Retrieves order history for the active dining session.
+### Administrative Endpoints & UI
+
+1. **`GET /api/v1/restaurant/admin/tax-config` & `PUT /api/v1/restaurant/admin/tax-config`**:
+   - RBAC Permissions: `restaurant.settings.manage` or `finance.manage`
+   - Adjusts outlet/property GST rate (e.g. `0.05` for 5%, `0.18` for 18%).
+   - Generates audit event `TAX_CONFIGURATION_UPDATED`.
+2. **`GET /api/v1/restaurant/admin/platform-fee-config` & `PUT /api/v1/restaurant/admin/platform-fee-config`**:
+   - RBAC Permissions: ASSO Super Admin only (`user.isSuperAdmin === true`).
+   - Ordinary staff and tenant admins receive `403 Forbidden`.
+   - Adjusts platform fee mode (`PERCENTAGE` vs `FIXED`) and rates/amounts.
+   - Generates audit event `PLATFORM_FEE_CONFIGURATION_UPDATED`.
+3. **Restaurant Settings UI (`/restaurant/settings`)**:
+   - Integrated settings panel with live GST rate editor, Super Admin platform fee console, and real-time financial order simulator.
 
 ---
 
@@ -197,13 +228,14 @@ Retrieves order history for the active dining session.
 
 | Test Suite / Quality Gate | Coverage | Result |
 |---|---|---|
+| **R3.2 Configurable GST & Fee Suite** | 17 comprehensive scenarios | **17 / 17 passed (100%)** |
 | **R3.2 Order Creation Integration Suite** | 31 test scenarios | **31 / 31 passed (100%)** |
 | **R3.1 Order Domain Integration Suite** | 19 test scenarios | **19 / 19 passed (100%)** |
 | **R2 Digital Menu & QR Integration Suite** | 28 test scenarios | **28 / 28 passed (100%)** |
 | **R1 Table Management Integration Suite** | 26 test scenarios | **26 / 26 passed (100%)** |
 | **Phase 8 Events & Outbox Suite** | 11 test scenarios | **11 / 11 passed (100%)** |
+| **Hotel Room Service Regression Suite** | 9 test scenarios | **9 / 9 passed (100%)** |
 | **Security & IDOR Suite** | 7 files / 42 tests | **42 / 42 passed (100%)** |
 | **Native Supabase PostgreSQL & RLS Audit** | 11 checks | **11 / 11 passed (100%)** |
-| **Hotel Room Service & Master QA Suites** | 25 tests | **25 / 25 passed (100%)** |
-| **TypeScript Typecheck (`tsc --noEmit`)** | Zero type errors | **Passed Cleanly** |
-| **Next.js Production Build (`next build`)** | All routes compiled | **Compiled 100%** |
+| **TypeScript Typecheck (`tsc --noEmit`)** | Zero type errors | **Passed Cleanly (0 errors)** |
+| **Next.js Production Build (`next build`)** | All static/dynamic routes | **Compiled 100% cleanly** |

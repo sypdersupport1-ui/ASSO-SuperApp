@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as outletsPost } from "@/app/api/v1/restaurant/outlets/route";
 import { POST as tablesPost } from "@/app/api/v1/restaurant/tables/route";
@@ -20,6 +20,7 @@ import { setTenantEntitlements } from "@/lib/entitlements/checker";
 import { getDb } from "@/db/client";
 import { orders } from "@/db/schema/operations";
 import { customers } from "@/db/schema/core";
+import { taxConfigurations } from "@/db/schema/finance";
 import { eq, and } from "drizzle-orm";
 
 describe("ASSO Restaurant Vertical — Slice 2 (Digital Menu & Customer QR Flow)", () => {
@@ -122,6 +123,16 @@ describe("ASSO Restaurant Vertical — Slice 2 (Digital Menu & Customer QR Flow)
     const qrJson = await qrRes.json();
     expect(qrRes.status).toBe(200);
     qrTokenA = qrJson.data.opaqueToken;
+
+    // 5. Seed 5% GST tax configuration for outlet A
+    const db = getDb();
+    await db.insert(taxConfigurations).values({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxName: "GST",
+      taxRate: "0.0500",
+      isEnabled: true,
+    });
   });
 
   // ==========================================================================
@@ -725,5 +736,10 @@ describe("ASSO Restaurant Vertical — Slice 2 (Digital Menu & Customer QR Flow)
     expect(clearRes.status).toBe(200);
     expect(clearJson.data.totalItems).toBe(0);
     expect(clearJson.data.items.length).toBe(0);
+  });
+
+  afterAll(async () => {
+    const db = getDb();
+    await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
   });
 });

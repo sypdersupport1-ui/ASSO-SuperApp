@@ -20,9 +20,10 @@ import {
 import { businessContexts, customerSessions, qrTokens } from "@/db/schema/context";
 import { organizations, outlets, customers } from "@/db/schema/core";
 import { domainOutboxEvents } from "@/db/schema/communication";
+import { taxConfigurations, platformFeeConfigurations } from "@/db/schema/finance";
 import { signJwt } from "@/lib/auth/jwt";
 import { setTenantEntitlements } from "@/lib/entitlements/checker";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import postgres from "postgres";
 
 describe("ASSO Restaurant Vertical — Slice 3.2: Server-Authoritative Order Creation", () => {
@@ -521,6 +522,19 @@ describe("ASSO Restaurant Vertical — Slice 3.2: Server-Authoritative Order Cre
       })
       .returning();
     itemOutletBId = itemB.itemId;
+
+    // Clean and seed 5% GST tax configuration for outletIdA so standard order tests run under configured 5% GST
+    await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
+    await db.delete(platformFeeConfigurations).where(eq(platformFeeConfigurations.tenantId, TENANT_A));
+    await db.delete(platformFeeConfigurations).where(isNull(platformFeeConfigurations.tenantId));
+
+    await db.insert(taxConfigurations).values({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxName: "GST",
+      taxRate: "0.0500",
+      isEnabled: true,
+    });
   });
 
   afterAll(async () => {
@@ -530,6 +544,10 @@ describe("ASSO Restaurant Vertical — Slice 3.2: Server-Authoritative Order Cre
       await db.delete(orderStatusHistory).where(eq(orderStatusHistory.orderId, ordId));
       await db.delete(orders).where(eq(orders.orderId, ordId));
     }
+    // Clean up tax & fee configurations
+    await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
+    await db.delete(platformFeeConfigurations).where(eq(platformFeeConfigurations.tenantId, TENANT_A));
+    await db.delete(platformFeeConfigurations).where(isNull(platformFeeConfigurations.tenantId));
     // Clean up any cart items for test sessions
     await db
       .delete(restaurantCartItems)
