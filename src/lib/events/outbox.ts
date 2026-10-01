@@ -203,6 +203,12 @@ export async function processOutboxBatch(options: {
         outboxId: candidate.outboxId,
       });
 
+      // R3.3 KDS Integration
+      if (candidate.eventType === "ORDER_CONFIRMED" && (candidate.vertical === "RESTAURANT" || candidate.vertical === "HOTEL")) {
+        const { generateKdsTasksFromOrderConfirmed } = await import("@/lib/restaurant/kds-service");
+        await generateKdsTasksFromOrderConfirmed(candidate.tenantId, candidate.aggregateId);
+      }
+
       // Mark outbox row as COMPLETED
       await db
         .update(domainOutboxEvents)

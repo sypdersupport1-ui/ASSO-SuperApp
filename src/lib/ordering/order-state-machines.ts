@@ -65,6 +65,33 @@ export const VALID_ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> 
   CANCELLED: [], // Terminal state
 };
 
+export const KDS_TASK_STATUSES = [
+  "PENDING",
+  "PREPARING",
+  "READY",
+  "DONE",
+  "CANCELLED",
+] as const;
+
+export type KdsTaskStatus = (typeof KDS_TASK_STATUSES)[number];
+
+export const VALID_KDS_TASK_TRANSITIONS: Record<KdsTaskStatus, KdsTaskStatus[]> = {
+  PENDING: ["PREPARING", "READY", "CANCELLED"],
+  PREPARING: ["READY", "DONE", "CANCELLED"],
+  READY: ["DONE", "CANCELLED"],
+  DONE: [], // Terminal state
+  CANCELLED: [], // Terminal state
+};
+
+export const KDS_STATIONS = [
+  "KITCHEN",
+  "TANDOOR",
+  "BEVERAGE",
+  "DESSERT",
+] as const;
+
+export type KdsStation = (typeof KDS_STATIONS)[number] | (string & {});
+
 /**
  * Validates whether a state transition from `currentStatus` to `nextStatus` is allowed.
  */
@@ -80,6 +107,27 @@ export function validateOrderStatusTransition(
   if (!allowed || !allowed.includes(nextStatus)) {
     throw new ValidationError(
       `Invalid order status transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${
+        allowed && allowed.length > 0 ? allowed.join(", ") : "none (terminal state)"
+      }.`
+    );
+  }
+}
+
+/**
+ * Validates whether a KDS task state transition from `currentStatus` to `nextStatus` is allowed.
+ */
+export function validateKdsTaskStatusTransition(
+  currentStatus: KdsTaskStatus,
+  nextStatus: KdsTaskStatus
+): void {
+  if (currentStatus === nextStatus) {
+    return; // Idempotent no-op
+  }
+
+  const allowed = VALID_KDS_TASK_TRANSITIONS[currentStatus];
+  if (!allowed || !allowed.includes(nextStatus)) {
+    throw new ValidationError(
+      `Invalid KDS task status transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${
         allowed && allowed.length > 0 ? allowed.join(", ") : "none (terminal state)"
       }.`
     );

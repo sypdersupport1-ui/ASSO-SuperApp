@@ -110,6 +110,50 @@ export const orderItems = pgTable(
 export type OrderItem = typeof orderItems.$inferSelect;
 export type NewOrderItem = typeof orderItems.$inferInsert;
 
+export const kdsTasks = pgTable(
+  "kds_tasks",
+  {
+    taskId: uuid("task_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    orderId: uuid("order_id").notNull().references(() => orders.orderId, { onDelete: "cascade" }),
+    orderItemId: uuid("order_item_id").notNull().references(() => orderItems.orderItemId, { onDelete: "cascade" }),
+    itemId: uuid("item_id").notNull().references(() => catalogItems.itemId),
+    itemName: varchar("item_name", { length: 255 }).notNull(),
+    quantity: integer("quantity").notNull(),
+    diningContext: varchar("dining_context", { length: 50 }).notNull(),
+    tableId: uuid("table_id").references(() => restaurantTables.tableId),
+    tableSessionId: uuid("table_session_id").references(() => restaurantTableSessions.sessionId),
+    orderSource: varchar("order_source", { length: 50 }).notNull(),
+    stationRouting: varchar("station_routing", { length: 50 }).notNull().default("KITCHEN"),
+    taskStatus: varchar("task_status", { length: 50 }).notNull().default("PENDING"),
+    idempotencyKey: varchar("idempotency_key", { length: 100 }), // To ensure one task per order_item or event
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_kds_tasks_order_item").on(table.orderItemId), // Critical requirement: one task per order item
+    index("idx_kds_tasks_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_kds_tasks_order").on(table.orderId),
+    index("idx_kds_tasks_status").on(table.tenantId, table.taskStatus),
+    index("idx_kds_tasks_station").on(table.tenantId, table.outletId, table.stationRouting),
+  ]
+);
+
+export type KdsTask = typeof kdsTasks.$inferSelect;
+export type NewKdsTask = typeof kdsTasks.$inferInsert;
+
+export const kdsTaskHistory = pgTable("kds_task_history", {
+  historyId: uuid("history_id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+  taskId: uuid("task_id").notNull().references(() => kdsTasks.taskId, { onDelete: "cascade" }),
+  fromStatus: varchar("from_status", { length: 50 }).notNull(),
+  toStatus: varchar("to_status", { length: 50 }).notNull(),
+  changedByUserId: uuid("changed_by_user_id").references(() => users.userId),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const orderStatusHistory = pgTable("order_status_history", {
   historyId: uuid("history_id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
