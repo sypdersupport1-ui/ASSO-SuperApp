@@ -41,10 +41,10 @@ export function RestaurantNav({
   const activeNavItems = [
     { label: "Dashboard", href: "/restaurant", icon: LayoutDashboard },
     { label: "Tables & Floor", href: "/restaurant/tables", icon: Grid3X3 },
+    { label: "Digital Menu", href: "/restaurant/menu", icon: BookOpen },
   ];
 
   const upcomingModules = [
-    { label: "Digital Menu", slice: "R2", icon: BookOpen },
     { label: "Orders", slice: "R3", icon: ShoppingBag },
     { label: "Kitchen KDS", slice: "R4", icon: MonitorPlay },
     { label: "POS", slice: "R5", icon: CreditCard },
