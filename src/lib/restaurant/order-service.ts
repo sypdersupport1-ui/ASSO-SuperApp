@@ -553,11 +553,15 @@ async function formatExistingOrderResponse(
  * Retrieves all orders for the current customer session or active table session.
  */
 export async function listCustomerSessionOrders(
-  user: JwtPayload
+  user: JwtPayload,
+  limit: number = 50
 ): Promise<CustomerOrderResponseDto[]> {
   if (!user || !user.tenantId || !user.sub) {
     throw new AuthenticationError("Invalid customer session.");
   }
+
+  // Clamp unreasonable limits
+  const safeLimit = Math.min(Math.max(1, limit), 100);
 
   const tenantId = user.tenantId;
   const db = getDb();
@@ -618,7 +622,8 @@ export async function listCustomerSessionOrders(
     .select()
     .from(orders)
     .where(and(...orderConditions))
-    .orderBy(desc(orders.createdAt));
+    .orderBy(desc(orders.createdAt))
+    .limit(safeLimit);
 
   const results: CustomerOrderResponseDto[] = [];
   for (const ord of sessionOrders) {

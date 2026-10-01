@@ -42,7 +42,10 @@ export async function GET(req: NextRequest) {
       throw new AuthenticationError("Active customer session token required.");
     }
 
-    const ordersList = await listCustomerSessionOrders(ctx.user);
+    const limitParam = req.nextUrl.searchParams.get("limit");
+    const limit = limitParam ? parseInt(limitParam, 10) : 50;
+
+    const ordersList = await listCustomerSessionOrders(ctx.user, limit);
     return apiSuccess(ordersList, ctx.requestId, 200);
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_rest_orders_get");

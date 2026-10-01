@@ -16,27 +16,37 @@ export interface DbHealthResult {
   details?: string;
 }
 
-let client: postgres.Sql | null = null;
-let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
+// Extend NodeJS global type to support HMR singleton
+const globalForDb = globalThis as unknown as {
+  postgresClient: postgres.Sql | undefined;
+  drizzleInstance: ReturnType<typeof drizzle<typeof schema>> | undefined;
+};
 
 export function getDbClient() {
-  if (!client) {
-    client = postgres(env.DATABASE_URL, {
-      max: env.NODE_ENV === "production" ? 20 : 5,
-      idle_timeout: 20,
-      connect_timeout: 2, // 2s timeout for health checks
+  if (!globalForDb.postgresClient) {
+    // 1. API runtime (Next.js serverless/edge): Small pool, fast timeout
+    // 2. Background worker runtime: Larger pool if needed, explicit ENV config
+    // 3. Local/Test runtime: Smallest pool, single connection preferred
+    const maxConnections = parseInt(process.env.DB_POOL_SIZE || "0") || (env.NODE_ENV === "production" ? 10 : 5);
+    const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || "20");
+    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "2");
+
+    globalForDb.postgresClient = postgres(env.DATABASE_URL, {
+      max: maxConnections,
+      idle_timeout: idleTimeout,
+      connect_timeout: connectTimeout,
       onnotice: () => {},
     });
   }
-  return client;
+  return globalForDb.postgresClient;
 }
 
 export function getDb() {
-  if (!dbInstance) {
+  if (!globalForDb.drizzleInstance) {
     const sqlClient = getDbClient();
-    dbInstance = drizzle(sqlClient, { schema });
+    globalForDb.drizzleInstance = drizzle(sqlClient, { schema });
   }
-  return dbInstance;
+  return globalForDb.drizzleInstance;
 }
 
 export async function checkDatabaseHealth(): Promise<DbHealthResult> {
