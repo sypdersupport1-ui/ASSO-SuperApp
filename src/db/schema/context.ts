@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
-import { organizations, outlets } from "./core";
+import { organizations, outlets, customers } from "./core";
 
 export const businessContexts = pgTable("business_contexts", {
   contextId: uuid("context_id").primaryKey().defaultRandom(),
@@ -33,6 +33,7 @@ export const customerSessions = pgTable("customer_sessions", {
   outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
   contextId: uuid("context_id").notNull().references(() => businessContexts.contextId),
   tokenId: uuid("token_id").notNull().references(() => qrTokens.tokenId),
+  customerId: uuid("customer_id").references(() => customers.customerId),
   deviceFingerprint: varchar("device_fingerprint", { length: 255 }).notNull(),
   customerPhone: varchar("customer_phone", { length: 50 }),
   customerName: varchar("customer_name", { length: 100 }),
@@ -41,3 +42,7 @@ export const customerSessions = pgTable("customer_sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export type CustomerSession = typeof customerSessions.$inferSelect;
+export type NewCustomerSession = typeof customerSessions.$inferInsert;
+

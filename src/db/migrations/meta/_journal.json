@@ -71,6 +71,13 @@
       "when": 1790530000000,
       "tag": "0009_restaurant_foundation_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790540000000,
+      "tag": "0010_restaurant_customer_and_catalog",
+      "breakpoints": true
     }
   ]
 }

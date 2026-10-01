@@ -12,6 +12,7 @@ export interface JwtPayload {
   isSuperAdmin?: boolean;
   sessionType: "STAFF" | "SUPER_ADMIN" | "CUSTOMER";
   contextId?: string; // QR context (table, room, seat)
+  customerId?: string; // Identified business customer
   iat?: number;
   exp?: number;
 }

@@ -35,6 +35,7 @@ export const catalogItems = pgTable("catalog_items", {
   taxRate: numeric("tax_rate", { precision: 6, scale: 4 }).notNull().default("0.0500"),
   isAvailable: boolean("is_available").notNull().default(true),
   fulfillmentStation: varchar("fulfillment_station", { length: 50 }).notNull().default("KITCHEN"),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

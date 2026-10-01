@@ -1,7 +1,8 @@
 import { pgTable, uuid, varchar, text, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { organizations, outlets, users } from "./core";
-import { businessContexts } from "./context";
+import { businessContexts, customerSessions } from "./context";
+import { catalogItems } from "./operations";
 
 // Operational table statuses for restaurant vertical
 export const RESTAURANT_TABLE_STATUSES = [
@@ -98,3 +99,35 @@ export const restaurantTableSessions = pgTable(
 
 export type RestaurantTableSession = typeof restaurantTableSessions.$inferSelect;
 export type NewRestaurantTableSession = typeof restaurantTableSessions.$inferInsert;
+
+/**
+ * Restaurant Cart Items (Pre-Order / Customer Session Cart)
+ * Holds unplaced, draft cart items for a customer dining session.
+ * Crucial invariant: Does NOT constitute an order, bill, payment, or financial ledger entry.
+ */
+export const restaurantCartItems = pgTable(
+  "restaurant_cart_items",
+  {
+    cartItemId: uuid("cart_item_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => customerSessions.sessionId, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => catalogItems.itemId),
+    quantity: integer("quantity").notNull().default(1),
+    specialInstructions: text("special_instructions"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_restaurant_cart_session_item").on(table.sessionId, table.itemId),
+    index("idx_restaurant_cart_tenant_session").on(table.tenantId, table.sessionId),
+  ]
+);
+
+export type RestaurantCartItem = typeof restaurantCartItems.$inferSelect;
+export type NewRestaurantCartItem = typeof restaurantCartItems.$inferInsert;
