@@ -78,6 +78,13 @@
       "when": 1790540000000,
       "tag": "0010_restaurant_customer_and_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790550000000,
+      "tag": "0011_restaurant_order_domain",
+      "breakpoints": true
     }
   ]
 }
