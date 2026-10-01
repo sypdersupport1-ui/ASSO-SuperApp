@@ -1,6 +1,7 @@
-import { pgTable, uuid, varchar, text, integer, boolean, numeric, jsonb, timestamp, index } from "drizzle-orm/pg-core";
-import { organizations, outlets, users, staffProfiles } from "./core";
+import { pgTable, uuid, varchar, text, integer, boolean, numeric, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { organizations, outlets, users, staffProfiles, customers } from "./core";
 import { businessContexts, customerSessions } from "./context";
+import { restaurantTables, restaurantTableSessions } from "./restaurant";
 
 export const catalogs = pgTable("catalogs", {
   catalogId: uuid("catalog_id").primaryKey().defaultRandom(),
@@ -40,41 +41,70 @@ export const catalogItems = pgTable("catalog_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const orders = pgTable("orders", {
-  orderId: uuid("order_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
-  contextId: uuid("context_id").notNull().references(() => businessContexts.contextId),
-  sessionId: uuid("session_id").references(() => customerSessions.sessionId),
-  createdByStaffId: uuid("created_by_staff_id").references(() => staffProfiles.staffId),
-  orderNumber: varchar("order_number", { length: 50 }).notNull(),
-  orderSource: varchar("order_source", { length: 50 }).notNull(), // 'QR_CUSTOMER', 'STAFF_POS', 'DESK_ORDER'
-  status: varchar("status", { length: 50 }).notNull().default("PLACED"),
-  cancellationReason: text("cancellation_reason"),
-  idempotencyKey: varchar("idempotency_key", { length: 100 }),
-  subtotalAmount: numeric("subtotal_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const orders = pgTable(
+  "orders",
+  {
+    orderId: uuid("order_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    contextId: uuid("context_id").notNull().references(() => businessContexts.contextId),
+    sessionId: uuid("session_id").references(() => customerSessions.sessionId),
+    customerId: uuid("customer_id").references(() => customers.customerId),
+    tableId: uuid("table_id").references(() => restaurantTables.tableId),
+    tableSessionId: uuid("table_session_id").references(() => restaurantTableSessions.sessionId),
+    createdByStaffId: uuid("created_by_staff_id").references(() => staffProfiles.staffId),
+    orderNumber: varchar("order_number", { length: 50 }).notNull(),
+    orderSource: varchar("order_source", { length: 50 }).notNull(), // 'CUSTOMER_WEB', 'POS', 'QR_CUSTOMER', 'STAFF_POS', 'DESK_ORDER'
+    diningContext: varchar("dining_context", { length: 50 }).notNull().default("DINE_IN"), // 'DINE_IN', 'ROOM_SERVICE', 'TAKEAWAY', 'DELIVERY'
+    status: varchar("status", { length: 50 }).notNull().default("PLACED"),
+    cancellationReason: text("cancellation_reason"),
+    idempotencyKey: varchar("idempotency_key", { length: 100 }),
+    subtotalAmount: numeric("subtotal_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_orders_outlet_order_number").on(table.outletId, table.orderNumber),
+    uniqueIndex("uq_orders_tenant_idempotency").on(table.tenantId, table.idempotencyKey),
+    index("idx_orders_tenant_table_session").on(table.tenantId, table.tableSessionId),
+    index("idx_orders_tenant_table").on(table.tenantId, table.tableId),
+    index("idx_orders_tenant_customer").on(table.tenantId, table.customerId),
+    index("idx_orders_tenant_status").on(table.tenantId, table.status),
+  ]
+);
 
-export const orderItems = pgTable("order_items", {
-  orderItemId: uuid("order_item_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  orderId: uuid("order_id").notNull().references(() => orders.orderId, { onDelete: "cascade" }),
-  itemId: uuid("item_id").notNull().references(() => catalogItems.itemId),
-  itemName: varchar("item_name", { length: 255 }).notNull(),
-  unitPrice: numeric("unit_price", { precision: 14, scale: 4 }).notNull(),
-  quantity: integer("quantity").notNull(),
-  subtotal: numeric("subtotal", { precision: 14, scale: 4 }).notNull(),
-  fulfillmentStation: varchar("fulfillment_station", { length: 50 }).notNull().default("KITCHEN"),
-  itemStatus: varchar("item_status", { length: 50 }).notNull().default("PLACED"),
-  specialNotes: text("special_notes"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export type Order = typeof orders.$inferSelect;
+export type NewOrder = typeof orders.$inferInsert;
+
+export const orderItems = pgTable(
+  "order_items",
+  {
+    orderItemId: uuid("order_item_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    orderId: uuid("order_id").notNull().references(() => orders.orderId, { onDelete: "cascade" }),
+    itemId: uuid("item_id").notNull().references(() => catalogItems.itemId),
+    itemName: varchar("item_name", { length: 255 }).notNull(),
+    unitPrice: numeric("unit_price", { precision: 14, scale: 4 }).notNull(),
+    quantity: integer("quantity").notNull(),
+    subtotal: numeric("subtotal", { precision: 14, scale: 4 }).notNull(),
+    fulfillmentStation: varchar("fulfillment_station", { length: 50 }).notNull().default("KITCHEN"),
+    itemStatus: varchar("item_status", { length: 50 }).notNull().default("PLACED"),
+    specialNotes: text("special_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_order_items_tenant_order").on(table.tenantId, table.orderId),
+    index("idx_order_items_tenant_status").on(table.tenantId, table.itemStatus),
+    index("idx_order_items_station").on(table.tenantId, table.fulfillmentStation),
+  ]
+);
+
+export type OrderItem = typeof orderItems.$inferSelect;
+export type NewOrderItem = typeof orderItems.$inferInsert;
 
 export const orderStatusHistory = pgTable("order_status_history", {
   historyId: uuid("history_id").primaryKey().defaultRandom(),
