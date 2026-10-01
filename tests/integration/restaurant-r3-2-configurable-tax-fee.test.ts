@@ -56,6 +56,9 @@ describe("ASSO Restaurant Vertical — Slice 3.2 Correction: Configurable GST + 
 
   let itemId1: string; // Price: 200.00
   let itemId2: string; // Price: 100.00
+  let itemId3: string; // Price: 10.10
+  let itemId4: string; // Price: 19.99
+  let itemId5: string; // Price: 33.33
 
   const createdOrderIds: string[] = [];
 
@@ -268,6 +271,48 @@ describe("ASSO Restaurant Vertical — Slice 3.2 Correction: Configurable GST + 
       })
       .returning();
     itemId2 = item2.itemId;
+
+    const [item3] = await db
+      .insert(catalogItems)
+      .values({
+        tenantId: TENANT_A,
+        categoryId: category.categoryId,
+        name: "Steamed Basmati Rice",
+        basePrice: "10.1000",
+        taxRate: "0.0000",
+        isAvailable: true,
+        fulfillmentStation: "KITCHEN",
+      })
+      .returning();
+    itemId3 = item3.itemId;
+
+    const [item4] = await db
+      .insert(catalogItems)
+      .values({
+        tenantId: TENANT_A,
+        categoryId: category.categoryId,
+        name: "Masala Chai",
+        basePrice: "19.9900",
+        taxRate: "0.0000",
+        isAvailable: true,
+        fulfillmentStation: "BEVERAGE",
+      })
+      .returning();
+    itemId4 = item4.itemId;
+
+    const [item5] = await db
+      .insert(catalogItems)
+      .values({
+        tenantId: TENANT_A,
+        categoryId: category.categoryId,
+        name: "Gulab Jamun",
+        basePrice: "33.3300",
+        taxRate: "0.0000",
+        isAvailable: true,
+        fulfillmentStation: "KITCHEN",
+      })
+      .returning();
+    itemId5 = item5.itemId;
 
     // Clean existing tax/fee configs for clean baseline
     await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
@@ -760,7 +805,7 @@ describe("ASSO Restaurant Vertical — Slice 3.2 Correction: Configurable GST + 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.data.taxRate).toBe(0.05);
+    expect(json.data.taxRate).toBe("0.0500");
   });
 
   it("14. RBAC: Restaurant Admin CANNOT adjust ASSO platform fee (403 Forbidden)", async () => {
@@ -796,7 +841,7 @@ describe("ASSO Restaurant Vertical — Slice 3.2 Correction: Configurable GST + 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.data.feeRate).toBe(0.02);
+    expect(json.data.feeRate).toBe("0.0200");
   });
 
   it("16. Audit events are recorded for tax and platform fee adjustments", async () => {
@@ -866,5 +911,282 @@ describe("ASSO Restaurant Vertical — Slice 3.2 Correction: Configurable GST + 
     expect(fixedTotals.taxAmount).toBe("90.1200");
     expect(fixedTotals.platformFeeAmount).toBe("20.0000");
     expect(fixedTotals.totalAmount).toBe("861.1200");
+  });
+
+  // ==========================================================================
+  // 5. EXACT DECIMAL ARITHMETIC EDGE CASES (NO FLOATING-POINT DRIFT)
+  // ==========================================================================
+
+  it("18. Exact Decimal: 10.10 x 7 produces exact 70.70 in API and 70.7000 in DB (not 70.69999999999999)", async () => {
+    // Zero tax, zero fee
+    await upsertTaxConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxRate: 0,
+      isEnabled: false,
+    });
+    await upsertPlatformFeeConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      feeType: "PERCENTAGE",
+      feeRate: 0,
+      isEnabled: false,
+    });
+
+    await addCart(itemId3, 7); // 10.10 * 7 = 70.70
+
+    const req = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: `fin_exact_10_10_7_${Date.now()}` }),
+    });
+
+    const res = await ordersPost(req);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    createdOrderIds.push(json.data.orderId);
+
+    expect(json.data.subtotalAmount).toBe("70.70");
+    expect(json.data.taxAmount).toBe("0.00");
+    expect(json.data.platformFeeAmount).toBe("0.00");
+    expect(json.data.totalAmount).toBe("70.70");
+    expect(json.data.items[0].unitPrice).toBe("10.10");
+    expect(json.data.items[0].subtotal).toBe("70.70");
+
+    // Verify exact PostgreSQL numeric storage
+    const dbOrder = await getRestaurantOrderById(TENANT_A, json.data.orderId);
+    expect(dbOrder.subtotalAmount).toBe("70.7000");
+    expect(dbOrder.totalAmount).toBe("70.7000");
+    expect(dbOrder.items[0].unitPrice).toBe("10.1000");
+    expect(dbOrder.items[0].subtotal).toBe("70.7000");
+  });
+
+  it("19. Exact Decimal: 19.99 x 3 with 5% GST produces exact subtotal 59.97, tax 3.00, total 62.97", async () => {
+    await upsertTaxConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxRate: 0.05,
+      isEnabled: true,
+    });
+    await upsertPlatformFeeConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      feeType: "PERCENTAGE",
+      feeRate: 0,
+      isEnabled: false,
+    });
+
+    await addCart(itemId4, 3); // 19.99 * 3 = 59.97
+
+    const req = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: `fin_exact_19_99_3_${Date.now()}` }),
+    });
+
+    const res = await ordersPost(req);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    createdOrderIds.push(json.data.orderId);
+
+    // 59.97 * 0.05 = 2.9985 -> half-up 3.00
+    // Total: 59.97 + 3.00 = 62.97
+    expect(json.data.subtotalAmount).toBe("59.97");
+    expect(json.data.taxRate).toBe("0.0500");
+    expect(json.data.taxAmount).toBe("3.00");
+    expect(json.data.totalAmount).toBe("62.97");
+
+    const dbOrder = await getRestaurantOrderById(TENANT_A, json.data.orderId);
+    expect(dbOrder.subtotalAmount).toBe("59.9700");
+    expect(dbOrder.taxAmount).toBe("3.0000");
+    expect(dbOrder.totalAmount).toBe("62.9700");
+  });
+
+  it("20. Repeating GST decimal: 33.33 x 1 with 18% GST rounds deterministically half-up to 6.00 tax", async () => {
+    await upsertTaxConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxRate: 0.18,
+      isEnabled: true,
+    });
+    await upsertPlatformFeeConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      feeType: "PERCENTAGE",
+      feeRate: 0,
+      isEnabled: false,
+    });
+
+    await addCart(itemId5, 1); // 33.33
+
+    const req = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: `fin_repeat_gst_${Date.now()}` }),
+    });
+
+    const res = await ordersPost(req);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    createdOrderIds.push(json.data.orderId);
+
+    // 33.33 * 0.18 = 5.9994 -> half-up 6.00
+    // Total: 33.33 + 6.00 = 39.33
+    expect(json.data.subtotalAmount).toBe("33.33");
+    expect(json.data.taxRate).toBe("0.1800");
+    expect(json.data.taxAmount).toBe("6.00");
+    expect(json.data.totalAmount).toBe("39.33");
+
+    const dbOrder = await getRestaurantOrderById(TENANT_A, json.data.orderId);
+    expect(dbOrder.subtotalAmount).toBe("33.3300");
+    expect(dbOrder.taxAmount).toBe("6.0000");
+    expect(dbOrder.totalAmount).toBe("39.3300");
+  });
+
+  it("21. Repeating percentage platform fee: 19.99 x 1 with 2.5% fee rounds deterministically half-up to 0.50 fee", async () => {
+    await upsertTaxConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxRate: 0,
+      isEnabled: false,
+    });
+    await upsertPlatformFeeConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      feeType: "PERCENTAGE",
+      feeRate: 0.025,
+      isEnabled: true,
+    });
+
+    await addCart(itemId4, 1); // 19.99
+
+    const req = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: `fin_repeat_fee_${Date.now()}` }),
+    });
+
+    const res = await ordersPost(req);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    createdOrderIds.push(json.data.orderId);
+
+    // 19.99 * 0.025 = 0.49975 -> half-up 0.50
+    // Total: 19.99 + 0.50 = 20.49
+    expect(json.data.subtotalAmount).toBe("19.99");
+    expect(json.data.platformFeeRate).toBe("0.0250");
+    expect(json.data.platformFeeAmount).toBe("0.50");
+    expect(json.data.totalAmount).toBe("20.49");
+
+    const dbOrder = await getRestaurantOrderById(TENANT_A, json.data.orderId);
+    expect(dbOrder.subtotalAmount).toBe("19.9900");
+    expect(dbOrder.platformFeeAmount).toBe("0.5000");
+    expect(dbOrder.totalAmount).toBe("20.4900");
+  });
+
+  it("22. Combined GST + Platform fee on multi-item floating-point edge cases (10.10 x 7 + 19.99 x 3)", async () => {
+    await upsertTaxConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      taxRate: 0.05,
+      isEnabled: true,
+    });
+    await upsertPlatformFeeConfig({
+      tenantId: TENANT_A,
+      outletId: outletIdA,
+      feeType: "PERCENTAGE",
+      feeRate: 0.025,
+      isEnabled: true,
+    });
+
+    await addCart(itemId3, 7); // 70.70
+    await addCart(itemId4, 3); // 59.97
+
+    const req = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: `fin_combined_fp_cases_${Date.now()}` }),
+    });
+
+    const res = await ordersPost(req);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    createdOrderIds.push(json.data.orderId);
+
+    // Subtotal: 70.70 + 59.97 = 130.67
+    // GST: 130.67 * 0.05 = 6.5335 -> half-up 6.53 (NOT applied on fee)
+    // Fee: 130.67 * 0.025 = 3.26675 -> half-up 3.27 (NOT applied on GST)
+    // Total: 130.67 + 6.53 + 3.27 = 140.47
+    expect(json.data.subtotalAmount).toBe("130.67");
+    expect(json.data.taxRate).toBe("0.0500");
+    expect(json.data.taxAmount).toBe("6.53");
+    expect(json.data.platformFeeRate).toBe("0.0250");
+    expect(json.data.platformFeeAmount).toBe("3.27");
+    expect(json.data.totalAmount).toBe("140.47");
+
+    const dbOrder = await getRestaurantOrderById(TENANT_A, json.data.orderId);
+    expect(dbOrder.subtotalAmount).toBe("130.6700");
+    expect(dbOrder.taxAmount).toBe("6.5300");
+    expect(dbOrder.platformFeeAmount).toBe("3.2700");
+    expect(dbOrder.totalAmount).toBe("140.4700");
+  });
+
+  it("23. Idempotent replay under exact decimal arithmetic returns bit-for-bit identical committed financial snapshots", async () => {
+    const replayKey = `fin_exact_replay_${Date.now()}`;
+    await addCart(itemId3, 2); // 20.20
+
+    const req1 = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": replayKey,
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: replayKey }),
+    });
+
+    const res1 = await ordersPost(req1);
+    expect(res1.status).toBe(201);
+    const json1 = await res1.json();
+    createdOrderIds.push(json1.data.orderId);
+
+    // Replay
+    const req2 = new NextRequest("http://localhost:3000/api/v1/restaurant/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": replayKey,
+        Authorization: `Bearer ${customerTokenA}`,
+      },
+      body: JSON.stringify({ idempotencyKey: replayKey }),
+    });
+
+    const res2 = await ordersPost(req2);
+    expect(res2.status).toBe(200);
+    const json2 = await res2.json();
+
+    expect(json2.data.orderId).toBe(json1.data.orderId);
+    expect(json2.data.subtotalAmount).toBe(json1.data.subtotalAmount);
+    expect(json2.data.taxRate).toBe(json1.data.taxRate);
+    expect(json2.data.taxAmount).toBe(json1.data.taxAmount);
+    expect(json2.data.platformFeeRate).toBe(json1.data.platformFeeRate);
+    expect(json2.data.platformFeeAmount).toBe(json1.data.platformFeeAmount);
+    expect(json2.data.totalAmount).toBe(json1.data.totalAmount);
+    expect(json2.data.items[0].subtotal).toBe(json1.data.items[0].subtotal);
   });
 });

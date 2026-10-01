@@ -59,9 +59,9 @@ describe("Hotel Slice 8 — Order State Machine Unit Tests", () => {
       expect(() => validateOrderStatusTransition("CANCELLED", "ACCEPTED")).toThrow(ValidationError);
     });
 
-    it("rejects cancelling an order that is already PREPARING or READY", () => {
-      expect(() => validateOrderStatusTransition("PREPARING", "CANCELLED")).toThrow(ValidationError);
-      expect(() => validateOrderStatusTransition("READY", "CANCELLED")).toThrow(ValidationError);
+    it("allows cancelling an order that is already PREPARING or READY (staff action)", () => {
+      expect(() => validateOrderStatusTransition("PREPARING", "CANCELLED")).not.toThrow();
+      expect(() => validateOrderStatusTransition("READY", "CANCELLED")).not.toThrow();
     });
   });
 

@@ -10,6 +10,7 @@ import {
   type DiningContext,
   validateOrderStatusTransition,
 } from "@/lib/ordering/order-state-machines";
+import { Decimal, calculateExactOrderTotals, type DecimalLike } from "@/lib/decimal";
 
 /**
  * Generates an authoritative, human-readable restaurant order number.
@@ -61,34 +62,39 @@ export interface RestaurantOrderSnapshot {
  * Validates that an item's subtotal matches its unit price * quantity snapshot.
  */
 export function validateItemPriceSnapshot(
-  unitPrice: string,
-  quantity: number,
-  subtotal: string
+  unitPrice: DecimalLike,
+  quantity: number | bigint,
+  subtotal: DecimalLike
 ): boolean {
-  const priceNum = parseFloat(unitPrice);
-  const subtotalNum = parseFloat(subtotal);
-  if (isNaN(priceNum) || isNaN(subtotalNum) || quantity <= 0) {
+  try {
+    const priceDec = Decimal.from(unitPrice);
+    const subtotalDec = Decimal.from(subtotal);
+    if (priceDec.isNegative() || BigInt(quantity) <= 0n) {
+      return false;
+    }
+    const expected = priceDec.times(quantity).toFixed(4);
+    return expected === subtotalDec.toFixed(4);
+  } catch {
     return false;
   }
-  const calculated = (priceNum * quantity).toFixed(4);
-  return parseFloat(calculated) === parseFloat(subtotalNum.toFixed(4));
 }
 
 export interface OrderFinancialOptions {
-  taxRate?: number;
-  platformFeeRate?: number;
-  platformFeeFixed?: number;
+  taxRate?: DecimalLike;
+  platformFeeRate?: DecimalLike;
+  platformFeeFixed?: DecimalLike;
   platformFeeType?: "PERCENTAGE" | "FIXED";
-  discountAmount?: number;
+  discountAmount?: DecimalLike;
 }
 
 /**
  * Authoritatively calculates order subtotal, configured tax, platform fee, and total from line items.
+ * Uses exact Decimal arithmetic with BigInt integers to prevent floating-point inaccuracies.
  * If no tax or platform fee options are passed, defaults to safe zero (no tax, no fee).
  */
 export function calculateAuthoritativeTotals(
-  items: Array<{ unitPrice: string; quantity: number }>,
-  optionsOrTaxRate: number | OrderFinancialOptions = 0
+  items: Array<{ unitPrice: DecimalLike; quantity: number | bigint }>,
+  optionsOrTaxRate: DecimalLike | OrderFinancialOptions = 0
 ): {
   subtotalAmount: string;
   taxRate: string;
@@ -99,58 +105,32 @@ export function calculateAuthoritativeTotals(
   discountAmount: string;
   totalAmount: string;
 } {
-  const taxRate =
-    typeof optionsOrTaxRate === "number"
-      ? optionsOrTaxRate
-      : optionsOrTaxRate.taxRate ?? 0;
-  const platformFeeType =
-    typeof optionsOrTaxRate === "object"
-      ? optionsOrTaxRate.platformFeeType ?? "PERCENTAGE"
-      : "PERCENTAGE";
-  const platformFeeRate =
-    typeof optionsOrTaxRate === "object"
-      ? optionsOrTaxRate.platformFeeRate ?? 0
-      : 0;
-  const platformFeeFixed =
-    typeof optionsOrTaxRate === "object"
-      ? optionsOrTaxRate.platformFeeFixed ?? 0
-      : 0;
-  const discountAmount =
-    typeof optionsOrTaxRate === "object"
-      ? optionsOrTaxRate.discountAmount ?? 0
-      : 0;
+  const isObject =
+    typeof optionsOrTaxRate === "object" && !(optionsOrTaxRate instanceof Decimal);
+  const options = isObject ? (optionsOrTaxRate as OrderFinancialOptions) : undefined;
+  const taxRate = options ? options.taxRate ?? 0 : (optionsOrTaxRate as DecimalLike);
 
-  let subtotal = 0;
-  for (const item of items) {
-    const price = parseFloat(item.unitPrice);
-    if (isNaN(price) || price < 0 || item.quantity <= 0) {
-      throw new ValidationError("Invalid unit price or quantity in order items.");
-    }
-    subtotal += price * item.quantity;
-  }
-
-  const tax = Math.round((subtotal * taxRate + Number.EPSILON) * 10000) / 10000;
-  let platformFee = 0;
-  if (platformFeeType === "PERCENTAGE") {
-    platformFee =
-      Math.round((subtotal * platformFeeRate + Number.EPSILON) * 10000) / 10000;
-  } else {
-    platformFee =
-      Math.round((platformFeeFixed + Number.EPSILON) * 10000) / 10000;
-  }
-  const total =
-    Math.round((subtotal + tax + platformFee - discountAmount + Number.EPSILON) * 10000) /
-    10000;
+  const res = calculateExactOrderTotals({
+    items: items.map((it) => ({
+      unitPrice: it.unitPrice,
+      quantity: it.quantity,
+    })),
+    taxRate: taxRate ?? 0,
+    platformFeeRate: options?.platformFeeRate ?? 0,
+    platformFeeFixed: options?.platformFeeFixed ?? 0,
+    platformFeeType: options?.platformFeeType ?? "PERCENTAGE",
+    discountAmount: options?.discountAmount ?? 0,
+  });
 
   return {
-    subtotalAmount: subtotal.toFixed(4),
-    taxRate: taxRate.toFixed(4),
-    taxAmount: tax.toFixed(4),
-    platformFeeType,
-    platformFeeRate: platformFeeRate.toFixed(4),
-    platformFeeAmount: platformFee.toFixed(4),
-    discountAmount: discountAmount.toFixed(4),
-    totalAmount: total.toFixed(4),
+    subtotalAmount: res.subtotalAmountDb,
+    taxRate: res.taxRateDb,
+    taxAmount: res.taxAmountDb,
+    platformFeeType: res.platformFeeType,
+    platformFeeRate: res.platformFeeRateDb,
+    platformFeeAmount: res.platformFeeAmountDb,
+    discountAmount: res.discountAmountDb,
+    totalAmount: res.totalAmountDb,
   };
 }
 

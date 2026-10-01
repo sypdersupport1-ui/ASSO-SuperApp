@@ -8,6 +8,7 @@ import {
   getEffectiveTaxConfig,
   getEffectivePlatformFeeConfig,
 } from "./financial-config-service";
+import { Decimal, calculateExactOrderTotals } from "@/lib/decimal";
 
 export interface CartItemDto {
   cartItemId: string;
@@ -91,31 +92,6 @@ export async function getCart(
       )
     );
 
-  let totalItems = 0;
-  let subtotalNum = 0;
-
-  const items: CartItemDto[] = cartRows.map((row) => {
-    const unitPriceNum = parseFloat(row.basePrice) || 0;
-    const qty = row.quantity;
-    const lineSubtotalNum = unitPriceNum * qty;
-
-    totalItems += qty;
-    subtotalNum += lineSubtotalNum;
-
-    return {
-      cartItemId: row.cartItemId,
-      itemId: row.itemId,
-      name: row.name,
-      description: row.description,
-      imageUrl: row.imageUrl,
-      unitPrice: unitPriceNum.toFixed(2),
-      quantity: qty,
-      specialInstructions: row.specialInstructions,
-      lineSubtotal: lineSubtotalNum.toFixed(2),
-      isAvailable: row.isAvailable,
-    };
-  });
-
   const taxConfig = await getEffectiveTaxConfig(
     tenantId,
     session.outletId || undefined
@@ -125,27 +101,50 @@ export async function getCart(
     session.outletId || undefined
   );
 
-  const estimatedTaxNum = subtotalNum * taxConfig.taxRate;
-  let estimatedPlatformFeeNum = 0;
-  if (platformFeeConfig.isEnabled) {
-    if (platformFeeConfig.feeType === "PERCENTAGE") {
-      estimatedPlatformFeeNum = subtotalNum * platformFeeConfig.feeRate;
-    } else {
-      estimatedPlatformFeeNum = platformFeeConfig.fixedAmount;
-    }
-  }
-  const estimatedTotalNum =
-    subtotalNum + estimatedTaxNum + estimatedPlatformFeeNum;
+  const cartItemsInput = cartRows.map((row) => ({
+    itemId: row.itemId,
+    itemName: row.name,
+    unitPrice: row.basePrice,
+    quantity: row.quantity,
+  }));
+
+  const totals = calculateExactOrderTotals({
+    items: cartItemsInput,
+    taxRate: taxConfig.taxRate,
+    platformFeeType: platformFeeConfig.isEnabled ? platformFeeConfig.feeType : "PERCENTAGE",
+    platformFeeRate: platformFeeConfig.isEnabled ? platformFeeConfig.feeRate : "0.0000",
+    platformFeeFixed: platformFeeConfig.isEnabled ? platformFeeConfig.fixedAmount : "0.0000",
+    discountAmount: "0.0000",
+  });
+
+  let totalItems = 0;
+  const items: CartItemDto[] = cartRows.map((row, idx) => {
+    totalItems += row.quantity;
+    const lineSnap = totals.lineItems[idx];
+
+    return {
+      cartItemId: row.cartItemId,
+      itemId: row.itemId,
+      name: row.name,
+      description: row.description,
+      imageUrl: row.imageUrl,
+      unitPrice: lineSnap ? lineSnap.unitPriceDto : Decimal.from(row.basePrice).toFixed(2),
+      quantity: row.quantity,
+      specialInstructions: row.specialInstructions,
+      lineSubtotal: lineSnap ? lineSnap.subtotalDto : Decimal.from(row.basePrice).times(row.quantity).toFixed(2),
+      isAvailable: row.isAvailable,
+    };
+  });
 
   return {
     sessionId,
     items,
     totalItems,
-    subtotalAmount: subtotalNum.toFixed(2),
-    estimatedTaxRate: taxConfig.taxRate.toFixed(4),
-    estimatedTaxAmount: estimatedTaxNum.toFixed(2),
-    estimatedPlatformFeeAmount: estimatedPlatformFeeNum.toFixed(2),
-    estimatedTotalAmount: estimatedTotalNum.toFixed(2),
+    subtotalAmount: totals.subtotalAmountDto,
+    estimatedTaxRate: totals.taxRateDto,
+    estimatedTaxAmount: totals.taxAmountDto,
+    estimatedPlatformFeeAmount: totals.platformFeeAmountDto,
+    estimatedTotalAmount: totals.totalAmountDto,
     isPreOrderNotice:
       "Pre-order cart preview. Digital ordering will be finalized in Slice 3.",
   };

@@ -43,6 +43,7 @@ import {
   getEffectiveTaxConfig,
   getEffectivePlatformFeeConfig,
 } from "./financial-config-service";
+import { Decimal, calculateExactOrderTotals } from "@/lib/decimal";
 
 export interface CreateRestaurantOrderInput {
   guestNotes?: string;
@@ -100,7 +101,7 @@ export interface CustomerOrderResponseDto {
 export async function createRestaurantOrder(
   user: JwtPayload,
   input?: CreateRestaurantOrderInput
-): Promise<CustomerOrderResponseDto> {
+): Promise<{ order: CustomerOrderResponseDto; isIdempotentReplay: boolean }> {
   // 1. Session verification & scope guard
   if (!user || !user.tenantId || !user.sub) {
     throw new AuthenticationError("Invalid or unbound customer session.");
@@ -131,7 +132,10 @@ export async function createRestaurantOrder(
       .limit(1);
 
     if (existingOrder) {
-      return formatExistingOrderResponse(tenantId, existingOrder);
+      return {
+        order: await formatExistingOrderResponse(tenantId, existingOrder),
+        isIdempotentReplay: true,
+      };
     }
   }
 
@@ -265,63 +269,31 @@ export async function createRestaurantOrder(
     }
   }
 
-  // 9. Calculate server-authoritative prices and snapshot amounts
-  let subtotalNum = 0;
-  const lineSnapshots: Array<{
-    itemId: string;
-    itemName: string;
-    unitPrice: string;
-    quantity: number;
-    subtotal: string;
-    fulfillmentStation: string;
-    specialNotes?: string | null;
-  }> = [];
-
-  for (const cartLine of cartRows) {
-    const catalogEntry = catalogMap.get(cartLine.itemId)!;
-    const unitPriceNum = parseFloat(catalogEntry.item.basePrice);
-    const lineSubtotalNum = unitPriceNum * cartLine.quantity;
-    subtotalNum += lineSubtotalNum;
-
-    lineSnapshots.push({
-      itemId: catalogEntry.item.itemId,
-      itemName: catalogEntry.item.name,
-      unitPrice: unitPriceNum.toFixed(4),
-      quantity: cartLine.quantity,
-      subtotal: lineSubtotalNum.toFixed(4),
-      fulfillmentStation: catalogEntry.item.fulfillmentStation || "KITCHEN",
-      specialNotes: cartLine.specialInstructions?.trim() || null,
-    });
-  }
-
   // 9. Authoritatively resolve dynamic GST & ASSO Platform Fee configuration from DB
   const taxConfig = await getEffectiveTaxConfig(tenantId, outletId);
   const platformFeeConfig = await getEffectivePlatformFeeConfig(tenantId, outletId);
 
-  const taxRate = taxConfig.taxRate;
-  const taxNum = Math.round((subtotalNum * taxRate + Number.EPSILON) * 10000) / 10000;
+  // 10. Calculate server-authoritative prices and snapshot amounts via exact Decimal arithmetic
+  const orderItemsInput = cartRows.map((cartLine) => {
+    const catalogEntry = catalogMap.get(cartLine.itemId)!;
+    return {
+      itemId: catalogEntry.item.itemId,
+      itemName: catalogEntry.item.name,
+      unitPrice: catalogEntry.item.basePrice,
+      quantity: cartLine.quantity,
+      fulfillmentStation: catalogEntry.item.fulfillmentStation || "KITCHEN",
+      specialNotes: cartLine.specialInstructions?.trim() || null,
+    };
+  });
 
-  const platformFeeType = platformFeeConfig.feeType;
-  let platformFeeRate = 0;
-  let platformFeeNum = 0;
-
-  if (platformFeeConfig.isEnabled) {
-    if (platformFeeType === "PERCENTAGE") {
-      platformFeeRate = platformFeeConfig.feeRate;
-      platformFeeNum =
-        Math.round((subtotalNum * platformFeeRate + Number.EPSILON) * 10000) / 10000;
-    } else {
-      platformFeeRate = 0;
-      platformFeeNum =
-        Math.round((platformFeeConfig.fixedAmount + Number.EPSILON) * 10000) / 10000;
-    }
-  }
-
-  const discountNum = 0;
-  const totalNum =
-    Math.round(
-      (subtotalNum + taxNum + platformFeeNum - discountNum + Number.EPSILON) * 10000
-    ) / 10000;
+  const totals = calculateExactOrderTotals({
+    items: orderItemsInput,
+    taxRate: taxConfig.taxRate,
+    platformFeeType: platformFeeConfig.isEnabled ? platformFeeConfig.feeType : "PERCENTAGE",
+    platformFeeRate: platformFeeConfig.isEnabled ? platformFeeConfig.feeRate : "0.0000",
+    platformFeeFixed: platformFeeConfig.isEnabled ? platformFeeConfig.fixedAmount : "0.0000",
+    discountAmount: "0.0000",
+  });
 
   // Generate authoritative unique order number
   const orderNumber = generateRestaurantOrderNumber();
@@ -332,7 +304,7 @@ export async function createRestaurantOrder(
       ? "POS"
       : "CUSTOMER_WEB";
 
-  // 10. Execute single atomic PostgreSQL transaction
+  // 11. Execute single atomic PostgreSQL transaction
   const { createdOrder, insertedItems } = await db.transaction(async (tx) => {
     // A. Insert Order Header
     const [insertedOrder] = await tx
@@ -350,31 +322,31 @@ export async function createRestaurantOrder(
         diningContext: "DINE_IN",
         status: "PLACED",
         idempotencyKey: input?.idempotencyKey || null,
-        subtotalAmount: subtotalNum.toFixed(4),
-        taxRate: taxRate.toFixed(4),
-        taxAmount: taxNum.toFixed(4),
-        platformFeeType: platformFeeType,
-        platformFeeRate: platformFeeRate.toFixed(4),
-        platformFeeAmount: platformFeeNum.toFixed(4),
-        discountAmount: discountNum.toFixed(4),
-        totalAmount: totalNum.toFixed(4),
+        subtotalAmount: totals.subtotalAmountDb,
+        taxRate: totals.taxRateDb,
+        taxAmount: totals.taxAmountDb,
+        platformFeeType: totals.platformFeeType,
+        platformFeeRate: totals.platformFeeRateDb,
+        platformFeeAmount: totals.platformFeeAmountDb,
+        discountAmount: totals.discountAmountDb,
+        totalAmount: totals.totalAmountDb,
       })
       .returning();
 
     // B. Insert Order Items (Immutable Snapshots)
     const itemsList: CustomerOrderItemDto[] = [];
-    for (const snap of lineSnapshots) {
+    for (const snap of totals.lineItems) {
       const [insertedItem] = await tx
         .insert(orderItems)
         .values({
           tenantId,
           orderId: insertedOrder.orderId,
-          itemId: snap.itemId,
-          itemName: snap.itemName,
-          unitPrice: snap.unitPrice,
+          itemId: snap.itemId!,
+          itemName: snap.itemName!,
+          unitPrice: snap.unitPriceDb,
           quantity: snap.quantity,
-          subtotal: snap.subtotal,
-          fulfillmentStation: snap.fulfillmentStation,
+          subtotal: snap.subtotalDb,
+          fulfillmentStation: snap.fulfillmentStation || "KITCHEN",
           itemStatus: "PLACED",
           specialNotes: snap.specialNotes,
         })
@@ -384,9 +356,9 @@ export async function createRestaurantOrder(
         orderItemId: insertedItem.orderItemId,
         itemId: insertedItem.itemId,
         itemName: insertedItem.itemName,
-        unitPrice: parseFloat(insertedItem.unitPrice).toFixed(2),
+        unitPrice: Decimal.from(insertedItem.unitPrice).toFixed(2),
         quantity: insertedItem.quantity,
-        subtotal: parseFloat(insertedItem.subtotal).toFixed(2),
+        subtotal: Decimal.from(insertedItem.subtotal).toFixed(2),
         fulfillmentStation: insertedItem.fulfillmentStation,
         specialNotes: insertedItem.specialNotes,
       });
@@ -427,7 +399,7 @@ export async function createRestaurantOrder(
         contextId,
         contextType: "RESTAURANT_TABLE",
         tableNumber: table.tableNumber,
-        totalAmount: totalNum.toFixed(2),
+        totalAmount: totals.totalAmountDto,
         itemCount: itemsList.length,
         customerId: customerSession.customerId || undefined,
         customerName: customerSession.customerName || undefined,
@@ -441,7 +413,7 @@ export async function createRestaurantOrder(
     return { createdOrder: insertedOrder, insertedItems: itemsList };
   });
 
-  // 11. Post-Commit Side Effects
+  // 12. Post-Commit Side Effects
   // Audit log
   await recordAuditEvent({
     tenantId,
@@ -454,7 +426,7 @@ export async function createRestaurantOrder(
       orderNumber: createdOrder.orderNumber,
       tableNumber: table.tableNumber,
       tableSessionId: activeTableSession.sessionId,
-      totalAmount: totalNum.toFixed(2),
+      totalAmount: totals.totalAmountDto,
       itemCount: insertedItems.length,
     },
   });
@@ -466,37 +438,40 @@ export async function createRestaurantOrder(
     tableNumber: table.tableNumber,
     tableSessionId: activeTableSession.sessionId,
     status: "PLACED",
-    totalAmount: totalNum.toFixed(2),
+    totalAmount: totals.totalAmountDto,
     itemCount: insertedItems.length,
   });
 
   // Asynchronous outbox dispatch trigger
   processOutboxBatch({ tenantId, batchSize: 5 }).catch(() => {});
 
-  // 12. Return structured customer-facing response
+  // 13. Return structured customer-facing response
   return {
-    orderId: createdOrder.orderId,
-    orderNumber: createdOrder.orderNumber,
-    status: createdOrder.status as OrderStatus,
-    displayStatus: mapToCustomerOrderStatus(createdOrder.status),
-    tableNumber: table.tableNumber,
-    tableSessionId: activeTableSession.sessionId,
-    customerId: createdOrder.customerId,
-    customerName: customerSession.customerName || null,
-    diningContext: createdOrder.diningContext,
-    orderSource: createdOrder.orderSource,
-    subtotalAmount: parseFloat(createdOrder.subtotalAmount).toFixed(2),
-    taxRate: parseFloat(createdOrder.taxRate).toFixed(4),
-    taxAmount: parseFloat(createdOrder.taxAmount).toFixed(2),
-    platformFeeType: createdOrder.platformFeeType,
-    platformFeeRate: parseFloat(createdOrder.platformFeeRate).toFixed(4),
-    platformFeeAmount: parseFloat(createdOrder.platformFeeAmount).toFixed(2),
-    discountAmount: parseFloat(createdOrder.discountAmount).toFixed(2),
-    totalAmount: parseFloat(createdOrder.totalAmount).toFixed(2),
-    itemCount: insertedItems.length,
-    items: insertedItems,
-    guestNotes: input?.guestNotes || null,
-    createdAt: createdOrder.createdAt.toISOString(),
+    order: {
+      orderId: createdOrder.orderId,
+      orderNumber: createdOrder.orderNumber,
+      status: createdOrder.status as OrderStatus,
+      displayStatus: mapToCustomerOrderStatus(createdOrder.status),
+      tableNumber: table.tableNumber,
+      tableSessionId: activeTableSession.sessionId,
+      customerId: createdOrder.customerId,
+      customerName: customerSession.customerName || null,
+      diningContext: createdOrder.diningContext,
+      orderSource: createdOrder.orderSource,
+      subtotalAmount: Decimal.from(createdOrder.subtotalAmount).toFixed(2),
+      taxRate: Decimal.from(createdOrder.taxRate || "0").toFixed(4),
+      taxAmount: Decimal.from(createdOrder.taxAmount || "0").toFixed(2),
+      platformFeeType: createdOrder.platformFeeType,
+      platformFeeRate: Decimal.from(createdOrder.platformFeeRate || "0").toFixed(4),
+      platformFeeAmount: Decimal.from(createdOrder.platformFeeAmount || "0").toFixed(2),
+      discountAmount: Decimal.from(createdOrder.discountAmount || "0").toFixed(2),
+      totalAmount: Decimal.from(createdOrder.totalAmount).toFixed(2),
+      itemCount: insertedItems.length,
+      items: insertedItems,
+      guestNotes: input?.guestNotes || null,
+      createdAt: createdOrder.createdAt.toISOString(),
+    },
+    isIdempotentReplay: false,
   };
 }
 
@@ -550,22 +525,22 @@ async function formatExistingOrderResponse(
     customerName,
     diningContext: existingOrder.diningContext,
     orderSource: existingOrder.orderSource,
-    subtotalAmount: parseFloat(existingOrder.subtotalAmount).toFixed(2),
-    taxRate: parseFloat(existingOrder.taxRate || "0").toFixed(4),
-    taxAmount: parseFloat(existingOrder.taxAmount).toFixed(2),
+    subtotalAmount: Decimal.from(existingOrder.subtotalAmount).toFixed(2),
+    taxRate: Decimal.from(existingOrder.taxRate || "0").toFixed(4),
+    taxAmount: Decimal.from(existingOrder.taxAmount || "0").toFixed(2),
     platformFeeType: existingOrder.platformFeeType || "PERCENTAGE",
-    platformFeeRate: parseFloat(existingOrder.platformFeeRate || "0").toFixed(4),
-    platformFeeAmount: parseFloat(existingOrder.platformFeeAmount || "0").toFixed(2),
-    discountAmount: parseFloat(existingOrder.discountAmount).toFixed(2),
-    totalAmount: parseFloat(existingOrder.totalAmount).toFixed(2),
+    platformFeeRate: Decimal.from(existingOrder.platformFeeRate || "0").toFixed(4),
+    platformFeeAmount: Decimal.from(existingOrder.platformFeeAmount || "0").toFixed(2),
+    discountAmount: Decimal.from(existingOrder.discountAmount || "0").toFixed(2),
+    totalAmount: Decimal.from(existingOrder.totalAmount).toFixed(2),
     itemCount: items.length,
     items: items.map((it) => ({
       orderItemId: it.orderItemId,
       itemId: it.itemId,
       itemName: it.itemName,
-      unitPrice: parseFloat(it.unitPrice).toFixed(2),
+      unitPrice: Decimal.from(it.unitPrice).toFixed(2),
       quantity: it.quantity,
-      subtotal: parseFloat(it.subtotal).toFixed(2),
+      subtotal: Decimal.from(it.subtotal).toFixed(2),
       fulfillmentStation: it.fulfillmentStation,
       specialNotes: it.specialNotes,
     })),

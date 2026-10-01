@@ -102,11 +102,14 @@ export async function POST(req: NextRequest) {
       );
 
       if (!acquired && cachedResponse) {
-        return NextResponse.json(cachedResponse.body, { status: cachedResponse.code });
+        if (cachedResponse.body && (cachedResponse.body as any).meta) {
+          (cachedResponse.body as any).meta.idempotentReplay = true;
+        }
+        return NextResponse.json(cachedResponse.body, { status: 200 });
       }
     }
 
-    const order = await createRestaurantOrder(ctx.user, {
+    const { order, isIdempotentReplay } = await createRestaurantOrder(ctx.user, {
       guestNotes: body.guestNotes,
       idempotencyKey,
       orderSource: ctx.user.sessionType === "STAFF" ? body.orderSource : "CUSTOMER_WEB",
@@ -118,14 +121,17 @@ export async function POST(req: NextRequest) {
       meta: {
         requestId: ctx.requestId,
         timestamp: new Date().toISOString(),
+        idempotentReplay: isIdempotentReplay || undefined,
       },
     };
 
-    if (idempotencyKey && ctx.tenantId) {
-      await saveIdempotentResponse(ctx.tenantId, idempotencyKey, 201, responsePayload);
+    const statusCode = isIdempotentReplay ? 200 : 201;
+
+    if (idempotencyKey && ctx.tenantId && !isIdempotentReplay) {
+      await saveIdempotentResponse(ctx.tenantId, idempotencyKey, statusCode, responsePayload);
     }
 
-    return NextResponse.json(responsePayload, { status: 201 });
+    return NextResponse.json(responsePayload, { status: statusCode });
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_rest_orders_create");
   }

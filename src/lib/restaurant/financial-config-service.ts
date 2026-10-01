@@ -3,19 +3,20 @@ import { taxConfigurations, platformFeeConfigurations } from "@/db/schema/financ
 import { eq, and, isNull } from "drizzle-orm";
 import { ValidationError } from "@/lib/api/errors";
 import { recordAuditEvent } from "@/lib/audit";
+import { Decimal, type DecimalLike } from "@/lib/decimal";
 
 export interface EffectiveTaxConfig {
   configId?: string;
   taxName: string;
-  taxRate: number; // e.g. 0.0500 for 5%
+  taxRate: string; // Exact decimal string e.g. "0.0500" for 5%
   isEnabled: boolean;
 }
 
 export interface EffectivePlatformFeeConfig {
   configId?: string;
   feeType: "PERCENTAGE" | "FIXED";
-  feeRate: number; // e.g. 0.0200 for 2%
-  fixedAmount: number; // e.g. 10.0000
+  feeRate: string; // Exact decimal string e.g. "0.0200" for 2%
+  fixedAmount: string; // Exact decimal string e.g. "10.0000"
   isEnabled: boolean;
 }
 
@@ -50,14 +51,14 @@ export async function getEffectiveTaxConfig(
         return {
           configId: outletConfig.configId,
           taxName: outletConfig.taxName,
-          taxRate: 0,
+          taxRate: "0.0000",
           isEnabled: false,
         };
       }
       return {
         configId: outletConfig.configId,
         taxName: outletConfig.taxName,
-        taxRate: parseFloat(outletConfig.taxRate),
+        taxRate: Decimal.from(outletConfig.taxRate).toFixed(4),
         isEnabled: true,
       };
     }
@@ -80,14 +81,14 @@ export async function getEffectiveTaxConfig(
       return {
         configId: tenantConfig.configId,
         taxName: tenantConfig.taxName,
-        taxRate: 0,
+        taxRate: "0.0000",
         isEnabled: false,
       };
     }
     return {
       configId: tenantConfig.configId,
       taxName: tenantConfig.taxName,
-      taxRate: parseFloat(tenantConfig.taxRate),
+      taxRate: Decimal.from(tenantConfig.taxRate).toFixed(4),
       isEnabled: true,
     };
   }
@@ -95,7 +96,7 @@ export async function getEffectiveTaxConfig(
   // 3. Safe zero / no-tax fallback
   return {
     taxName: "GST",
-    taxRate: 0,
+    taxRate: "0.0000",
     isEnabled: false,
   };
 }
@@ -107,7 +108,7 @@ export async function getEffectiveTaxConfig(
 export async function upsertTaxConfig(params: {
   tenantId: string;
   outletId?: string | null;
-  taxRate: number | string;
+  taxRate: DecimalLike;
   taxName?: string;
   isEnabled?: boolean;
   userId?: string;
@@ -115,9 +116,16 @@ export async function upsertTaxConfig(params: {
   userAgent?: string;
 }): Promise<EffectiveTaxConfig> {
   const db = getDb();
-  const rateNum = typeof params.taxRate === "string" ? parseFloat(params.taxRate) : params.taxRate;
+  let rateDec: Decimal;
+  try {
+    rateDec = Decimal.from(params.taxRate);
+  } catch {
+    throw new ValidationError(
+      "Tax rate must be a valid numeric decimal fraction between 0.0000 and 1.0000 (e.g. 0.05 for 5%, 0.18 for 18%)."
+    );
+  }
 
-  if (isNaN(rateNum) || rateNum < 0 || rateNum > 1.0) {
+  if (rateDec.isNegative() || rateDec.greaterThan("1.0000")) {
     throw new ValidationError(
       "Tax rate must be a valid numeric decimal fraction between 0.0000 and 1.0000 (e.g. 0.05 for 5%, 0.18 for 18%)."
     );
@@ -126,6 +134,7 @@ export async function upsertTaxConfig(params: {
   const taxName = params.taxName?.trim() || "GST";
   const isEnabled = params.isEnabled ?? true;
   const outletId = params.outletId || null;
+  const taxRateDb = rateDec.toFixed(4);
 
   // Check existing
   const existing = outletId
@@ -158,7 +167,7 @@ export async function upsertTaxConfig(params: {
       .update(taxConfigurations)
       .set({
         taxName,
-        taxRate: rateNum.toFixed(4),
+        taxRate: taxRateDb,
         isEnabled,
         updatedAt: new Date(),
       })
@@ -170,7 +179,7 @@ export async function upsertTaxConfig(params: {
         tenantId: params.tenantId,
         outletId,
         taxName,
-        taxRate: rateNum.toFixed(4),
+        taxRate: taxRateDb,
         isEnabled,
       })
       .returning();
@@ -187,7 +196,7 @@ export async function upsertTaxConfig(params: {
     payload: {
       outletId,
       taxName,
-      taxRate: rateNum.toFixed(4),
+      taxRate: taxRateDb,
       isEnabled,
     },
     ipAddress: params.ipAddress,
@@ -197,7 +206,7 @@ export async function upsertTaxConfig(params: {
   return {
     configId,
     taxName,
-    taxRate: rateNum,
+    taxRate: taxRateDb,
     isEnabled,
   };
 }
@@ -234,16 +243,16 @@ export async function getEffectivePlatformFeeConfig(
         return {
           configId: outletConfig.configId,
           feeType: outletConfig.feeType as "PERCENTAGE" | "FIXED",
-          feeRate: 0,
-          fixedAmount: 0,
+          feeRate: "0.0000",
+          fixedAmount: "0.0000",
           isEnabled: false,
         };
       }
       return {
         configId: outletConfig.configId,
         feeType: outletConfig.feeType as "PERCENTAGE" | "FIXED",
-        feeRate: parseFloat(outletConfig.feeRate),
-        fixedAmount: parseFloat(outletConfig.fixedAmount),
+        feeRate: Decimal.from(outletConfig.feeRate).toFixed(4),
+        fixedAmount: Decimal.from(outletConfig.fixedAmount).toFixed(4),
         isEnabled: true,
       };
     }
@@ -267,16 +276,16 @@ export async function getEffectivePlatformFeeConfig(
         return {
           configId: tenantConfig.configId,
           feeType: tenantConfig.feeType as "PERCENTAGE" | "FIXED",
-          feeRate: 0,
-          fixedAmount: 0,
+          feeRate: "0.0000",
+          fixedAmount: "0.0000",
           isEnabled: false,
         };
       }
       return {
         configId: tenantConfig.configId,
         feeType: tenantConfig.feeType as "PERCENTAGE" | "FIXED",
-        feeRate: parseFloat(tenantConfig.feeRate),
-        fixedAmount: parseFloat(tenantConfig.fixedAmount),
+        feeRate: Decimal.from(tenantConfig.feeRate).toFixed(4),
+        fixedAmount: Decimal.from(tenantConfig.fixedAmount).toFixed(4),
         isEnabled: true,
       };
     }
@@ -299,16 +308,16 @@ export async function getEffectivePlatformFeeConfig(
       return {
         configId: globalConfig.configId,
         feeType: globalConfig.feeType as "PERCENTAGE" | "FIXED",
-        feeRate: 0,
-        fixedAmount: 0,
+        feeRate: "0.0000",
+        fixedAmount: "0.0000",
         isEnabled: false,
       };
     }
     return {
       configId: globalConfig.configId,
       feeType: globalConfig.feeType as "PERCENTAGE" | "FIXED",
-      feeRate: parseFloat(globalConfig.feeRate),
-      fixedAmount: parseFloat(globalConfig.fixedAmount),
+      feeRate: Decimal.from(globalConfig.feeRate).toFixed(4),
+      fixedAmount: Decimal.from(globalConfig.fixedAmount).toFixed(4),
       isEnabled: true,
     };
   }
@@ -316,8 +325,8 @@ export async function getEffectivePlatformFeeConfig(
   // 4. Safe zero / no-fee default
   return {
     feeType: "PERCENTAGE",
-    feeRate: 0,
-    fixedAmount: 0,
+    feeRate: "0.0000",
+    fixedAmount: "0.0000",
     isEnabled: false,
   };
 }
@@ -330,8 +339,8 @@ export async function upsertPlatformFeeConfig(params: {
   tenantId?: string | null;
   outletId?: string | null;
   feeType: "PERCENTAGE" | "FIXED";
-  feeRate?: number | string;
-  fixedAmount?: number | string;
+  feeRate?: DecimalLike;
+  fixedAmount?: DecimalLike;
   isEnabled?: boolean;
   description?: string;
   userId?: string;
@@ -345,25 +354,31 @@ export async function upsertPlatformFeeConfig(params: {
   const tenantId = params.tenantId || null;
   const outletId = params.outletId || null;
 
-  let feeRateNum = 0;
-  let fixedAmountNum = 0;
+  let feeRateDec = Decimal.zero();
+  let fixedAmountDec = Decimal.zero();
 
   if (feeType === "PERCENTAGE") {
-    feeRateNum =
-      typeof params.feeRate === "string"
-        ? parseFloat(params.feeRate)
-        : params.feeRate || 0;
-    if (isNaN(feeRateNum) || feeRateNum < 0 || feeRateNum > 1.0) {
+    try {
+      feeRateDec = Decimal.from(params.feeRate ?? "0");
+    } catch {
+      throw new ValidationError(
+        "Platform fee rate must be a valid numeric decimal fraction between 0.0000 and 1.0000 (e.g. 0.02 for 2%)."
+      );
+    }
+    if (feeRateDec.isNegative() || feeRateDec.greaterThan("1.0000")) {
       throw new ValidationError(
         "Platform fee rate must be a valid numeric decimal fraction between 0.0000 and 1.0000 (e.g. 0.02 for 2%)."
       );
     }
   } else if (feeType === "FIXED") {
-    fixedAmountNum =
-      typeof params.fixedAmount === "string"
-        ? parseFloat(params.fixedAmount)
-        : params.fixedAmount || 0;
-    if (isNaN(fixedAmountNum) || fixedAmountNum < 0) {
+    try {
+      fixedAmountDec = Decimal.from(params.fixedAmount ?? "0");
+    } catch {
+      throw new ValidationError(
+        "Fixed platform fee amount must be a non-negative number."
+      );
+    }
+    if (fixedAmountDec.isNegative()) {
       throw new ValidationError(
         "Fixed platform fee amount must be a non-negative number."
       );
@@ -371,6 +386,9 @@ export async function upsertPlatformFeeConfig(params: {
   } else {
     throw new ValidationError("Invalid feeType: must be 'PERCENTAGE' or 'FIXED'.");
   }
+
+  const feeRateDb = feeRateDec.toFixed(4);
+  const fixedAmountDb = fixedAmountDec.toFixed(4);
 
   // Find existing
   const existing =
@@ -415,8 +433,8 @@ export async function upsertPlatformFeeConfig(params: {
       .update(platformFeeConfigurations)
       .set({
         feeType,
-        feeRate: feeRateNum.toFixed(4),
-        fixedAmount: fixedAmountNum.toFixed(4),
+        feeRate: feeRateDb,
+        fixedAmount: fixedAmountDb,
         isEnabled,
         description,
         updatedAt: new Date(),
@@ -429,8 +447,8 @@ export async function upsertPlatformFeeConfig(params: {
         tenantId,
         outletId,
         feeType,
-        feeRate: feeRateNum.toFixed(4),
-        fixedAmount: fixedAmountNum.toFixed(4),
+        feeRate: feeRateDb,
+        fixedAmount: fixedAmountDb,
         isEnabled,
         description,
       })
@@ -449,8 +467,8 @@ export async function upsertPlatformFeeConfig(params: {
       tenantId,
       outletId,
       feeType,
-      feeRate: feeRateNum.toFixed(4),
-      fixedAmount: fixedAmountNum.toFixed(4),
+      feeRate: feeRateDb,
+      fixedAmount: fixedAmountDb,
       isEnabled,
     },
     ipAddress: params.ipAddress,
@@ -460,8 +478,8 @@ export async function upsertPlatformFeeConfig(params: {
   return {
     configId,
     feeType,
-    feeRate: feeRateNum,
-    fixedAmount: fixedAmountNum,
+    feeRate: feeRateDb,
+    fixedAmount: fixedAmountDb,
     isEnabled,
   };
 }
