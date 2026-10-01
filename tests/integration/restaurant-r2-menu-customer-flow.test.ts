@@ -739,7 +739,6 @@ describe("ASSO Restaurant Vertical — Slice 2 (Digital Menu & Customer QR Flow)
   });
 
   afterAll(async () => {
-    const db = getDb();
-    await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
+    // Preserve seeded tax configuration
   });
 });

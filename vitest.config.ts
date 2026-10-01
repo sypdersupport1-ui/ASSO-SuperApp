@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     fileParallelism: false,
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     testTimeout: 30000,
     hookTimeout: 60000,
   },

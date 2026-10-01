@@ -544,8 +544,14 @@ describe("ASSO Restaurant Vertical — Slice 3.2: Server-Authoritative Order Cre
       await db.delete(orderStatusHistory).where(eq(orderStatusHistory.orderId, ordId));
       await db.delete(orders).where(eq(orders.orderId, ordId));
     }
-    // Clean up tax & fee configurations
+    // Clean up tax & fee configurations (but restore 5% GST for other tests)
     await db.delete(taxConfigurations).where(eq(taxConfigurations.tenantId, TENANT_A));
+    await db.insert(taxConfigurations).values({
+      tenantId: TENANT_A,
+      taxName: "GST",
+      taxRate: "0.0500",
+      isEnabled: true,
+    });
     await db.delete(platformFeeConfigurations).where(eq(platformFeeConfigurations.tenantId, TENANT_A));
     await db.delete(platformFeeConfigurations).where(isNull(platformFeeConfigurations.tenantId));
     // Clean up any cart items for test sessions
