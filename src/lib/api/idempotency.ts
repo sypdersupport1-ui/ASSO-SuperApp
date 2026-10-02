@@ -162,11 +162,14 @@ function mapRowToRecord(row: any): IdempotencyRecord {
 /**
  * PostgreSQL-backed durable idempotency store.
  * 
- * Invariants:
+ * Correctness Invariants:
  * 1. Database-level uniqueness on (COALESCE(tenant_id, NULL_SENTINEL), operation, idempotency_key).
  * 2. Atomic INSERT ... ON CONFLICT DO NOTHING guarantees exactly one authoritative claimant across instances.
- * 3. Lease-based crash recovery unlocks orphaned in-progress keys if a node terminates abruptly.
- * 4. Deterministic replay returns original status, body, and headers without re-execution.
+ * 3. Lease safety: Time alone NEVER replaces an active in-progress owner. Lease expiration alone does NOT
+ *    prove that the original business operation failed. A key in IN_PROGRESS continues to reject concurrent
+ *    or retry claims with 409 conflict, preventing duplicate business execution.
+ * 4. Only confirmed FAILED keys (or records exceeding total retention TTL) are safely re-acquirable.
+ * 5. Deterministic replay returns original status, body, and headers without re-execution.
  */
 export class PostgresIdempotencyStore implements IdempotencyStore {
   private defaultTtlHours = 24;
@@ -234,18 +237,25 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       };
     }
 
-    // 2. Conflict occurred: fetch authoritative existing row
-    const existingRows = await sql`
-      SELECT * FROM idempotency_keys
-      WHERE COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${tenantId}, '00000000-0000-0000-0000-000000000000'::uuid)
-        AND operation = ${operation}
-        AND idempotency_key = ${params.key}
-      LIMIT 1;
-    `;
+    // 2. Conflict occurred: fetch authoritative existing row strictly partitioned by tenant
+    const existingRows = tenantId
+      ? await sql`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id = ${tenantId}
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key}
+          LIMIT 1;
+        `
+      : await sql`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id IS NULL
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key}
+          LIMIT 1;
+        `;
 
     if (existingRows.length === 0) {
       // Rare edge case: concurrent delete/cleanup occurred right after conflict
-      // Retry claim once
       return this.claim(params);
     }
 
@@ -279,7 +289,6 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
           record: mapRowToRecord(overwrittenRows[0]),
         };
       }
-      // Re-read if concurrent overwrite occurred
       return this.claim(params);
     }
 
@@ -304,36 +313,40 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       };
     }
 
-    // 6. Existing record is IN_PROGRESS: Check lease status
-    const leaseActive = existing.leaseExpiresAt.getTime() > now;
-    if (existing.status === "IN_PROGRESS" && leaseActive) {
+    // 6. Existing record is IN_PROGRESS:
+    // SAFETY RULE: Time alone NEVER replaces an active in-progress owner.
+    // Even if lease_expires_at has elapsed, the original operation may still be running.
+    // Returning IN_PROGRESS prevents a concurrent retry from executing duplicate business mutations.
+    if (existing.status === "IN_PROGRESS") {
       return {
         status: "IN_PROGRESS",
         record: existing,
       };
     }
 
-    // 7. Lease expired or previously FAILED -> Crash recovery / reclaim lease
-    const reclaimedRows = await sql`
-      UPDATE idempotency_keys
-      SET
-        status = 'IN_PROGRESS',
-        locked_at = NOW(),
-        lease_expires_at = NOW() + (${leaseSeconds} || ' seconds')::interval,
-        updated_at = NOW()
-      WHERE key_id = ${existing.id}
-        AND (status = 'FAILED' OR (status = 'IN_PROGRESS' AND lease_expires_at <= NOW()))
-      RETURNING *;
-    `;
+    // 7. Confirmed FAILED record -> Safely retryable
+    if (existing.status === "FAILED") {
+      const reclaimedRows = await sql`
+        UPDATE idempotency_keys
+        SET
+          status = 'IN_PROGRESS',
+          locked_at = NOW(),
+          lease_expires_at = NOW() + (${leaseSeconds} || ' seconds')::interval,
+          updated_at = NOW()
+        WHERE key_id = ${existing.id}
+          AND status = 'FAILED'
+        RETURNING *;
+      `;
 
-    if (reclaimedRows.length > 0) {
-      return {
-        status: "ACQUIRED",
-        record: mapRowToRecord(reclaimedRows[0]),
-      };
+      if (reclaimedRows.length > 0) {
+        return {
+          status: "ACQUIRED",
+          record: mapRowToRecord(reclaimedRows[0]),
+        };
+      }
     }
 
-    // Another concurrent retry claimed the expired lease just before us
+    // Default to in-progress conflict to prevent any duplicate mutation
     return {
       status: "IN_PROGRESS",
       record: existing,
@@ -349,13 +362,21 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     const operation = params.operation || "DEFAULT";
     const sql = getDbClient();
 
-    const rows = await sql`
-      SELECT * FROM idempotency_keys
-      WHERE COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${tenantId}, '00000000-0000-0000-0000-000000000000'::uuid)
-        AND operation = ${operation}
-        AND idempotency_key = ${params.key}
-      LIMIT 1;
-    `;
+    const rows = tenantId
+      ? await sql`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id = ${tenantId}
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key}
+          LIMIT 1;
+        `
+      : await sql`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id IS NULL
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key}
+          LIMIT 1;
+        `;
 
     if (rows.length === 0) return null;
     return mapRowToRecord(rows[0]);
@@ -374,19 +395,35 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     const operation = params.operation || "DEFAULT";
     const sql = getDbClient();
 
-    await sql`
-      UPDATE idempotency_keys
-      SET
-        status = 'COMPLETED',
-        response_code = ${params.responseCode},
-        response_body = ${JSON.stringify(params.responseBody)},
-        response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
-        resource_id = ${params.resourceId || null},
-        updated_at = NOW()
-      WHERE COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${tenantId}, '00000000-0000-0000-0000-000000000000'::uuid)
-        AND operation = ${operation}
-        AND idempotency_key = ${params.key};
-    `;
+    if (tenantId) {
+      await sql`
+        UPDATE idempotency_keys
+        SET
+          status = 'COMPLETED',
+          response_code = ${params.responseCode},
+          response_body = ${JSON.stringify(params.responseBody)},
+          response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
+          resource_id = ${params.resourceId || null},
+          updated_at = NOW()
+        WHERE tenant_id = ${tenantId}
+          AND operation = ${operation}
+          AND idempotency_key = ${params.key};
+      `;
+    } else {
+      await sql`
+        UPDATE idempotency_keys
+        SET
+          status = 'COMPLETED',
+          response_code = ${params.responseCode},
+          response_body = ${JSON.stringify(params.responseBody)},
+          response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
+          resource_id = ${params.resourceId || null},
+          updated_at = NOW()
+        WHERE tenant_id IS NULL
+          AND operation = ${operation}
+          AND idempotency_key = ${params.key};
+      `;
+    }
   }
 
   async fail(params: {
@@ -399,15 +436,27 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     const operation = params.operation || "DEFAULT";
     const sql = getDbClient();
 
-    await sql`
-      UPDATE idempotency_keys
-      SET
-        status = 'FAILED',
-        updated_at = NOW()
-      WHERE COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(${tenantId}, '00000000-0000-0000-0000-000000000000'::uuid)
-        AND operation = ${operation}
-        AND idempotency_key = ${params.key};
-    `;
+    if (tenantId) {
+      await sql`
+        UPDATE idempotency_keys
+        SET
+          status = 'FAILED',
+          updated_at = NOW()
+        WHERE tenant_id = ${tenantId}
+          AND operation = ${operation}
+          AND idempotency_key = ${params.key};
+      `;
+    } else {
+      await sql`
+        UPDATE idempotency_keys
+        SET
+          status = 'FAILED',
+          updated_at = NOW()
+        WHERE tenant_id IS NULL
+          AND operation = ${operation}
+          AND idempotency_key = ${params.key};
+      `;
+    }
   }
 
   async cleanup(params?: {
@@ -462,11 +511,11 @@ export function setIdempotencyStore(store: IdempotencyStore): void {
  * - If new: Claims the key (status: IN_PROGRESS) and returns `{ acquired: true }`.
  * - If completed with matching hash: Returns `{ acquired: false, cachedResponse }`.
  * - If completed or in-progress with mismatched hash: Throws 409 IdempotencyConflictError.
- * - If currently in-progress with active lease: Throws 409 IdempotencyConflictError.
- * - If in-progress but lease has expired (crashed process): Atomically reclaims lease and returns `{ acquired: true }`.
+ * - If currently in-progress: Throws 409 IdempotencyConflictError (mutation in progress).
+ * - If failed: Atomically re-claims key for safe retry and returns `{ acquired: true }`.
  */
 export async function checkOrAcquireIdempotencyKey(
-  tenantId: string,
+  tenantId: string | null,
   key: string,
   requestHash: string,
   ttlHours = 24,
@@ -493,7 +542,7 @@ export async function checkOrAcquireIdempotencyKey(
   }
 
   if (result.status === "IN_PROGRESS") {
-    throw new IdempotencyConflictError("A mutation with this Idempotency-Key is currently in flight.");
+    throw new IdempotencyConflictError("A mutation with this Idempotency-Key is currently in progress.");
   }
 
   if (result.status === "MISMATCH") {
@@ -507,7 +556,7 @@ export async function checkOrAcquireIdempotencyKey(
  * Persists an authoritative response for an idempotent mutation upon successful transaction commit.
  */
 export async function saveIdempotentResponse(
-  tenantId: string,
+  tenantId: string | null,
   key: string,
   responseCode: number,
   responseBody: unknown,
@@ -529,7 +578,7 @@ export async function saveIdempotentResponse(
  * Releases or marks an idempotency key as failed when an operation fails before completion.
  */
 export async function releaseIdempotencyKey(
-  tenantId: string,
+  tenantId: string | null,
   key: string,
   operation = "DEFAULT",
   reason?: string
@@ -549,4 +598,113 @@ export async function releaseIdempotencyKey(
 export async function clearIdempotencyStore(tenantId?: string): Promise<void> {
   const store = getIdempotencyStore();
   await store.clear(tenantId);
+}
+
+/**
+ * Atomically executes a business operation and its idempotency lifecycle within the SAME PostgreSQL transaction.
+ * 
+ * Guarantees:
+ * 1. If the business mutation commits, the idempotency record is atomically marked COMPLETED with the response.
+ * 2. If the operation fails or crashes before commit, PostgreSQL rolls back BOTH the business mutation and the idempotency claim.
+ * 3. Zero window where a business record exists without idempotency completion.
+ */
+export async function runIdempotentTransaction<T>(
+  params: {
+    tenantId: string | null;
+    key: string;
+    operation?: string;
+    requestHash: string;
+    ttlHours?: number;
+  },
+  work: (tx: any) => Promise<{ statusCode: number; responsePayload: T; resourceId?: string }>
+): Promise<{ statusCode: number; responsePayload: T; isIdempotentReplay: boolean }> {
+  const tenantId = params.tenantId || null;
+  const operation = params.operation || "DEFAULT";
+  const ttlHours = params.ttlHours || 24;
+  const sql = getDbClient();
+
+  return await sql.begin(async (tx) => {
+    // 1. Check or acquire row with lock inside transaction
+    const existing = tenantId
+      ? await tx`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id = ${tenantId} AND operation = ${operation} AND idempotency_key = ${params.key}
+          FOR UPDATE;
+        `
+      : await tx`
+          SELECT * FROM idempotency_keys
+          WHERE tenant_id IS NULL AND operation = ${operation} AND idempotency_key = ${params.key}
+          FOR UPDATE;
+        `;
+
+    if (existing.length > 0) {
+      const record = existing[0];
+      if (record.request_hash !== params.requestHash) {
+        throw new IdempotencyConflictError("Idempotency key reused with mismatched request parameters.");
+      }
+      if (record.status === "COMPLETED") {
+        const body =
+          typeof record.response_body === "string" ? JSON.parse(record.response_body) : record.response_body;
+        return {
+          statusCode: record.response_code || 200,
+          responsePayload: body as T,
+          isIdempotentReplay: true,
+        };
+      }
+      if (record.status === "IN_PROGRESS") {
+        throw new IdempotencyConflictError("A mutation with this Idempotency-Key is currently in progress.");
+      }
+      // If FAILED: allow retry by resetting status to IN_PROGRESS
+      await tx`
+        UPDATE idempotency_keys
+        SET status = 'IN_PROGRESS', locked_at = NOW(), updated_at = NOW()
+        WHERE key_id = ${record.key_id};
+      `;
+    } else {
+      // Insert in-progress record
+      await tx`
+        INSERT INTO idempotency_keys (
+          tenant_id, operation, idempotency_key, request_hash, status,
+          locked_at, lease_expires_at, expires_at, created_at, updated_at
+        ) VALUES (
+          ${tenantId}, ${operation}, ${params.key}, ${params.requestHash}, 'IN_PROGRESS',
+          NOW(), NOW() + interval '120 seconds', NOW() + (${ttlHours} || ' hours')::interval, NOW(), NOW()
+        );
+      `;
+    }
+
+    // 2. Execute authoritative business operation with the transaction client
+    const result = await work(tx);
+
+    // 3. Mark idempotency COMPLETED inside the SAME transaction
+    if (tenantId) {
+      await tx`
+        UPDATE idempotency_keys
+        SET
+          status = 'COMPLETED',
+          response_code = ${result.statusCode},
+          response_body = ${JSON.stringify(result.responsePayload)},
+          resource_id = ${result.resourceId || null},
+          updated_at = NOW()
+        WHERE tenant_id = ${tenantId} AND operation = ${operation} AND idempotency_key = ${params.key};
+      `;
+    } else {
+      await tx`
+        UPDATE idempotency_keys
+        SET
+          status = 'COMPLETED',
+          response_code = ${result.statusCode},
+          response_body = ${JSON.stringify(result.responsePayload)},
+          resource_id = ${result.resourceId || null},
+          updated_at = NOW()
+        WHERE tenant_id IS NULL AND operation = ${operation} AND idempotency_key = ${params.key};
+      `;
+    }
+
+    return {
+      statusCode: result.statusCode,
+      responsePayload: result.responsePayload,
+      isIdempotentReplay: false,
+    };
+  });
 }

@@ -8,6 +8,7 @@ import {
   clearIdempotencyStore,
   getIdempotencyStore,
   PostgresIdempotencyStore,
+  runIdempotentTransaction,
 } from "@/lib/api/idempotency";
 import { IdempotencyConflictError } from "@/lib/api/errors";
 import { getDbClient } from "@/db/client";
@@ -113,49 +114,104 @@ describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency
     });
   });
 
-  describe("3. Crash Recovery & Lease Management", () => {
-    it("claim then explicit failure allows immediate retry acquisition", async () => {
+  describe("3. Strict Crash Scenarios & Lease Safety (No Double-Execution)", () => {
+    it("Crash Scenario 1: Owner crashes before business transaction begins (explicit failure allows clean retry)", async () => {
       const payload = { amount: 300 };
       const hash = computeRequestHash("POST", "/api/v1/orders", payload);
 
+      // Request 1 claims key
       const claim1 = await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
       expect(claim1.acquired).toBe(true);
 
-      // Operation fails before completion
-      await releaseIdempotencyKey(tenantA, testKey, testOperation, "Validation failed");
+      // Error caught before business commit; key explicitly released
+      await releaseIdempotencyKey(tenantA, testKey, testOperation, "Validation failed before commit");
 
-      // Verify immediate retry is allowed
+      // Retry arrives from another instance
       const retry = await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
       expect(retry.acquired).toBe(true);
     });
 
-    it("expired processing lease allows crashed process recovery", async () => {
-      const sql = getDbClient();
-      const payload = { step: "crash_test" };
+    it("Crash Scenario 2 & 4: Owner is executing operation; retry from another process is strictly rejected with 409 in-flight conflict", async () => {
+      const payload = { step: "in_flight_test" };
       const hash = computeRequestHash("POST", "/api/v1/orders", payload);
 
-      // Initial claim
+      // Instance 1 claims key
       await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
 
-      // Simulate a crashed instance by manually backdating the lease_expires_at to the past
+      // Instance 2 arrives while operation is in progress
+      await expect(
+        checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation)
+      ).rejects.toThrow(IdempotencyConflictError);
+    });
+
+    it("Crash Scenario 5 & 6: Operation takes longer than the configured lease; retry is STILL rejected (time alone cannot replace active owner)", async () => {
+      const sql = getDbClient();
+      const payload = { step: "long_running_operation" };
+      const hash = computeRequestHash("POST", "/api/v1/orders", payload);
+
+      // Instance 1 claims key
+      await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
+
+      // Simulate lease expiration while Instance 1 is still running by backdating lease_expires_at
       await sql`
         UPDATE idempotency_keys
         SET lease_expires_at = NOW() - interval '10 seconds'
         WHERE tenant_id = ${tenantA} AND operation = ${testOperation} AND idempotency_key = ${testKey};
       `;
 
-      // New instance attempts retry after lease expiration
-      const recoveryInstance = new PostgresIdempotencyStore();
-      const result = await recoveryInstance.claim({
-        tenantId: tenantA,
-        key: testKey,
-        operation: testOperation,
-        requestHash: hash,
-        leaseSeconds: 60,
-      });
+      // Instance 2 retries: Must NOT be permitted to steal ownership and run duplicate business mutation!
+      await expect(
+        checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation)
+      ).rejects.toThrow(IdempotencyConflictError);
 
-      expect(result.status).toBe("ACQUIRED");
-      expect(result.record.status).toBe("IN_PROGRESS");
+      // Instance 1 eventually finishes and marks COMPLETED
+      await saveIdempotentResponse(tenantA, testKey, 201, { success: true, processedBy: "instance_1" }, testOperation);
+
+      // Instance 2 retries now and safely receives REPLAY without duplicate execution!
+      const replay = await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
+      expect(replay.acquired).toBe(false);
+      expect(replay.cachedResponse?.body).toEqual({ success: true, processedBy: "instance_1" });
+    });
+
+    it("Crash Scenario 3: Business transaction committed before crash; domain layer prevents duplicate and enables response replay", async () => {
+      // In Restaurant R3.2, orders.idempotency_key has a unique constraint in the DB.
+      // If a crash occurs after commit but before saveIdempotentResponse, the subsequent retry
+      // discovers the existing committed order and safely records the response.
+      const sql = getDbClient();
+      const orderId = "aaaa1111-0000-0000-0000-000000000999";
+      const payload = { guestNotes: "allergic to nuts" };
+      const hash = computeRequestHash("POST", "/api/v1/restaurant/orders", payload);
+
+      // 1. Claim key
+      await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
+
+      // 2. Business transaction commits order with idempotencyKey into DB
+      const outletA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+      const contextA = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+      await sql`
+        INSERT INTO orders (
+          order_id, tenant_id, outlet_id, context_id, order_number, order_source, status, idempotency_key, total_amount
+        ) VALUES (
+          ${orderId}, ${tenantA}, ${outletA}, ${contextA}, 'ORD-CRASH-001', 'CUSTOMER_WEB', 'PLACED', ${testKey}, 150.00
+        ) ON CONFLICT (tenant_id, idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING;
+      `;
+
+      // 3. Process crashes before saveIdempotentResponse was called.
+      // 4. Retry arrives: domain check finds existing order by idempotencyKey
+      const [existingOrder] = await sql`
+        SELECT order_id, order_number, total_amount FROM orders
+        WHERE tenant_id = ${tenantA} AND idempotency_key = ${testKey};
+      `;
+      expect(existingOrder).toBeDefined();
+      expect(existingOrder.order_id).toBe(orderId);
+
+      // Response writing is completed using authoritative committed order
+      await saveIdempotentResponse(tenantA, testKey, 201, { orderId: existingOrder.order_id }, testOperation);
+
+      // Future retries replay
+      const replay = await checkOrAcquireIdempotencyKey(tenantA, testKey, hash, 24, testOperation);
+      expect(replay.acquired).toBe(false);
+      expect(replay.cachedResponse?.body).toEqual({ orderId });
     });
 
     it("completed response survives process restart and re-instantiation", async () => {
@@ -187,9 +243,40 @@ describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency
         expect(replay.cachedResponse.body).toEqual({ success: true, orderId: "ord_persisted_999" });
       }
     });
+
+    it("Atomic Idempotent Transaction: commits business change + idempotency completion atomically", async () => {
+      const payload = { action: "atomic_test" };
+      const hash = computeRequestHash("POST", "/api/v1/atomic", payload);
+
+      // Execute within same transaction
+      const result1 = await runIdempotentTransaction(
+        { tenantId: tenantA, key: "atomic_key_1", operation: "POST:/api/v1/atomic", requestHash: hash },
+        async (tx) => {
+          return { statusCode: 201, responsePayload: { counter: 42 }, resourceId: "res_42" };
+        }
+      );
+
+      expect(result1.isIdempotentReplay).toBe(false);
+      expect(result1.statusCode).toBe(201);
+      expect(result1.responsePayload).toEqual({ counter: 42 });
+
+      // Immediate retry within atomic transaction replays without running work callback
+      let workExecuted = false;
+      const result2 = await runIdempotentTransaction(
+        { tenantId: tenantA, key: "atomic_key_1", operation: "POST:/api/v1/atomic", requestHash: hash },
+        async (tx) => {
+          workExecuted = true;
+          return { statusCode: 201, responsePayload: { counter: 999 } };
+        }
+      );
+
+      expect(workExecuted).toBe(false);
+      expect(result2.isIdempotentReplay).toBe(true);
+      expect(result2.responsePayload).toEqual({ counter: 42 });
+    });
   });
 
-  describe("4. Multi-Tenant Isolation", () => {
+  describe("4. Multi-Tenant Isolation & Strict Platform-Wide RLS Security", () => {
     it("Tenant A and Tenant B can independently acquire the same idempotency key string without cross-talk", async () => {
       const payload = { action: "create" };
       const hash = computeRequestHash("POST", "/api/v1/orders", payload);
@@ -215,6 +302,89 @@ describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency
       // Tenant B replays and receives Tenant B's response
       const replayB = await checkOrAcquireIdempotencyKey(tenantB, testKey, hash, 24, testOperation);
       expect(replayB.cachedResponse?.body).toEqual({ data: "tenant_B_order" });
+    });
+
+    it("RLS Isolation: Tenant A cannot read Tenant B's idempotency record under authenticated role", async () => {
+      const sql = getDbClient();
+      const payload = { secret: "tenant_b_data" };
+      const hash = computeRequestHash("POST", "/api/v1/secret", payload);
+
+      // Seed Tenant B key
+      await checkOrAcquireIdempotencyKey(tenantB, "tenant_b_secret_key", hash, 24, testOperation);
+
+      // Tenant A queries under authenticated role with app.current_tenant_id = Tenant A
+      const rows = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = 'tenant_b_secret_key'`;
+      });
+
+      expect(rows.length).toBe(0);
+    });
+
+    it("RLS Isolation: Ordinary Tenant A cannot see, query, or delete NULL/platform-wide records", async () => {
+      const sql = getDbClient();
+      const platformKey = "platform_admin_global_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      // Insert platform-wide record (tenant_id IS NULL)
+      await sql`
+        INSERT INTO idempotency_keys (
+          tenant_id, operation, idempotency_key, request_hash, status,
+          locked_at, lease_expires_at, expires_at
+        ) VALUES (
+          NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+          NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+        );
+      `;
+
+      // Tenant A attempts to read platform record under authenticated role
+      const readRows = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(readRows.length).toBe(0);
+
+      // Tenant A attempts to delete platform record under authenticated role
+      const deleteResult = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        return await tx`DELETE FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(deleteResult.count).toBe(0);
+
+      // Verify platform record remains intact in DB
+      const [check] = await sql`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      expect(check).toBeDefined();
+    });
+
+    it("Platform Context: Only explicit platform context (app.is_platform_context = true) can access platform-wide records", async () => {
+      const sql = getDbClient();
+      const platformKey = "platform_admin_verified_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      // Seed platform key
+      await sql`
+        INSERT INTO idempotency_keys (
+          tenant_id, operation, idempotency_key, request_hash, status,
+          locked_at, lease_expires_at, expires_at
+        ) VALUES (
+          NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+          NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+        );
+      `;
+
+      // Query with explicit platform context
+      const platformRows = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SET LOCAL app.is_platform_context = 'true'`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+
+      expect(platformRows.length).toBe(1);
+      expect(platformRows[0].idempotency_key).toBe(platformKey);
+      expect(platformRows[0].tenant_id).toBeNull();
     });
   });
 

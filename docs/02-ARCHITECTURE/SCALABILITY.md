@@ -261,19 +261,19 @@ CREATE TABLE "idempotency_keys" (
 );
 ```
 
-### 12.3 Concurrency & Atomic Claim Algorithm
+### 12.3 Concurrency & Safe Ownership Model (S2 Correction)
 Concurrency control relies on database-level uniqueness across `(COALESCE(tenant_id, NULL_SENTINEL), operation, idempotency_key)`:
 
 1. **Initial Acquisition**: An atomic `INSERT ... ON CONFLICT DO NOTHING RETURNING *` attempts to insert the key with `status = 'IN_PROGRESS'` and a processing lease (`lease_expires_at = now() + 120s`).
 2. **Conflict Resolution**: If the insert returns 0 rows, the instance queries the authoritative existing record:
    - **Mismatched Request Hash**: Rejects immediately with HTTP 409 `IdempotencyConflictError` ("Idempotency key reused with mismatched request parameters"). Authoritative hash is immutable.
    - **Completed Mutation**: Returns cached response code, body, and headers without re-executing domain transactions.
-   - **Active In-Flight Lease**: If `status == 'IN_PROGRESS'` and `lease_expires_at > now()`, throws HTTP 409 `IdempotencyConflictError` ("A mutation with this Idempotency-Key is currently in flight").
-   - **Crashed Process Recovery**: If `status == 'IN_PROGRESS'` but `lease_expires_at <= now()` (or `status == 'FAILED'`), the instance attempts an atomic conditional update:
+   - **Active In-Flight Ownership**: If `status == 'IN_PROGRESS'`, returns in-flight status. The generic store **never** permits time-based lease expiration alone to replace an active owner, because a business transaction taking longer than the lease duration may still be executing. Replacing an active owner on time alone would cause double processing. Incoming retries while in-flight receive HTTP 409 Conflict.
+   - **Failed / Confirmed Crash Recovery**: Only records with `status == 'FAILED'` or records past their authoritative retention TTL (`expires_at <= now()`) are eligible for atomic re-acquisition via conditional update:
      ```sql
      UPDATE idempotency_keys
      SET status = 'IN_PROGRESS', locked_at = now(), lease_expires_at = now() + interval '120 seconds', updated_at = now()
-     WHERE key_id = $id AND (status = 'FAILED' OR (status = 'IN_PROGRESS' AND lease_expires_at <= now()))
+     WHERE key_id = $id AND (status = 'FAILED' OR expires_at <= now())
      RETURNING *;
      ```
      Only one retry instance can win this update; the other receives an in-flight conflict.
@@ -284,10 +284,19 @@ For completed idempotent requests, `response_code`, `response_body`, and `respon
 ### 12.5 Request Hash Normalization
 Hashing uses `canonicalizeJson()` which recursively sorts all object keys alphabetically prior to SHA-256 computation (`METHOD:PATH:CANONICAL_BODY`). Unstable JSON serialization or property ordering differences between clients produce identical hashes.
 
-### 12.6 Multi-Tenant Isolation
-Every idempotency record is partitioned by `tenant_id` at both the database unique index level and PostgreSQL Row Level Security (RLS). Tenant A and Tenant B can utilize identical idempotency keys simultaneously with complete isolation and zero cross-tenant interference.
+### 12.6 Multi-Tenant & Platform Security Model (RLS Architecture)
+Every idempotency record is partitioned by `tenant_id` at both the database unique index level and PostgreSQL Row Level Security (RLS).
+- **Tenant-Scoped Sessions**: Ordinary tenant sessions authenticate with `SET LOCAL app.current_tenant_id = '...'`. RLS strictly restricts SELECT, INSERT, UPDATE, and DELETE to rows where `tenant_id IS NOT NULL AND tenant_id = app.current_tenant_id`.
+- **Platform-Wide / System Records (`tenant_id IS NULL`)**: System records are **never** accessible to ordinary tenant sessions. They are strictly gated behind an authorized platform context (`SET LOCAL app.is_platform_context = 'true'`).
+- **Security Invariants**: An ordinary tenant cannot discover whether a platform key exists, read its response body, update it, delete it, or cause a cross-tenant replay.
 
-### 12.7 Expiration & Bounded Cleanup
+### 12.7 Exactly-Once vs At-Least-Once Guarantees & Atomic Transaction Coupling
+- **What Generic HTTP Idempotency Guarantees**: Prevents concurrent duplicate processing across API workers, safely caches and replays deterministic responses for identical requests, and prevents hash mismatches.
+- **Why Lease Expiry Alone is Not Proof of Failure**: Network latency, database connection waits, or downstream API calls can cause an operation to exceed its nominal lease duration. If the worker is still alive and commits its transaction, reclaiming the key purely based on time would execute the operation a second time. Therefore, time expiration alone is not treated as failure.
+- **Atomic Transaction Coupling (`runIdempotentTransaction`)**: When business operations can run in the same PostgreSQL transaction, the idempotency completion (`UPDATE idempotency_keys SET status = 'COMPLETED'`) is committed atomically with the domain state mutation.
+- **Domain-Level Uniqueness Defense**: For multi-step or distributed workflows where HTTP idempotency cannot be atomically coupled in a single transaction, the authoritative business layer (e.g. `orders.idempotency_key` unique constraint in Restaurant R3.2) provides the ultimate source of truth, ensuring zero duplicate authoritative records.
+
+### 12.8 Expiration & Bounded Cleanup
 Idempotency records maintain an `expires_at` timestamp (default: 24 hours, configured via `IDEMPOTENCY_EXPIRATION_HOURS`). Cleanup operates via bounded batch deletion:
 ```sql
 WITH expired AS (
@@ -295,9 +304,9 @@ WITH expired AS (
 )
 DELETE FROM idempotency_keys WHERE key_id IN (SELECT key_id FROM expired);
 ```
-Expired records are also eligible for atomic in-place overwrite upon new incoming claims.
+Expired records past their retention window are also eligible for atomic in-place re-acquisition upon new incoming claims.
 
-### 12.8 Storage Abstraction & Future Redis Migration
+### 12.9 Storage Abstraction & Future Redis Migration
 All idempotency operations are mediated through the `IdempotencyStore` interface (`claim`, `get`, `complete`, `fail`, `cleanup`). The application and domain logic are completely decoupled from PostgreSQL:
 - **Current State**: `PostgresIdempotencyStore` provides ACID durability and zero additional infrastructure.
 - **Future Redis Trigger**: If API mutation load exceeds 5,000 req/sec sustained hot-path write IOPS on PostgreSQL, a `RedisIdempotencyStore` can be dropped in behind the `IdempotencyStore` interface using atomic Redis transactions (`SET NX PX` or Lua scripts).
