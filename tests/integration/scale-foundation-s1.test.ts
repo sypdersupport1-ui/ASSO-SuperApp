@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { getDbClient, getDb } from "@/db/client";
 import { NextRequest } from "next/server";
 import { GET as getOrders } from "@/app/api/v1/restaurant/orders/route";
@@ -33,35 +33,31 @@ describe("ASSO Scale Foundation S1: Backend Runtime & Connection Hardening", () 
   });
 
   it("4. Distinguishes API vs Worker database connection configurations", () => {
-    const prevEnv = process.env.NODE_ENV;
-    const prevRuntime = process.env.RUNTIME_ENV;
+    // Vitest provides vi.stubEnv for safely overriding environment variables during tests
     
-    try {
-      process.env.NODE_ENV = "production";
-      process.env.RUNTIME_ENV = "api";
-      process.env.API_DB_POOL_SIZE = "12";
+    // API Runtime simulation
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('RUNTIME_ENV', 'api');
+    vi.stubEnv('API_DB_POOL_SIZE', '12');
+    
+    const apiPoolSize = process.env.RUNTIME_ENV === "worker"
+      ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
+      : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
       
-      const apiPoolSize = process.env.RUNTIME_ENV === "worker"
-        ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
-        : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
-        
-      expect(apiPoolSize).toBe(12);
+    expect(apiPoolSize).toBe(12);
 
-      process.env.RUNTIME_ENV = "worker";
-      process.env.WORKER_DB_POOL_SIZE = "40";
+    // Worker Runtime simulation
+    vi.stubEnv('RUNTIME_ENV', 'worker');
+    vi.stubEnv('WORKER_DB_POOL_SIZE', '40');
+    
+    const workerPoolSize = process.env.RUNTIME_ENV === "worker"
+      ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
+      : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
       
-      const workerPoolSize = process.env.RUNTIME_ENV === "worker"
-        ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
-        : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
-        
-      expect(workerPoolSize).toBe(40);
-    } finally {
-      if (prevEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = prevEnv;
-      
-      if (prevRuntime === undefined) delete process.env.RUNTIME_ENV;
-      else process.env.RUNTIME_ENV = prevRuntime;
-    }
+    expect(workerPoolSize).toBe(40);
+
+    // Clean up stubs
+    vi.unstubAllEnvs();
   });
 
   it("5. Horizontal scaling budget relies on mathematical constraints", () => {
