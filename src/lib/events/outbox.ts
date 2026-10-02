@@ -6,6 +6,7 @@ import { DomainEvent, DomainEventType, VerticalType } from "./types";
 import { getCommunicationEngine } from "@/lib/communication/engine";
 import { scheduleJob } from "@/lib/jobs/queue";
 import { logger } from "@/lib/logger";
+import { getCorrelationId } from "@/lib/observability/correlation";
 
 export interface CreateEventOptions<T = Record<string, unknown>> {
   tenantId: string;
@@ -29,6 +30,12 @@ export function createDomainEvent<T = Record<string, unknown>>(
     options.idempotencyKey ||
     `${options.tenantId}:${options.eventType}:${options.aggregateId}:${eventId}`;
 
+  const correlationId = getCorrelationId();
+  const payloadWithCorrelation = {
+    ...options.payload,
+    ...(correlationId && correlationId !== "unknown" ? { correlationId } : {}),
+  } as unknown as T;
+
   return {
     eventId,
     eventType: options.eventType,
@@ -38,7 +45,7 @@ export function createDomainEvent<T = Record<string, unknown>>(
     aggregateType: options.aggregateType,
     aggregateId: options.aggregateId,
     occurredAt: new Date().toISOString(),
-    payload: options.payload,
+    payload: payloadWithCorrelation,
     idempotencyKey,
   };
 }

@@ -12,10 +12,11 @@ import {
   saveIdempotentResponse,
 } from "@/lib/api/idempotency";
 import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
+import { withObservability } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+export const GET = withObservability(async (req: NextRequest) => {
   try {
     const ctx = extractRequestContext(req, {
       requireAuth: true,
@@ -34,9 +35,9 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_rest_orders_get");
   }
-}
+}, { route: "/api/v1/restaurant/orders", operation: "list_orders" });
 
-export async function POST(req: NextRequest) {
+export const POST = withObservability(async (req: NextRequest) => {
   try {
     const ctx = extractRequestContext(req, {
       requireAuth: true,
@@ -127,4 +128,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_rest_orders_create");
   }
-}
+}, { route: "/api/v1/restaurant/orders", operation: "create_order" });

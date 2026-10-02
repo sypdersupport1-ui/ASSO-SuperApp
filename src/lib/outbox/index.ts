@@ -12,6 +12,20 @@ import {
 } from "./repository";
 import { OutboxDispatcher, defaultDispatcher } from "./dispatcher";
 import { logger } from "@/lib/logger";
+import { getTracer } from "@/lib/observability/tracing";
+import {
+  recordOutboxBatch,
+  outboxEventDuration,
+  outboxEventsCompleted,
+  outboxEventsRetried,
+  outboxEventsDeadLettered,
+  outboxLeaseRecoveries,
+} from "@/lib/observability/metrics";
+import {
+  buildWorkerTaskContext,
+  runWithCorrelationContext,
+} from "@/lib/observability/correlation";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 export * from "./types";
 export * from "./repository";
@@ -66,14 +80,21 @@ export function getDefaultWorkerConfig(): WorkerConfig {
 }
 
 /**
- * Standalone Transactional Outbox Worker
- * 
+ * Standalone Transactional Outbox Worker — S4 + S5 Observability
+ *
  * Scalability Properties:
  * - Operates independently from Next.js request lifecycle.
  * - Uses SELECT ... FOR UPDATE SKIP LOCKED for distributed, collision-free claiming.
  * - Enforces bounded concurrency without overwhelming database connection pools or external providers.
  * - Short transaction boundaries: does not hold DB transactions during external network I/O.
  * - Automatic lease expiration and recovery for crashed worker instances.
+ *
+ * S5 Observability:
+ * - Per-event OTel spans with event_id, event_type, tenant_id, attempt attributes.
+ * - Correlation IDs propagated via AsyncLocalStorage within each event processing scope.
+ * - Originating API request correlation linked via originatingCorrelationId in event payload.
+ * - Batch-level metrics recorded after each poll cycle.
+ * - Worker ID is stable and identifiable across all logs and spans.
  */
 export class OutboxWorker {
   public readonly config: WorkerConfig;
@@ -105,6 +126,7 @@ export class OutboxWorker {
   async processBatch(batchSizeOverride?: number, tenantId?: string): Promise<BatchProcessingStats> {
     const start = Date.now();
     const batchSize = batchSizeOverride || this.config.batchSize;
+    const tracer = getTracer("asso.outbox.worker");
 
     // 1. Claim eligible events in a short atomic transaction
     const events = await claimEligibleEvents({
@@ -129,12 +151,18 @@ export class OutboxWorker {
       return stats;
     }
 
+    // Detect lease recoveries (events that were previously PROCESSING = crashed worker)
+    const leaseRecoveries = events.filter(
+      (e) => e.attemptCount > 1 && e.claimedBy !== null
+    ).length;
+
     logger.debug({
       message: "Outbox worker claimed events for processing",
       module: "OUTBOX_WORKER",
+      workerId: this.config.workerId,
       details: {
-        workerId: this.config.workerId,
         count: events.length,
+        leaseRecoveries,
         outboxIds: events.map((e) => e.outboxId),
       },
     });
@@ -142,64 +170,176 @@ export class OutboxWorker {
     // 2. Dispatch events with bounded concurrency (external network I/O outside DB tx)
     await mapConcurrent(events, this.config.concurrency, async (event: OutboxEvent) => {
       const eventStart = Date.now();
-      try {
-        const result = await this.dispatcher.dispatch(event);
 
-        if (result.success) {
-          await completeOutboxEvent(event.outboxId, result.providerRef);
-          stats.succeeded++;
+      // Extract originating correlation ID from event payload (if present at API recording time)
+      const originatingCorrelationId =
+        (event.payload as Record<string, unknown>)?.correlationId as string | undefined;
 
-          logger.info({
-            message: "Outbox event processed successfully",
-            module: "OUTBOX_WORKER",
-            tenantId: event.tenantId,
-            details: {
-              workerId: this.config.workerId,
-              outboxId: event.outboxId,
-              eventType: event.eventType,
-              attemptCount: event.attemptCount,
-              durationMs: Date.now() - eventStart,
-            },
-          });
-        } else {
-          const errMsg = result.error || "Unknown handler error";
-          stats.errors!.push({ outboxId: event.outboxId, error: errMsg });
+      // Build per-event worker task context for correlation propagation
+      const taskCtx = buildWorkerTaskContext(this.config.workerId, {
+        outboxId: event.outboxId,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        tenantId: event.tenantId,
+        attemptCount: event.attemptCount,
+        originatingCorrelationId,
+      });
 
-          const failResult = await failOutboxEvent(
-            event.outboxId,
-            errMsg,
-            result.retryable ?? true,
-            event.attemptCount,
-            this.config
+      await runWithCorrelationContext(
+        {
+          ...taskCtx,
+          service: "worker",
+          startedAt: eventStart,
+        },
+        async () => {
+          // Per-event OTel span
+          return tracer.startActiveSpan(
+            `outbox.process ${event.eventType}`,
+            async (span) => {
+              span.setAttributes({
+                "outbox.event_id": event.eventId,
+                "outbox.event_type": event.eventType,
+                "outbox.outbox_id": event.outboxId,
+                "outbox.attempt_count": event.attemptCount,
+                "worker.id": this.config.workerId,
+                "request.id": taskCtx.requestId,
+                ...(originatingCorrelationId
+                  ? { "outbox.originating_correlation_id": originatingCorrelationId }
+                  : {}),
+              });
+
+              try {
+                const result = await this.dispatcher.dispatch(event);
+                const durationMs = Date.now() - eventStart;
+
+                if (result.success) {
+                  await completeOutboxEvent(event.outboxId, result.providerRef);
+                  stats.succeeded++;
+
+                  outboxEventDuration.record(durationMs, {
+                    "outbox.event_type": event.eventType,
+                    "outbox.outcome": "completed",
+                    "worker.id": this.config.workerId.slice(0, 32),
+                  });
+                  outboxEventsCompleted.add(1, {
+                    "outbox.event_type": event.eventType,
+                    "worker.id": this.config.workerId.slice(0, 32),
+                  });
+
+                  logger.info({
+                    message: "Outbox event processed successfully",
+                    module: "OUTBOX_WORKER",
+                    tenantId: event.tenantId,
+                    workerId: this.config.workerId,
+                    eventId: event.eventId,
+                    eventType: event.eventType,
+                    attempt: event.attemptCount,
+                    requestId: taskCtx.requestId,
+                    correlationId: originatingCorrelationId,
+                    durationMs,
+                    details: { outboxId: event.outboxId },
+                  });
+
+                  span.setStatus({ code: SpanStatusCode.OK });
+                } else {
+                  const errMsg = result.error || "Unknown handler error";
+                  stats.errors!.push({ outboxId: event.outboxId, error: errMsg });
+
+                  const failResult = await failOutboxEvent(
+                    event.outboxId,
+                    errMsg,
+                    result.retryable ?? true,
+                    event.attemptCount,
+                    this.config
+                  );
+
+                  if (failResult.status === "DEAD_LETTER") {
+                    stats.deadLettered++;
+                    outboxEventsDeadLettered.add(1, {
+                      "outbox.event_type": event.eventType,
+                      "worker.id": this.config.workerId.slice(0, 32),
+                    });
+                  } else {
+                    stats.retried++;
+                    outboxEventsRetried.add(1, {
+                      "outbox.event_type": event.eventType,
+                      "worker.id": this.config.workerId.slice(0, 32),
+                    });
+                  }
+
+                  span.setStatus({ code: SpanStatusCode.ERROR, message: errMsg });
+                }
+              } catch (err: unknown) {
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                const durationMs = Date.now() - eventStart;
+                stats.errors!.push({ outboxId: event.outboxId, error: errorMsg });
+
+                const failResult = await failOutboxEvent(
+                  event.outboxId,
+                  errorMsg,
+                  true,
+                  event.attemptCount,
+                  this.config
+                );
+
+                if (failResult.status === "DEAD_LETTER") {
+                  stats.deadLettered++;
+                  outboxEventsDeadLettered.add(1, {
+                    "outbox.event_type": event.eventType,
+                    "worker.id": this.config.workerId.slice(0, 32),
+                  });
+                } else {
+                  stats.retried++;
+                  outboxEventsRetried.add(1, {
+                    "outbox.event_type": event.eventType,
+                    "worker.id": this.config.workerId.slice(0, 32),
+                  });
+                }
+
+                logger.error({
+                  message: "Outbox event processing threw an unexpected exception",
+                  module: "OUTBOX_WORKER",
+                  tenantId: event.tenantId,
+                  workerId: this.config.workerId,
+                  eventId: event.eventId,
+                  eventType: event.eventType,
+                  attempt: event.attemptCount,
+                  requestId: taskCtx.requestId,
+                  durationMs,
+                  error: err,
+                  error_type: err instanceof Error ? err.constructor.name : "UnknownError",
+                  details: { outboxId: event.outboxId, nextStatus: failResult.status },
+                });
+
+                span.setStatus({ code: SpanStatusCode.ERROR, message: errorMsg });
+              }
+
+              span.end();
+            }
           );
-
-          if (failResult.status === "DEAD_LETTER") {
-            stats.deadLettered++;
-          } else {
-            stats.retried++;
-          }
         }
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        stats.errors!.push({ outboxId: event.outboxId, error: errorMsg });
-
-        const failResult = await failOutboxEvent(
-          event.outboxId,
-          errorMsg,
-          true,
-          event.attemptCount,
-          this.config
-        );
-
-        if (failResult.status === "DEAD_LETTER") {
-          stats.deadLettered++;
-        } else {
-          stats.retried++;
-        }
-      }
+      );
     });
 
     stats.durationMs = Date.now() - start;
+
+    // Record batch-level metrics
+    recordOutboxBatch({
+      workerId: this.config.workerId,
+      claimed: stats.claimed,
+      succeeded: stats.succeeded,
+      retried: stats.retried,
+      deadLettered: stats.deadLettered,
+      durationMs: stats.durationMs,
+      leaseRecoveries,
+    });
+
+    if (leaseRecoveries > 0) {
+      outboxLeaseRecoveries.add(leaseRecoveries, {
+        "worker.id": this.config.workerId.slice(0, 32),
+      });
+    }
+
     return stats;
   }
 
@@ -213,8 +353,8 @@ export class OutboxWorker {
     logger.info({
       message: "Outbox worker started",
       module: "OUTBOX_WORKER",
+      workerId: this.config.workerId,
       details: {
-        workerId: this.config.workerId,
         pollIntervalMs: this.config.pollIntervalMs,
         batchSize: this.config.batchSize,
         concurrency: this.config.concurrency,
@@ -242,7 +382,9 @@ export class OutboxWorker {
           logger.error({
             message: "Unexpected error in outbox worker loop",
             module: "OUTBOX_WORKER",
-            details: { workerId: this.config.workerId, error: String(err) },
+            workerId: this.config.workerId,
+            error: err,
+            error_type: err instanceof Error ? err.constructor.name : "UnknownError",
           });
         } finally {
           if (inFlight && this.resolveInFlight) {
@@ -266,7 +408,8 @@ export class OutboxWorker {
       logger.error({
         message: "Fatal outbox worker failure",
         module: "OUTBOX_WORKER",
-        details: { error: String(err) },
+        workerId: this.config.workerId,
+        error: err,
       });
     });
   }
@@ -282,7 +425,7 @@ export class OutboxWorker {
     logger.info({
       message: "Initiating graceful outbox worker shutdown...",
       module: "OUTBOX_WORKER",
-      details: { workerId: this.config.workerId },
+      workerId: this.config.workerId,
     });
 
     this.isRunning = false;
@@ -303,7 +446,7 @@ export class OutboxWorker {
     logger.info({
       message: "Outbox worker gracefully stopped.",
       module: "OUTBOX_WORKER",
-      details: { workerId: this.config.workerId },
+      workerId: this.config.workerId,
     });
   }
 }

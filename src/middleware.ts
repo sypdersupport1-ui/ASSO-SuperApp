@@ -2,15 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { UpstashRedisRateLimiter } from "@/lib/rate-limit/redis-rate-limiter";
 import { DEFAULT_IP_CEILINGS } from "@/lib/rate-limit/policies";
 import { RateLimitCategory } from "@/lib/rate-limit/types";
+import { resolveCorrelationId } from "@/lib/observability/correlation";
 
 /**
- * ASSO EDGE MIDDLEWARE — SCALE FOUNDATION S3
+ * ASSO EDGE MIDDLEWARE — SCALE FOUNDATION S3 + S5
  * 
  * First-Line Distributed Edge Rate Limiting & Abuse Protection.
+ * S5: Correlation ID injection — generates or validates incoming X-Request-Id,
+ *     propagates it in request headers and response headers for end-to-end traceability.
  * 
  * Target Architecture:
  * Internet
  * → CDN / Edge Middleware (Zero Node Route Handler execution, Zero PostgreSQL queries)
+ * → Correlation ID generation/propagation (edge-compatible, no Node-only APIs)
  * → Distributed Edge Limiter (Upstash Redis REST)
  * → ASSO API Route Handlers
  * → Auth / Entitlements
@@ -24,6 +28,7 @@ import { RateLimitCategory } from "@/lib/rate-limit/types";
  * 2. Operates outside process-local Node memory and outside PostgreSQL.
  * 3. Uses atomic HTTP REST pipeline over distributed Redis.
  * 4. During a provider outage, fail-closed endpoints reject with 429 without causing a DB write storm.
+ * 5. Correlation IDs are NEVER used for authorization — they are logging/tracing aids only.
  */
 
 const edgeRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -55,9 +60,21 @@ function extractClientIp(req: NextRequest): string {
 }
 
 export async function middleware(req: NextRequest) {
+  // ─── S5: Correlation ID injection ──────────────────────────────────────────
+  // Edge-compatible: uses only resolveCorrelationId (no AsyncLocalStorage in edge)
+  const { id: requestId } = resolveCorrelationId(
+    req.headers.get("x-request-id") || req.headers.get("x-correlation-id")
+  );
+
+  // Clone request headers to inject correlation ID for downstream route handlers
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-request-id", requestId);
+
   // If Edge Redis is not configured (e.g. offline dev/testing), delegate to route-level rate limiting
   if (!edgeLimiter) {
-    return NextResponse.next();
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("X-Request-Id", requestId);
+    return response;
   }
 
   const ip = extractClientIp(req);
@@ -78,12 +95,14 @@ export async function middleware(req: NextRequest) {
           },
           meta: {
             timestamp: new Date().toISOString(),
+            requestId,
           },
         }),
         {
           status: 429,
           headers: {
             "Content-Type": "application/json",
+            "X-Request-Id": requestId,
             "Retry-After": String(result.retryAfterSeconds),
             "X-RateLimit-Limit": String(result.limit),
             "X-RateLimit-Remaining": "0",
@@ -103,11 +122,13 @@ export async function middleware(req: NextRequest) {
             code: "RATE_LIMIT_EXCEEDED",
             message: "Service protection engaged at edge. Please retry shortly.",
           },
+          meta: { requestId },
         }),
         {
           status: 429,
           headers: {
             "Content-Type": "application/json",
+            "X-Request-Id": requestId,
             "Retry-After": "5",
           },
         }
@@ -115,7 +136,9 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("X-Request-Id", requestId);
+  return response;
 }
 
 export const config = {

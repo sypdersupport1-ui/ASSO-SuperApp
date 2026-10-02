@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm";
 import { getDbClient } from "./client";
 import { logger } from "@/lib/logger";
+import { getTracer } from "@/lib/observability/tracing";
+import { dbQueryDuration, dbQueryErrors, dbSlowTransactions } from "@/lib/observability/metrics";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,22 +36,38 @@ export async function withTenantScope<T>(
 ): Promise<T> {
   const sanitizedTenantId = validateTenantId(options.tenantId);
   const client = getDbClient();
+  const tracer = getTracer("asso.db");
+  const start = Date.now();
 
-  const result = await client.begin(async (tx) => {
-    // Switch to application role (no BYPASSRLS) and set transaction-local tenant context
-    await tx`SET LOCAL ROLE authenticated`;
-    await tx`SELECT set_config('app.current_tenant_id', ${sanitizedTenantId}, true)`;
-
-    logger.debug({
-      message: "Set tenant transaction scope",
-      tenantId: sanitizedTenantId,
-      details: { isSuperAdmin: options.isSuperAdmin || false },
+  return await tracer.startActiveSpan("db.tx.tenant_scope", async (span) => {
+    span.setAttributes({
+      "db.system": "postgresql",
+      "db.operation": "transaction",
+      "asso.tenant_id": sanitizedTenantId,
     });
 
-    return await callback(tx);
-  });
+    try {
+      const result = await client.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${sanitizedTenantId}, true)`;
+        return await callback(tx);
+      });
 
-  return result as T;
+      const durationMs = Date.now() - start;
+      dbQueryDuration.record(durationMs, { "db.scope": "tenant" });
+      if (durationMs > 1000) dbSlowTransactions.add(1, { "db.scope": "tenant" });
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result as T;
+    } catch (error) {
+      const durationMs = Date.now() - start;
+      dbQueryErrors.add(1, { "db.scope": "tenant" });
+      dbQueryDuration.record(durationMs, { "db.scope": "tenant" });
+      span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
 }
 
 export const PLATFORM_CONTEXT_SECRET =
@@ -67,18 +86,35 @@ export async function withPlatformScope<T>(
 ): Promise<T> {
   const client = getDbClient();
   const token = getPlatformContextToken();
+  const tracer = getTracer("asso.db");
+  const start = Date.now();
 
-  const result = await client.begin(async (tx) => {
-    // Clear tenant context and set trusted platform authorization token
-    await tx`SELECT set_config('app.current_tenant_id', '', true)`;
-    await tx`SELECT set_config('app.platform_context_token', ${token}, true)`;
-
-    logger.debug({
-      message: "Set platform transaction scope",
+  return await tracer.startActiveSpan("db.tx.platform_scope", async (span) => {
+    span.setAttributes({
+      "db.system": "postgresql",
+      "db.operation": "transaction",
     });
 
-    return await callback(tx);
-  });
+    try {
+      const result = await client.begin(async (tx) => {
+        await tx`SELECT set_config('app.current_tenant_id', '', true)`;
+        await tx`SELECT set_config('app.platform_context_token', ${token}, true)`;
+        return await callback(tx);
+      });
 
-  return result as T;
+      const durationMs = Date.now() - start;
+      dbQueryDuration.record(durationMs, { "db.scope": "platform" });
+      if (durationMs > 1000) dbSlowTransactions.add(1, { "db.scope": "platform" });
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result as T;
+    } catch (error) {
+      const durationMs = Date.now() - start;
+      dbQueryErrors.add(1, { "db.scope": "platform" });
+      dbQueryDuration.record(durationMs, { "db.scope": "platform" });
+      span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
 }
