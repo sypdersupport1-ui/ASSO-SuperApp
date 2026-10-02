@@ -14,14 +14,16 @@ export async function GET(
   props: { params: Promise<{ token: string }> }
 ) {
   try {
+    const params = await props.params;
+    const token = params.token;
+
+    // Rate Limiting (Edge/Distributed) - evaluated BEFORE resolveCustomerQr (PostgreSQL query)
     const rateLimitResult = await assertRateLimit(req, {
       category: "CUSTOMER_PUBLIC",
       operation: "qr_resolve",
+      contextToken: token,
       requestId: "req_customer_qr_resolve",
     });
-
-    const params = await props.params;
-    const token = params.token;
 
     const userAgent = req.headers.get("user-agent") || undefined;
     const forwardedFor = req.headers.get("x-forwarded-for");

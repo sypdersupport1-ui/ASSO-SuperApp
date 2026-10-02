@@ -48,88 +48,126 @@ export function extractClientIp(req: NextRequest): string {
   return "127.0.0.1";
 }
 
+import { createHash } from "crypto";
+
+export function hashIdentifier(val: string): string {
+  if (!val) return "anon";
+  return createHash("sha256").update(val.trim()).digest("hex").slice(0, 16);
+}
+
 export interface ResolveKeyOptions {
   category: RateLimitCategory;
   tenantId?: string;
   userId?: string;
   operation?: string;
+  contextToken?: string;
+  targetIdentifier?: string;
   customKey?: string;
 }
 
+export interface LayeredRateLimitKeys {
+  ipKey: string;
+  ipKeyClass: string;
+  primaryKey: string;
+  primaryKeyClass: string;
+}
+
 /**
- * Authoritatively derives the rate limit key according to endpoint category and security rules:
- * - Public/Unauthenticated: IP + Category + Context
- * - Authenticated Tenant: Category + TenantId + UserId + Operation
- * Guarantees Tenant A's usage never drains Tenant B's quota.
+ * Derives layered rate limit keys:
+ * 1. ipKey: Coarse global IP ceiling (mitigates token rotation, URL rotation, scraping)
+ * 2. primaryKey: Fine-grained context/target/tenant quota
+ * 
+ * Sensitive tokens, phones, and identifiers are hashed with SHA-256 before transmission.
  */
-export function resolveRateLimitKey(req: NextRequest, options: ResolveKeyOptions): { key: string; keyClass: string } {
+export function resolveLayeredKeys(req: NextRequest, options: ResolveKeyOptions): LayeredRateLimitKeys {
   const ip = extractClientIp(req);
+  const ipKey = `ip:${ip}:cat:${options.category.toLowerCase()}`;
+  const ipKeyClass = "IP";
 
   if (options.customKey) {
     return {
-      key: `custom:${options.category}:${options.customKey}`,
-      keyClass: "CUSTOM",
+      ipKey,
+      ipKeyClass,
+      primaryKey: `custom:${options.category}:${options.customKey}`,
+      primaryKeyClass: "CUSTOM",
     };
   }
 
   switch (options.category) {
     case "AUTH": {
-      // Key on IP and optional operation
-      const op = options.operation || "auth";
+      const target = options.targetIdentifier 
+        ? `target:${hashIdentifier(options.targetIdentifier)}` 
+        : `ip:${ip}`;
       return {
-        key: `auth:${op}:ip:${ip}`,
-        keyClass: "IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `auth:${options.operation || "login"}:${target}`,
+        primaryKeyClass: options.targetIdentifier ? "TARGET_ACCOUNT" : "IP",
       };
     }
 
     case "CUSTOMER_PUBLIC": {
-      // Key on context identifier if available, otherwise IP
-      const context = options.operation || "public";
+      const ctx = options.contextToken
+        ? `ctx:${hashIdentifier(options.contextToken)}`
+        : (options.operation ? `op:${options.operation}` : `ip:${ip}`);
       return {
-        key: `customer:${context}:ip:${ip}`,
-        keyClass: "IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `customer:${ctx}`,
+        primaryKeyClass: options.contextToken ? "CONTEXT_TOKEN" : "IP",
       };
     }
 
     case "FINANCIAL_MUTATION": {
-      // Sensitive mutation: isolate by Tenant and User (or IP if unauthenticated session)
       const op = options.operation || "mutation";
       if (options.tenantId && options.userId) {
         return {
-          key: `financial:${options.tenantId}:user:${options.userId}:${op}`,
-          keyClass: "TENANT_USER",
+          ipKey,
+          ipKeyClass,
+          primaryKey: `fin:t:${options.tenantId}:u:${hashIdentifier(options.userId)}:op:${op}`,
+          primaryKeyClass: "TENANT_USER",
         };
       }
       if (options.tenantId) {
         return {
-          key: `financial:${options.tenantId}:ip:${ip}:${op}`,
-          keyClass: "TENANT_IP",
+          ipKey,
+          ipKeyClass,
+          primaryKey: `fin:t:${options.tenantId}:ip:${ip}:op:${op}`,
+          primaryKeyClass: "TENANT_IP",
         };
       }
       return {
-        key: `financial:unknown:ip:${ip}:${op}`,
-        keyClass: "IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `fin:unknown:ip:${ip}:op:${op}`,
+        primaryKeyClass: "IP",
       };
     }
 
     case "ADMIN": {
       if (options.tenantId && options.userId) {
         return {
-          key: `admin:${options.tenantId}:user:${options.userId}`,
-          keyClass: "TENANT_USER",
+          ipKey,
+          ipKeyClass,
+          primaryKey: `admin:t:${options.tenantId}:u:${hashIdentifier(options.userId)}`,
+          primaryKeyClass: "TENANT_USER",
         };
       }
       return {
-        key: `admin:ip:${ip}`,
-        keyClass: "IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `admin:ip:${ip}`,
+        primaryKeyClass: "IP",
       };
     }
 
     case "WEBHOOK": {
       const provider = options.operation || "provider";
       return {
-        key: `webhook:${provider}:ip:${ip}`,
-        keyClass: "WEBHOOK_IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `webhook:provider:${provider}`,
+        primaryKeyClass: "WEBHOOK_PROVIDER",
       };
     }
 
@@ -137,16 +175,32 @@ export function resolveRateLimitKey(req: NextRequest, options: ResolveKeyOptions
     default: {
       if (options.tenantId && options.userId) {
         return {
-          key: `general:${options.tenantId}:user:${options.userId}`,
-          keyClass: "TENANT_USER",
+          ipKey,
+          ipKeyClass,
+          primaryKey: `gen:t:${options.tenantId}:u:${hashIdentifier(options.userId)}`,
+          primaryKeyClass: "TENANT_USER",
         };
       }
       return {
-        key: `general:ip:${ip}`,
-        keyClass: "IP",
+        ipKey,
+        ipKeyClass,
+        primaryKey: `gen:ip:${ip}`,
+        primaryKeyClass: "IP",
       };
     }
   }
+}
+
+/**
+ * Authoritatively derives the rate limit key according to endpoint category and security rules:
+ * Backwards compatible with legacy callers.
+ */
+export function resolveRateLimitKey(req: NextRequest, options: ResolveKeyOptions): { key: string; keyClass: string } {
+  const layered = resolveLayeredKeys(req, options);
+  return {
+    key: layered.primaryKey,
+    keyClass: layered.primaryKeyClass,
+  };
 }
 
 export interface AssertRateLimitOptions extends ResolveKeyOptions {
@@ -156,46 +210,81 @@ export interface AssertRateLimitOptions extends ResolveKeyOptions {
 
 /**
  * Core enforcement function:
- * Checks rate limit against distributed store, logs structured telemetry,
- * and throws RateLimitError (HTTP 429) if threshold is breached.
+ * Checks dual-layer rate limits against distributed store:
+ * Layer 1: Coarse Edge/IP Ceiling (blocks flood and rotation attacks)
+ * Layer 2: Specific Tenant / User / Context Quota
+ * 
+ * Logs structured telemetry without leaking sensitive values.
+ * Throws RateLimitError (HTTP 429) if threshold is breached.
  */
 export async function assertRateLimit(
   req: NextRequest,
   options: AssertRateLimitOptions
 ): Promise<RateLimitResult> {
   const limiter = getRateLimiter();
-  const { key, keyClass } = resolveRateLimitKey(req, options);
+  const keys = resolveLayeredKeys(req, options);
   const policy = getRateLimitPolicy(options.category, options.policyOverrides);
+  const ipPolicy = getRateLimitPolicy(options.category, {
+    maxRequests: Math.max(policy.maxRequests, options.category === "CUSTOMER_PUBLIC" ? 60 : 30),
+    windowSeconds: policy.windowSeconds,
+  });
 
-  const result = await limiter.check(key, policy);
-
-  // Observability Preparation (Scale Foundation S3 / S5):
-  // Structured logging of all rate limit decisions without logging secrets
   const requestId = options.requestId || req.headers.get("x-request-id") || "req_unknown";
-  if (!result.allowed) {
+
+  // Layer 1: Coarse IP Ceiling (unless customKey is used)
+  if (!options.customKey && keys.ipKey) {
+    const ipResult = await limiter.check(keys.ipKey, ipPolicy);
+    if (!ipResult.allowed) {
+      logger.warn({
+        message: "Rate limit breached at IP ceiling",
+        module: "RATE_LIMIT",
+        requestId,
+        details: {
+          category: policy.category,
+          allowed: false,
+          keyClass: keys.ipKeyClass,
+          limit: ipResult.limit,
+          remaining: 0,
+          retryAfterSeconds: ipResult.retryAfterSeconds,
+        },
+      });
+
+      throw new RateLimitError("Request threshold breached at network edge. Please retry after cooldown.", {
+        retryAfterSeconds: ipResult.retryAfterSeconds,
+        limit: ipResult.limit,
+        remaining: 0,
+        category: ipResult.category,
+      });
+    }
+  }
+
+  // Layer 2: Context / Tenant / User Specific Limit
+  const primaryResult = await limiter.check(keys.primaryKey, policy);
+
+  if (!primaryResult.allowed) {
     logger.warn({
-      message: "Rate limit breached",
+      message: "Rate limit breached on target quota",
       module: "RATE_LIMIT",
       requestId,
       details: {
         category: policy.category,
         allowed: false,
-        keyClass,
-        limit: result.limit,
-        remaining: result.remaining,
-        retryAfterSeconds: result.retryAfterSeconds,
+        keyClass: keys.primaryKeyClass,
+        limit: primaryResult.limit,
+        remaining: primaryResult.remaining,
+        retryAfterSeconds: primaryResult.retryAfterSeconds,
       },
     });
 
-    throw new RateLimitError("Request threshold breached. Please retry after some time.", {
-      retryAfterSeconds: result.retryAfterSeconds,
-      limit: result.limit,
+    throw new RateLimitError("Request threshold breached. Please retry after cooldown.", {
+      retryAfterSeconds: primaryResult.retryAfterSeconds,
+      limit: primaryResult.limit,
       remaining: 0,
-      category: result.category,
+      category: primaryResult.category,
     });
   }
 
-  return result;
+  return primaryResult;
 }
 
 /**

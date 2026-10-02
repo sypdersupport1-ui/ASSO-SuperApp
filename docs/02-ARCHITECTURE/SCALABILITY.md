@@ -320,13 +320,32 @@ All idempotency operations are mediated through the `IdempotencyStore` interface
 
 ## 13. Edge/API Rate Limiting & Abuse Protection (Scale Foundation S3)
 
-### 13.1 Architecture & Elimination of Process-Local State
-The initial implementation of rate limiting in certain endpoints relied on process-local Node.js `Map` counters (`rateLimitMap`). In horizontally scaled cloud environments (such as multiple Vercel serverless containers or independent container tasks), process-local counters fail to limit aggregate traffic: an attacker distributing traffic across N instances multiplies their effective quota by N.
+### 13.1 Edge-First Architecture & Tiered Defense
+ASSO enforces a strictly tiered defense architecture designed to protect application instances, connection pools, and PostgreSQL from distributed traffic spikes and abusive denial-of-service floods:
 
-ASSO Scale Foundation S3 replaces process-local state with a durable, distributed rate limiting and abuse-protection architecture mediated through the unified `RateLimiter` interface.
+```text
+Internet Client
+     ↓
+[TIER 1: CDN / Next.js Edge Middleware] (src/middleware.ts)
+     │ • Coarse IP ceilings & public flood protection
+     │ • Distributed Edge Limiter (Upstash Redis REST via atomic pipeline)
+     │ • Rejection: HTTP 429 directly at edge (Zero Node API route execution, Zero DB connections)
+     ↓
+[TIER 2: ASSO API Route Handlers]
+     │ • In-memory stateless JWT signature & claims verification
+     │ • Granular Distributed Rate Limiting (assertRateLimit: Tenant + User + Operation quotas)
+     │ • Evaluated BEFORE database queries, catalog lookups, or idempotency locks
+     ↓
+[TIER 3: Durable Idempotency & Domain Engines]
+     │ • Idempotency lease acquisition & replay protection (PostgresIdempotencyStore)
+     │ • Domain rule validation (business context, active stay, catalog availability)
+     ↓
+[TIER 4: PostgreSQL Transaction & Native RLS]
+     │ • ACID business transaction, append-only ledgers, KDS task creation, outbox events
+```
 
-### 13.2 Distributed Storage Engine & Provider Abstraction
-The system decouples route handlers and domain logic from the underlying storage mechanism via `RateLimiter`:
+### 13.2 Distributed Storage Engine & Provider Hierarchy
+The system decouples edge middleware, route handlers, and domain logic from the underlying storage mechanism via the vendor-neutral `RateLimiter` interface:
 ```typescript
 export interface RateLimiter {
   check(key: string, policy: RateLimitPolicy): Promise<RateLimitResult>;
@@ -334,66 +353,60 @@ export interface RateLimiter {
   cleanupExpired?(limit?: number): Promise<number>;
 }
 ```
-Two provider implementations are supported:
-1. **`PostgresRateLimiter` (Default Production & Local Foundation)**:
-   - Utilizes the `rate_limits` table with a single atomic PostgreSQL Upsert:
-     ```sql
-     INSERT INTO rate_limits (key, category, count, window_start, expires_at, updated_at)
-     VALUES ($1, $2, 1, NOW(), NOW() + ($3 || ' seconds')::interval, NOW())
-     ON CONFLICT (key) DO UPDATE
-     SET count = CASE WHEN rate_limits.expires_at <= NOW() THEN 1 ELSE rate_limits.count + 1 END,
-         window_start = CASE WHEN rate_limits.expires_at <= NOW() THEN NOW() ELSE rate_limits.window_start END,
-         expires_at = CASE WHEN rate_limits.expires_at <= NOW() THEN NOW() + ($3 || ' seconds')::interval ELSE rate_limits.expires_at END,
-         updated_at = NOW()
-     RETURNING count, expires_at;
+
+#### Provider Hierarchy:
+1. **`UpstashRedisRateLimiter` (Primary Production & Edge Provider)**:
+   - Primary abuse shield for all public, customer, and internet-facing endpoints.
+   - Built on pure Web `fetch` using Upstash Redis REST API (`/pipeline`).
+   - Executes atomic pipeline commands in a single network roundtrip:
+     ```json
+     [
+       ["INCR", "ratelimit:<cat>:<key>"],
+       ["EXPIRE", "ratelimit:<cat>:<key>", "<windowSeconds>", "NX"],
+       ["TTL", "ratelimit:<cat>:<key>"]
+     ]
      ```
-   - **Properties**: 1 single network round trip; row-level lock concurrency serialization; zero cross-instance race conditions; zero participant in tenant business transactions.
-   - **RLS & Privilege Isolation**: Enabled with RLS. System policy permits only `postgres` and `service_role`. Tenants executing as `authenticated` cannot read or tamper with rate limit buckets.
-2. **`UpstashRedisRateLimiter` (Pluggable Provider)**:
-   - Configurable via `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-   - Executes atomic pipeline commands (`INCR` + `TTL`/`EXPIRE`) without polluting route handlers with vendor-specific dependencies.
+   - Operates entirely outside process-local memory and outside PostgreSQL, enabling horizontal consistency across unbounded Vercel serverless containers and edge regions.
+2. **`PostgresRateLimiter` (Secondary / Internal Fallback & Test Provider)**:
+   - **NOT** the primary public edge rate limiter.
+   - Reserved strictly for:
+     a) Offline unit and integration test environments where cloud credentials are not provisioned (`RATE_LIMITER_PROVIDER="postgres"`).
+     b) Private internal server-side workloads where connection pooling is already bounded.
+   - **Outage Invariant**: During an external Redis provider outage, public high-risk endpoints do **NOT** fail over to PostgreSQL. A live failover under DDoS would trigger a catastrophic database write storm, defeating database protection. Critical endpoints fail-closed cleanly at the edge layer.
 
-### 13.3 Trust Boundaries & Request Pipeline Ordering
-Rate limits are strictly evaluated independently from and **prior to** tenant authorization and business mutations:
-```text
-HTTP Request
-     ↓
-1. Rate Limiting Check (assertRateLimit: single atomic distributed operation)
-     ↓
-2. Authentication (Bearer JWT verification)
-     ↓
-3. Authorization (RBAC permissions & module entitlements)
-     ↓
-4. Idempotency Key Claim (checkOrAcquireIdempotencyKey)
-     ↓
-5. Domain Validation & Business Transaction (runIdempotentTransaction)
-```
-- If rate limiting rejects a request, execution halts immediately: no JWT verification overhead, no database business transactions, and no idempotency leases consumed.
-- Rate limiting never replaces authentication, RBAC, RLS, or idempotency.
+### 13.3 Responsibilities by Layer
+- **EDGE (Middleware)**: Coarse IP-based global ceilings, unauthenticated route flood protection, rapid HTTP 429 rejection before Next.js server code is loaded.
+- **API (Route Handlers)**: Fine-grained tenant/user quotas, operation-specific limits, business-context limits (e.g. per-table QR token).
+- **DATABASE (PostgreSQL)**: Authoritative business authorization, transaction correctness, Row-Level Security, append-only financial ledgers.
 
-### 13.4 Endpoint Categories & Configurable Policy Defaults
-ASSO enforces distinct policies per endpoint class, balancing abuse protection against valid client throughput:
+### 13.4 Layered Keying Model & Token Rotation Resistance
+To prevent attackers from bypassing IP ceilings by rotating QR tokens, session IDs, or endpoints, ASSO employs a **two-tier layered keying model**:
 
-| Category | Typical Endpoints | Default Limits | Fail-Safe Behavior | Key Strategy |
-|---|---|---|---|---|
-| **`AUTH`** | Login, demo-token, session creation | 10 req / 60s | **Fail-Closed** | `auth:<op>:ip:<IP>` |
-| **`CUSTOMER_PUBLIC`** | QR resolution, customer identify, menu view | 60 req / 60s | **Fail-Open** | `customer:<ctx>:ip:<IP>` |
-| **`FINANCIAL_MUTATION`**| Order creation, folio payments, refunds | 20 req / 60s | **Fail-Closed** | `financial:<tenant>:user:<user>:<op>` |
-| **`ADMIN`** | Configuration, staff/table management | 120 req / 60s | **Fail-Open** | `admin:<tenant>:user:<user>` |
-| **`WEBHOOK`** | Inbound payment callbacks, provider webhooks | 120 req / 60s | **Fail-Closed** | `webhook:<provider>:ip:<IP>` |
-| **`GENERAL`** | Standard API read/write operations | 60 req / 60s | **Fail-Open** | `general:<tenant>:user:<user>` |
+1. **Layer 1: Coarse Edge / Global IP Ceiling (`ipKey`)**:
+   - Format: `ip:<client_ip>:cat:<category>`
+   - Evaluated first. An attacker generating 1,000 distinct QR tokens from the same IP will exhaust the IP ceiling on request N, halting further requests immediately.
+2. **Layer 2: Target / Context / Tenant Quota (`primaryKey`)**:
+   - Format: `customer:ctx:<hash(token)>` or `fin:t:<tenantId>:u:<hash(userId)>:op:<op>`
+   - Protects a specific table, room, or victim account from being overwhelmed even if an attacker distributes requests across a proxy botnet.
+3. **Zero-Knowledge Key Pseudonymization**:
+   - All secret tokens, customer phone numbers, emails, and internal user UUIDs are hashed with SHA-256 (`hashIdentifier(...)`) before key construction. Raw PII or secrets are never transmitted to Redis or written to logs.
 
-Limits are environment-configurable via `RATE_LIMIT_<CATEGORY>_MAX` and `RATE_LIMIT_<CATEGORY>_WINDOW`.
+### 13.5 Endpoint Categories & Conservative Policies
 
-### 13.5 Authoritative Keying Strategy & Tenant Quota Isolation
-- Keys are derived authoritatively on the server; client headers claiming `tenant_id`, `role`, or `user_id` are never trusted prior to server JWT verification.
-- **Tenant Isolation**: Authenticated tenant requests key on `tenantId` and `userId` (`resolveRateLimitKey`). Tenant A exhaustively consuming its rate limit has **zero** effect on Tenant B's quota.
-- **User Isolation**: Within Tenant A, User 1 exceeding quota does not impair User 2.
+| Category | Endpoints Protected | Limit / Window | Edge IP Ceiling | Fail-Safe Behavior | Primary Key Strategy |
+|---|---|---|---|---|---|
+| **`AUTH`** | Login, demo-token, session creation | 10 req / 60s | 20 req / 60s | **Fail-Closed** | `auth:<op>:target:<hash(id)>` |
+| **`CUSTOMER_PUBLIC`** | QR resolution, menu view, customer identify | 60 req / 10s | 100 req / 10s | **Fail-Open** | `customer:ctx:<hash(token)>` |
+| **`FINANCIAL_MUTATION`**| Order creation, folio payments, refunds | 30 req / 10s | 40 req / 10s | **Fail-Closed** | `fin:t:<tenant>:u:<hash(id)>:op:<op>` |
+| **`ADMIN`** | Configuration, staff/table management | 120 req / 60s | 200 req / 60s | **Fail-Open** | `admin:t:<tenant>:u:<hash(id)>` |
+| **`WEBHOOK`** | Inbound payment callbacks, external webhooks | 120 req / 60s | 200 req / 60s | **Fail-Closed** | `webhook:provider:<prov>` |
+| **`GENERAL`** | Standard platform API read/write operations | 60 req / 60s | 120 req / 60s | **Fail-Open** | `gen:t:<tenant>:u:<hash(id)>` |
 
-### 13.6 Fail-Safe / Fail-Closed Decision Model
-If the distributed rate-limit backend encounters an unexpected network outage or connection error:
-- **Fail-Closed Categories (`AUTH`, `FINANCIAL_MUTATION`, `WEBHOOK`)**: Requests are rejected with HTTP 429 / logged error, preventing brute force credential attacks, payment flooding, or database connection exhaustion during database distress.
-- **Fail-Open Categories (`CUSTOMER_PUBLIC`, `ADMIN`, `GENERAL`)**: Low-risk read requests proceed with structured warnings, preventing complete service denial for restaurant guests viewing digital menus.
+### 13.6 Fail-Safe vs. Fail-Closed Decisions
+- **Critical Fail-Closed Categories (`AUTH`, `FINANCIAL_MUTATION`, `WEBHOOK`)**:
+  If the distributed rate-limit provider becomes unavailable, these endpoints reject with HTTP 429 (`retryAfterSeconds: 5`) and log a critical alert. This prevents brute-force credential attacks, payment flooding, and database overload without causing a database write storm.
+- **Non-Critical Fail-Open Categories (`CUSTOMER_PUBLIC`, `ADMIN`, `GENERAL`)**:
+  Low-risk read operations proceed with structured warnings, preventing full service outage for restaurant guests reading menus.
 
 ### 13.7 HTTP 429 Semantics & Observability Preparation
 When a rate limit threshold is exceeded:
@@ -403,18 +416,18 @@ When a rate limit threshold is exceeded:
   - `X-RateLimit-Limit`: Maximum requests permitted in window.
   - `X-RateLimit-Remaining`: `0`.
   - `X-RateLimit-Reset`: UTC epoch timestamp in seconds.
-- **Response Body**: Standard ASSO error envelope with code `RATE_LIMIT_EXCEEDED` and zero sensitive cross-tenant metadata.
-- **Structured Telemetry**: Every decision is logged via `logger.warn` or `logger.info` capturing `category`, `allowed`, `keyClass`, `limit`, `remaining`, `retryAfterSeconds`, and `requestId` without exposing credentials or payload details.
+- **Response Body**: Standard ASSO error envelope with code `RATE_LIMIT_EXCEEDED` without revealing internal quota details or cross-tenant activity.
+- **Structured Telemetry**: Every decision emits structured logs (`logger.warn` or `logger.error`) capturing `category`, `allowed`, `keyClass`, `limit`, `remaining`, `retryAfterSeconds`, and `requestId`.
 
 ### 13.8 Interaction with Durable Idempotency & Order Domain
-When a customer order creation (`POST /api/v1/restaurant/orders`) is rate limited:
-1. The rate limit is evaluated **before** `checkOrAcquireIdempotencyKey`.
+When customer order creation (`POST /api/v1/restaurant/orders`) is rate limited:
+1. Rate limit is evaluated **before** `checkOrAcquireIdempotencyKey`.
 2. No idempotency row is inserted or claimed.
 3. No order record is created in `orders`.
 4. No KDS ticket is created in `kds_tickets`.
 5. No financial ledger snapshot or taxes are computed.
 6. No transactional outbox event is emitted.
-7. Once the rate-limit window resets, the customer retries with the **same** `Idempotency-Key` and the order processes cleanly and exactly once.
+7. Once the rate-limit window resets, the customer retries with the **same** `Idempotency-Key` and the order processes cleanly and duplicate-safely.
 
 ### 13.9 Webhook Multi-Layer Defense
 Inbound external webhooks implement four strict verification layers (`protectAndVerifyWebhook`):
