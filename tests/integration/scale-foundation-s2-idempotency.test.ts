@@ -547,6 +547,86 @@ describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency
       });
       expect(deleteResult.count).toBe(1);
     });
+
+    it("Execution Identity Verification: demonstrates actual PostgreSQL current_user, session_user, and invoker role semantics", async () => {
+      const sql = getDbClient();
+      const token = getPlatformContextToken();
+      const platformKey = "platform_identity_test_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      // Seed a platform record
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          )
+          ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), operation, idempotency_key)
+          DO NOTHING;
+        `;
+      });
+
+      // 1, 2, 3: Demonstrate execution identities inside and outside SECURITY DEFINER
+      const identities = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        const [outside] = await tx`SELECT current_user, session_user`;
+        return { outside };
+      });
+
+      // Outside role is authenticated (invoker)
+      expect(identities.outside.current_user).toBe("authenticated");
+      expect(identities.outside.session_user).toBe("postgres");
+
+      // 4: Tenant request using withTenantScope cannot access platform rows
+      const tenantRows = await withTenantScope({ tenantId: tenantA }, async (tx) => {
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(tenantRows.length).toBe(0);
+
+      // 5 & 10: Direct attempts to manipulate platform-context GUC do not bypass policy
+      const manipulatedRows = await withTenantScope({ tenantId: tenantA }, async (tx) => {
+        await tx`SET LOCAL app.is_platform_context = 'true'`;
+        await tx`SELECT set_config('app.is_platform_context', 'true', true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(manipulatedRows.length).toBe(0);
+
+      // 6: Tenant request with arbitrary token does not gain access
+      const guessedTokenRows = await withTenantScope({ tenantId: tenantA }, async (tx) => {
+        await tx`SELECT set_config('app.platform_context_token', 'malicious_guess', true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(guessedTokenRows.length).toBe(0);
+
+      // 7: Tenant request cannot read asso_private.platform_secret
+      await expect(
+        withTenantScope({ tenantId: tenantA }, async (tx) => {
+          return await tx`SELECT * FROM asso_private.platform_secret`;
+        })
+      ).rejects.toThrow(/permission denied for schema asso_private/i);
+
+      // 8: Trusted withPlatformScope can access platform rows
+      const platformRows = await withPlatformScope(async (tx) => {
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(platformRows.length).toBe(1);
+      expect(platformRows[0].idempotency_key).toBe(platformKey);
+      expect(platformRows[0].tenant_id).toBeNull();
+
+      // 9: Cross-tenant access remains strictly blocked
+      const crossTenantRows = await withTenantScope({ tenantId: tenantB }, async (tx) => {
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(crossTenantRows.length).toBe(0);
+
+      // Cleanup
+      await withPlatformScope(async (tx) => {
+        await tx`DELETE FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+    });
   });
 
   describe("5. Expiration & Bounded Cleanup", () => {
