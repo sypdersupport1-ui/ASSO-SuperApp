@@ -5,6 +5,8 @@ import { PermissionDeniedError } from "@/lib/api/errors";
 import { DEMO_TENANT_ID } from "@/lib/hotel/seed";
 import { isLocalOrDevEnvironment } from "@/config/env";
 
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -20,18 +22,27 @@ export const dynamic = "force-dynamic";
  * 3. Never accepts request parameters/payload to mint arbitrary identities or permissions.
  * 4. isSuperAdmin is strictly false; cannot elevate privileges or bypass tenant isolation.
  * 5. Scoped strictly to DEMO_TENANT_ID; respects standard RLS and RBAC policies.
+ * 6. Rate limited under AUTH category to prevent token harvesting / brute forcing.
  */
 export async function GET(req: NextRequest) {
-  // Guard 1: Block completely in preview, staging, and production environments
-  if (!isLocalOrDevEnvironment()) {
-    return apiError(
-      new PermissionDeniedError(
-        "auth.demo",
-        "Demo authentication helper is strictly limited to local/development environments and is disabled in preview, staging, and production."
-      ),
-      "req_demo_token"
-    );
-  }
+  try {
+    // Abuse Prevention: Distributed Rate Limiting (AUTH Category)
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "AUTH",
+      operation: "demo_token",
+      requestId: "req_demo_token",
+    });
+
+    // Guard 1: Block completely in preview, staging, and production environments
+    if (!isLocalOrDevEnvironment()) {
+      return apiError(
+        new PermissionDeniedError(
+          "auth.demo",
+          "Demo authentication helper is strictly limited to local/development environments and is disabled in preview, staging, and production."
+        ),
+        "req_demo_token"
+      );
+    }
 
   // Guard 2: Strictly static, predetermined staff claims (no dynamic/query overrides)
   const token = signJwt(
@@ -72,6 +83,10 @@ export async function GET(req: NextRequest) {
     86400 // 24 hours in dev/test
   );
 
-  return apiSuccess({ token }, "req_demo_token", 200);
+    const response = apiSuccess({ token }, "req_demo_token", 200);
+    return applyRateLimitHeaders(response, rateLimitResult);
+  } catch (error) {
+    return apiError(error, "req_demo_token");
+  }
 }
 

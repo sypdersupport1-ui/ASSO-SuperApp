@@ -7,6 +7,7 @@ import {
 } from "@/lib/hotel/room-service-service";
 import { AuthenticationError } from "@/lib/api/errors";
 import { checkOrAcquireIdempotencyKey, computeRequestHash, saveIdempotentResponse } from "@/lib/api/idempotency";
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,15 @@ export async function POST(req: NextRequest) {
     if (!ctx.user || ctx.user.sessionType !== "CUSTOMER") {
       throw new AuthenticationError("Customer session token required.");
     }
+
+    // Abuse Prevention: Rate limiting evaluated before idempotency acquisition
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "FINANCIAL_MUTATION",
+      tenantId: ctx.tenantId,
+      userId: ctx.user.sub,
+      operation: "room_service_order",
+      requestId: ctx.requestId,
+    });
 
     const body = await req.json();
     const idempotencyKey = req.headers.get("Idempotency-Key");
@@ -72,8 +82,9 @@ export async function POST(req: NextRequest) {
       await saveIdempotentResponse(ctx.tenantId, idempotencyKey, 201, responsePayload);
     }
 
-    return NextResponse.json(responsePayload, { status: 201 });
+    const response = NextResponse.json(responsePayload, { status: 201 });
+    return applyRateLimitHeaders(response, rateLimitResult);
   } catch (error) {
-    return apiError(error);
+    return apiError(error, req.headers.get("x-request-id") || "req_room_service_order");
   }
 }

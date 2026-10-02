@@ -4,6 +4,7 @@ import { extractRequestContext } from "@/lib/api/context";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { ValidationError, AuthenticationError } from "@/lib/api/errors";
 import { identifyCustomerSession } from "@/lib/restaurant/customer-identity-service";
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,14 @@ export async function POST(req: NextRequest) {
       throw new ValidationError("Missing tenant context in customer session.");
     }
 
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "CUSTOMER_PUBLIC",
+      tenantId: ctx.tenantId,
+      userId: ctx.user.sub,
+      operation: "identify",
+      requestId: ctx.requestId,
+    });
+
     const body = await req.json();
     const parsed = identifySchema.safeParse(body);
     if (!parsed.success) {
@@ -43,7 +52,7 @@ export async function POST(req: NextRequest) {
       email: validated.email ?? undefined,
     });
 
-    return apiSuccess(
+    const response = apiSuccess(
       {
         customer: {
           customerId: result.customer.customerId,
@@ -57,6 +66,7 @@ export async function POST(req: NextRequest) {
       ctx.requestId,
       200
     );
+    return applyRateLimitHeaders(response, rateLimitResult);
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_cust_ident");
   }

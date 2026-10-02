@@ -5,11 +5,18 @@ import { ValidationError } from "@/lib/api/errors";
 import { getRestaurantMenu } from "@/lib/restaurant/menu-service";
 import { listRestaurantOutlets } from "@/lib/restaurant/table-service";
 import { ensureRestaurantSeedData, DEMO_TENANT_ID } from "@/lib/restaurant/seed";
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "CUSTOMER_PUBLIC",
+      operation: "menu_view",
+      requestId: req.headers.get("x-request-id") || "req_menu",
+    });
+
     const ctx = extractRequestContext(req);
 
     // Resolve tenantId
@@ -44,7 +51,8 @@ export async function GET(req: NextRequest) {
       includeUnavailable: false,
     });
 
-    return apiSuccess(menu, ctx.requestId, 200);
+    const response = apiSuccess(menu, ctx.requestId, 200);
+    return applyRateLimitHeaders(response, rateLimitResult);
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_menu");
   }

@@ -120,6 +120,13 @@
       "when": 1790932000000,
       "tag": "0016_idempotency_cryptographic_platform_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790935000000,
+      "tag": "0017_distributed_rate_limiting",
+      "breakpoints": true
     }
   ]
 }

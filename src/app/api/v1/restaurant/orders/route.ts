@@ -11,25 +11,9 @@ import {
   computeRequestHash,
   saveIdempotentResponse,
 } from "@/lib/api/idempotency";
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
-
-// In-memory rate limiting map (IP / session scoped)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(key: string, limit = 20, windowMs = 60000): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-  if (!entry || entry.resetAt < now) {
-    rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  if (entry.count >= limit) {
-    return false;
-  }
-  entry.count++;
-  return true;
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -73,11 +57,15 @@ export async function POST(req: NextRequest) {
       throw new ValidationError("Request payload exceeds allowed limit (64KB).");
     }
 
-    // Abuse Prevention: Rate Limiting
-    const clientKey = ctx.user.sub || req.headers.get("x-forwarded-for") || "unknown";
-    if (!checkRateLimit(clientKey, 20, 60000)) {
-      throw new ValidationError("Too many order requests. Please wait a moment before trying again.");
-    }
+    // Abuse Prevention: Distributed Rate Limiting (FINANCIAL_MUTATION Category)
+    // Evaluated BEFORE idempotency acquisition, domain validation, or database transaction
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "FINANCIAL_MUTATION",
+      tenantId: ctx.tenantId,
+      userId: ctx.user.sub,
+      operation: "create_order",
+      requestId: ctx.requestId,
+    });
 
     // Parse body safely (may be empty or contain guestNotes/idempotencyKey)
     let body: any = {};
@@ -134,7 +122,8 @@ export async function POST(req: NextRequest) {
       await saveIdempotentResponse(ctx.tenantId, idempotencyKey, statusCode, responsePayload);
     }
 
-    return NextResponse.json(responsePayload, { status: statusCode });
+    const response = NextResponse.json(responsePayload, { status: statusCode });
+    return applyRateLimitHeaders(response, rateLimitResult);
   } catch (error) {
     return apiError(error, req.headers.get("x-request-id") || "req_rest_orders_create");
   }

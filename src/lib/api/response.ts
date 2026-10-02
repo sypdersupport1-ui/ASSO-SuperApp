@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AppError, type ErrorCode } from "./errors";
+import { AppError, RateLimitError, type ErrorCode } from "./errors";
 import { logger } from "../logger";
 
 export interface ApiResponseMeta {
@@ -52,6 +52,16 @@ export function apiError(error: unknown, requestId = "req_local"): NextResponse<
       details: typeof error.details === "object" ? (error.details as Record<string, unknown>) : undefined,
     });
 
+    const headers: Record<string, string> = {};
+    if (error instanceof RateLimitError) {
+      headers["Retry-After"] = String(error.retryAfterSeconds);
+      if (typeof error.details === "object" && error.details !== null) {
+        const d = error.details as Record<string, unknown>;
+        if (d.limit !== undefined) headers["X-RateLimit-Limit"] = String(d.limit);
+        if (d.remaining !== undefined) headers["X-RateLimit-Remaining"] = String(d.remaining);
+      }
+    }
+
     return NextResponse.json(
       {
         success: false,
@@ -62,7 +72,7 @@ export function apiError(error: unknown, requestId = "req_local"): NextResponse<
         },
         meta,
       },
-      { status: error.statusCode }
+      { status: error.statusCode, headers }
     );
   }
 

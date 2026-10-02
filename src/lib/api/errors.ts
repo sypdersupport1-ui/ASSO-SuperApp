@@ -109,8 +109,14 @@ export class BusinessRuleError extends AppError {
 }
 
 export class RateLimitError extends AppError {
-  constructor(message = "Request threshold breached. Please retry after some time.") {
-    super("RATE_LIMIT_EXCEEDED", message, 429);
+  public readonly retryAfterSeconds: number;
+
+  constructor(
+    message = "Request threshold breached. Please retry after some time.",
+    details?: { retryAfterSeconds?: number; limit?: number; remaining?: number; category?: string } | Record<string, unknown>
+  ) {
+    super("RATE_LIMIT_EXCEEDED", message, 429, details);
+    this.retryAfterSeconds = (details as any)?.retryAfterSeconds ?? 60;
   }
 }
 

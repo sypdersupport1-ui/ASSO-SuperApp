@@ -66,3 +66,23 @@ export const fileRecords = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }
 );
+
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: varchar("key", { length: 256 }).primaryKey(),
+    category: varchar("category", { length: 50 }).notNull(),
+    count: integer("count").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_rate_limits_expires_at").on(table.expiresAt),
+  ]
+);
+
+export type RateLimit = typeof rateLimits.$inferSelect;
+export type NewRateLimit = typeof rateLimits.$inferInsert;
+

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { resolveCustomerQr } from "@/lib/customer/customer-session-service";
+import { assertRateLimit, applyRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,12 @@ export async function GET(
   props: { params: Promise<{ token: string }> }
 ) {
   try {
+    const rateLimitResult = await assertRateLimit(req, {
+      category: "CUSTOMER_PUBLIC",
+      operation: "qr_resolve",
+      requestId: "req_customer_qr_resolve",
+    });
+
     const params = await props.params;
     const token = params.token;
 
@@ -25,8 +32,9 @@ export async function GET(
       ip,
     });
 
-    return apiSuccess(sessionResolution, "req_customer_qr_resolve", 200);
+    const response = apiSuccess(sessionResolution, "req_customer_qr_resolve", 200);
+    return applyRateLimitHeaders(response, rateLimitResult);
   } catch (err) {
-    return apiError(err);
+    return apiError(err, "req_customer_qr_resolve");
   }
 }
