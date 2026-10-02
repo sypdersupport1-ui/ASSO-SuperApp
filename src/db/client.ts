@@ -51,7 +51,7 @@ export function getDbClient() {
     }
 
     const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || "20", 10);
-    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "2", 10);
+    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "10", 10);
 
     globalForDb.postgresClient = postgres(env.DATABASE_URL, {
       max: maxConnections,

@@ -56,8 +56,11 @@ describe("ASSO Scale Foundation S1: Backend Runtime & Connection Hardening", () 
         
       expect(workerPoolSize).toBe(40);
     } finally {
-      process.env.NODE_ENV = prevEnv;
-      process.env.RUNTIME_ENV = prevRuntime;
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
+      
+      if (prevRuntime === undefined) delete process.env.RUNTIME_ENV;
+      else process.env.RUNTIME_ENV = prevRuntime;
     }
   });
 
