@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/idempotency";
 import { IdempotencyConflictError } from "@/lib/api/errors";
 import { getDbClient } from "@/db/client";
+import { withPlatformScope, withTenantScope, getPlatformContextToken } from "@/db/rls";
 
 describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency", () => {
   const tenantA = "11111111-1111-1111-1111-111111111111";
@@ -322,69 +323,229 @@ describe("ASSO Scale Foundation S2 — Durable Horizontally Scalable Idempotency
       expect(rows.length).toBe(0);
     });
 
-    it("RLS Isolation: Ordinary Tenant A cannot see, query, or delete NULL/platform-wide records", async () => {
+    it("Attack Spoofing 1 & 2: Tenant A attempting to set app.is_platform_context = true or set_config cannot SELECT platform-wide records", async () => {
       const sql = getDbClient();
       const platformKey = "platform_admin_global_key";
       const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
 
-      // Insert platform-wide record (tenant_id IS NULL)
-      await sql`
-        INSERT INTO idempotency_keys (
-          tenant_id, operation, idempotency_key, request_hash, status,
-          locked_at, lease_expires_at, expires_at
-        ) VALUES (
-          NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
-          NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
-        );
-      `;
+      // Seed platform-wide record via trusted platform scope
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          )
+          ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), operation, idempotency_key)
+          DO NOTHING;
+        `;
+      });
 
-      // Tenant A attempts to read platform record under authenticated role
-      const readRows = await sql.begin(async (tx) => {
+      // Attack 1: Tenant A executes SET LOCAL app.is_platform_context = 'true'
+      const rows1 = await sql.begin(async (tx) => {
         await tx`SET LOCAL ROLE authenticated`;
         await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        await tx`SET LOCAL app.is_platform_context = 'true'`;
         return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
       });
-      expect(readRows.length).toBe(0);
+      expect(rows1.length).toBe(0);
 
-      // Tenant A attempts to delete platform record under authenticated role
+      // Attack 2: Tenant A executes SELECT set_config('app.is_platform_context', 'true', true)
+      const rows2 = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        await tx`SELECT set_config('app.is_platform_context', 'true', true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(rows2.length).toBe(0);
+    });
+
+    it("Attack Spoofing 3: Tenant A attempting UPDATE on platform-wide record is denied (0 rows affected)", async () => {
+      const sql = getDbClient();
+      const platformKey = "platform_update_attack_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          )
+          ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), operation, idempotency_key)
+          DO NOTHING;
+        `;
+      });
+
+      const updateResult = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        await tx`SELECT set_config('app.is_platform_context', 'true', true)`;
+        return await tx`UPDATE idempotency_keys SET status = 'FAILED' WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(updateResult.count).toBe(0);
+    });
+
+    it("Attack Spoofing 4: Tenant A attempting DELETE on platform-wide record is denied (0 rows affected)", async () => {
+      const sql = getDbClient();
+      const platformKey = "platform_delete_attack_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          )
+          ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), operation, idempotency_key)
+          DO NOTHING;
+        `;
+      });
+
       const deleteResult = await sql.begin(async (tx) => {
         await tx`SET LOCAL ROLE authenticated`;
         await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        await tx`SELECT set_config('app.is_platform_context', 'true', true)`;
         return await tx`DELETE FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
       });
       expect(deleteResult.count).toBe(0);
 
-      // Verify platform record remains intact in DB
-      const [check] = await sql`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
-      expect(check).toBeDefined();
-    });
-
-    it("Platform Context: Only explicit platform context (app.is_platform_context = true) can access platform-wide records", async () => {
-      const sql = getDbClient();
-      const platformKey = "platform_admin_verified_key";
-      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
-
-      // Seed platform key
-      await sql`
-        INSERT INTO idempotency_keys (
-          tenant_id, operation, idempotency_key, request_hash, status,
-          locked_at, lease_expires_at, expires_at
-        ) VALUES (
-          NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
-          NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
-        );
-      `;
-
-      // Query with explicit platform context
-      const platformRows = await sql.begin(async (tx) => {
-        await tx`SET LOCAL ROLE authenticated`;
-        await tx`SET LOCAL app.is_platform_context = 'true'`;
+      // Verify row remains in database
+      const [record] = await withPlatformScope(async (tx) => {
         return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
       });
+      expect(record).toBeDefined();
+    });
 
-      expect(platformRows.length).toBe(1);
-      expect(platformRows[0].idempotency_key).toBe(platformKey);
-      expect(platformRows[0].tenant_id).toBeNull();
+    it("Attack Spoofing 5: Tenant A attempting INSERT of platform-wide record (tenant_id IS NULL) is strictly denied", async () => {
+      const sql = getDbClient();
+      const hash = computeRequestHash("POST", "/api/v1/system", { spoof: true });
+
+      await expect(
+        sql.begin(async (tx) => {
+          await tx`SET LOCAL ROLE authenticated`;
+          await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+          await tx`SELECT set_config('app.is_platform_context', 'true', true)`;
+          await tx`
+            INSERT INTO idempotency_keys (
+              tenant_id, operation, idempotency_key, request_hash, status,
+              locked_at, lease_expires_at, expires_at
+            ) VALUES (
+              NULL, 'PLATFORM_OP', 'spoofed_platform_insert', ${hash}, 'IN_PROGRESS',
+              NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+            );
+          `;
+        })
+      ).rejects.toThrow(/violates row-level security policy/i);
+    });
+
+    it("Attack Spoofing 6: Tenant A attempting to read private platform secret from asso_private is denied", async () => {
+      const sql = getDbClient();
+
+      await expect(
+        sql.begin(async (tx) => {
+          await tx`SET LOCAL ROLE authenticated`;
+          await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+          return await tx`SELECT * FROM asso_private.platform_secret`;
+        })
+      ).rejects.toThrow(/permission denied for schema asso_private/i);
+    });
+
+    it("Attack Spoofing 7: Tenant A attempting to pass valid token while in tenant session cannot access platform rows", async () => {
+      const sql = getDbClient();
+      const token = getPlatformContextToken();
+      const platformKey = "platform_token_spoof_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'COMPLETED',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          )
+          ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), operation, idempotency_key)
+          DO NOTHING;
+        `;
+      });
+
+      // Even with token passed, presence of app.current_tenant_id and authenticated role disqualifies platform access
+      const rows = await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`;
+        await tx`SELECT set_config('app.platform_context_token', ${token}, true)`;
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(rows.length).toBe(0);
+    });
+
+    it("Attack Spoofing 8: Tenant A attempting to replay platform key from tenant context receives isolated namespace / cannot hijack platform key", async () => {
+      const platformKey = "platform_replay_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      // Platform creates and completes key
+      const store = getIdempotencyStore();
+      await store.claim({ tenantId: null, key: platformKey, requestHash: hash, operation: "PLATFORM_OP" });
+      await store.complete({
+        tenantId: null,
+        key: platformKey,
+        operation: "PLATFORM_OP",
+        responseCode: 200,
+        responseBody: { platformSecret: "confidential_system_data" },
+      });
+
+      // Tenant A attempts to claim same key string in their tenant context
+      const tenantClaim = await checkOrAcquireIdempotencyKey(tenantA, platformKey, hash, 24, "PLATFORM_OP");
+      // Tenant A acquires their own fresh key in their tenant namespace, completely isolated from platform
+      expect(tenantClaim.acquired).toBe(true);
+      expect(tenantClaim.cachedResponse).toBeUndefined();
+    });
+
+    it("Trusted Platform Scope: withPlatformScope can create, read, update, and delete platform-wide records", async () => {
+      const platformKey = "platform_admin_verified_lifecycle_key";
+      const hash = computeRequestHash("POST", "/api/v1/system", { sys: true });
+
+      // Create
+      await withPlatformScope(async (tx) => {
+        await tx`
+          INSERT INTO idempotency_keys (
+            tenant_id, operation, idempotency_key, request_hash, status,
+            locked_at, lease_expires_at, expires_at
+          ) VALUES (
+            NULL, 'PLATFORM_OP', ${platformKey}, ${hash}, 'IN_PROGRESS',
+            NOW(), NOW() + interval '120 seconds', NOW() + interval '24 hours'
+          );
+        `;
+      });
+
+      // Read
+      const rows = await withPlatformScope(async (tx) => {
+        return await tx`SELECT * FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(rows.length).toBe(1);
+      expect(rows[0].idempotency_key).toBe(platformKey);
+      expect(rows[0].tenant_id).toBeNull();
+
+      // Update
+      const updateResult = await withPlatformScope(async (tx) => {
+        return await tx`UPDATE idempotency_keys SET status = 'COMPLETED' WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(updateResult.count).toBe(1);
+
+      // Delete
+      const deleteResult = await withPlatformScope(async (tx) => {
+        return await tx`DELETE FROM idempotency_keys WHERE idempotency_key = ${platformKey}`;
+      });
+      expect(deleteResult.count).toBe(1);
     });
   });
 

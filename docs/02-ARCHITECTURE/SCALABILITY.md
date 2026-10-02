@@ -286,9 +286,14 @@ Hashing uses `canonicalizeJson()` which recursively sorts all object keys alphab
 
 ### 12.6 Multi-Tenant & Platform Security Model (RLS Architecture)
 Every idempotency record is partitioned by `tenant_id` at both the database unique index level and PostgreSQL Row Level Security (RLS).
-- **Tenant-Scoped Sessions**: Ordinary tenant sessions authenticate with `SET LOCAL app.current_tenant_id = '...'`. RLS strictly restricts SELECT, INSERT, UPDATE, and DELETE to rows where `tenant_id IS NOT NULL AND tenant_id = app.current_tenant_id`.
-- **Platform-Wide / System Records (`tenant_id IS NULL`)**: System records are **never** accessible to ordinary tenant sessions. They are strictly gated behind an authorized platform context (`SET LOCAL app.is_platform_context = 'true'`).
-- **Security Invariants**: An ordinary tenant cannot discover whether a platform key exists, read its response body, update it, delete it, or cause a cross-tenant replay.
+- **Tenant-Scoped Sessions**: Ordinary tenant sessions authenticate with `SET LOCAL ROLE authenticated` and `SET LOCAL app.current_tenant_id = '...'`. RLS strictly restricts SELECT, INSERT, UPDATE, and DELETE to rows where `tenant_id IS NOT NULL AND tenant_id = app.current_tenant_id`.
+- **Platform-Wide / System Records (`tenant_id IS NULL`)**: System records are **never** accessible to ordinary tenant sessions. They are strictly gated behind `asso_is_platform_context()` (Migration 0016).
+- **Unforgeable Cryptographic Platform Context**: Platform authorization cannot be spoofed by mutable string GUCs (such as setting `app.is_platform_context = 'true'`). Instead, PostgreSQL enforces:
+  1. **Tenant Role Disqualification**: Roles `authenticated` and `anon` are disqualified by definition (`current_user IN ('authenticated', 'anon')` returns `false`).
+  2. **Tenant Session Disqualification**: Any session where `app.current_tenant_id` is set is disqualified immediately.
+  3. **Cryptographic Secret Verification**: Access requires a 256-bit platform authentication token matching `asso_private.platform_secret`, stored in a private database schema with `REVOKE ALL FROM PUBLIC, authenticated, anon`.
+  4. **Trusted Execution**: Genuine platform operations execute via `withPlatformScope()` in `src/db/rls.ts`, which injects the platform authorization token into the transaction scope.
+- **Security Invariants**: An ordinary tenant cannot discover whether a platform key exists, read its response body, update it, delete it, or cause a cross-tenant replay. Attempting to spoof `app.is_platform_context` returns 0 rows, and attempts to insert platform rows or inspect `asso_private` are rejected by PostgreSQL with RLS/schema permission errors.
 
 ### 12.7 Exactly-Once vs At-Least-Once Guarantees & Atomic Transaction Coupling
 - **What Generic HTTP Idempotency Guarantees**: Prevents concurrent duplicate processing across API workers, safely caches and replays deterministic responses for identical requests, and prevents hash mismatches.

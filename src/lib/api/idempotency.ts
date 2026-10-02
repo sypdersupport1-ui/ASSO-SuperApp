@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getDbClient } from "@/db/client";
+import { withPlatformScope, withTenantScope } from "@/db/rls";
 import { IdempotencyConflictError } from "./errors";
 
 export interface IdempotencyRecord {
@@ -198,8 +199,25 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     const operation = params.operation || "DEFAULT";
     const ttlHours = params.ttlHours || this.defaultTtlHours;
     const leaseSeconds = params.leaseSeconds || this.defaultLeaseSeconds;
-    const sql = getDbClient();
 
+    if (!tenantId) {
+      return await withPlatformScope((tx) =>
+        this.executeClaim(tx, params, null, operation, ttlHours, leaseSeconds)
+      );
+    }
+
+    const sql = getDbClient();
+    return this.executeClaim(sql, params, tenantId, operation, ttlHours, leaseSeconds);
+  }
+
+  private async executeClaim(
+    sql: any,
+    params: { key: string; requestHash: string },
+    tenantId: string | null,
+    operation: string,
+    ttlHours: number,
+    leaseSeconds: number
+  ): Promise<ClaimResult> {
     // 1. Attempt atomic initial acquisition
     const insertedRows = await sql`
       INSERT INTO idempotency_keys (
@@ -256,7 +274,7 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
 
     if (existingRows.length === 0) {
       // Rare edge case: concurrent delete/cleanup occurred right after conflict
-      return this.claim(params);
+      return this.claim({ ...params, tenantId, operation, ttlHours, leaseSeconds });
     }
 
     const existing = mapRowToRecord(existingRows[0]);
@@ -289,7 +307,7 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
           record: mapRowToRecord(overwrittenRows[0]),
         };
       }
-      return this.claim(params);
+      return this.claim({ ...params, tenantId, operation, ttlHours, leaseSeconds });
     }
 
     // 4. Request Hash verification (Security Invariant: Authoritative hash is immutable)
@@ -360,23 +378,29 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
   }): Promise<IdempotencyRecord | null> {
     const tenantId = params.tenantId || null;
     const operation = params.operation || "DEFAULT";
-    const sql = getDbClient();
 
-    const rows = tenantId
-      ? await sql`
-          SELECT * FROM idempotency_keys
-          WHERE tenant_id = ${tenantId}
-            AND operation = ${operation}
-            AND idempotency_key = ${params.key}
-          LIMIT 1;
-        `
-      : await sql`
+    if (!tenantId) {
+      return await withPlatformScope(async (tx) => {
+        const rows = await tx`
           SELECT * FROM idempotency_keys
           WHERE tenant_id IS NULL
             AND operation = ${operation}
             AND idempotency_key = ${params.key}
           LIMIT 1;
         `;
+        if (rows.length === 0) return null;
+        return mapRowToRecord(rows[0]);
+      });
+    }
+
+    const sql = getDbClient();
+    const rows = await sql`
+      SELECT * FROM idempotency_keys
+      WHERE tenant_id = ${tenantId}
+        AND operation = ${operation}
+        AND idempotency_key = ${params.key}
+      LIMIT 1;
+    `;
 
     if (rows.length === 0) return null;
     return mapRowToRecord(rows[0]);
@@ -393,37 +417,40 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
   }): Promise<void> {
     const tenantId = params.tenantId || null;
     const operation = params.operation || "DEFAULT";
-    const sql = getDbClient();
 
-    if (tenantId) {
-      await sql`
-        UPDATE idempotency_keys
-        SET
-          status = 'COMPLETED',
-          response_code = ${params.responseCode},
-          response_body = ${JSON.stringify(params.responseBody)},
-          response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
-          resource_id = ${params.resourceId || null},
-          updated_at = NOW()
-        WHERE tenant_id = ${tenantId}
-          AND operation = ${operation}
-          AND idempotency_key = ${params.key};
-      `;
-    } else {
-      await sql`
-        UPDATE idempotency_keys
-        SET
-          status = 'COMPLETED',
-          response_code = ${params.responseCode},
-          response_body = ${JSON.stringify(params.responseBody)},
-          response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
-          resource_id = ${params.resourceId || null},
-          updated_at = NOW()
-        WHERE tenant_id IS NULL
-          AND operation = ${operation}
-          AND idempotency_key = ${params.key};
-      `;
+    if (!tenantId) {
+      await withPlatformScope(async (tx) => {
+        await tx`
+          UPDATE idempotency_keys
+          SET
+            status = 'COMPLETED',
+            response_code = ${params.responseCode},
+            response_body = ${JSON.stringify(params.responseBody)},
+            response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
+            resource_id = ${params.resourceId || null},
+            updated_at = NOW()
+          WHERE tenant_id IS NULL
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key};
+        `;
+      });
+      return;
     }
+
+    const sql = getDbClient();
+    await sql`
+      UPDATE idempotency_keys
+      SET
+        status = 'COMPLETED',
+        response_code = ${params.responseCode},
+        response_body = ${JSON.stringify(params.responseBody)},
+        response_headers = ${params.responseHeaders ? JSON.stringify(params.responseHeaders) : null},
+        resource_id = ${params.resourceId || null},
+        updated_at = NOW()
+      WHERE tenant_id = ${tenantId}
+        AND operation = ${operation}
+        AND idempotency_key = ${params.key};
+    `;
   }
 
   async fail(params: {
@@ -434,50 +461,52 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
   }): Promise<void> {
     const tenantId = params.tenantId || null;
     const operation = params.operation || "DEFAULT";
-    const sql = getDbClient();
 
-    if (tenantId) {
-      await sql`
-        UPDATE idempotency_keys
-        SET
-          status = 'FAILED',
-          updated_at = NOW()
-        WHERE tenant_id = ${tenantId}
-          AND operation = ${operation}
-          AND idempotency_key = ${params.key};
-      `;
-    } else {
-      await sql`
-        UPDATE idempotency_keys
-        SET
-          status = 'FAILED',
-          updated_at = NOW()
-        WHERE tenant_id IS NULL
-          AND operation = ${operation}
-          AND idempotency_key = ${params.key};
-      `;
+    if (!tenantId) {
+      await withPlatformScope(async (tx) => {
+        await tx`
+          UPDATE idempotency_keys
+          SET
+            status = 'FAILED',
+            updated_at = NOW()
+          WHERE tenant_id IS NULL
+            AND operation = ${operation}
+            AND idempotency_key = ${params.key};
+        `;
+      });
+      return;
     }
+
+    const sql = getDbClient();
+    await sql`
+      UPDATE idempotency_keys
+      SET
+        status = 'FAILED',
+        updated_at = NOW()
+      WHERE tenant_id = ${tenantId}
+        AND operation = ${operation}
+        AND idempotency_key = ${params.key};
+    `;
   }
 
   async cleanup(params?: {
     olderThanSeconds?: number;
     limit?: number;
   }): Promise<{ deletedCount: number }> {
-    const sql = getDbClient();
     const limit = params?.limit || 1000;
-
-    const result = await sql`
-      WITH expired AS (
-        SELECT key_id FROM idempotency_keys
-        WHERE expires_at < NOW()
-        LIMIT ${limit}
-      )
-      DELETE FROM idempotency_keys
-      WHERE key_id IN (SELECT key_id FROM expired)
-      RETURNING key_id;
-    `;
-
-    return { deletedCount: result.length };
+    return await withPlatformScope(async (tx) => {
+      const result = await tx`
+        WITH expired AS (
+          SELECT key_id FROM idempotency_keys
+          WHERE expires_at < NOW()
+          LIMIT ${limit}
+        )
+        DELETE FROM idempotency_keys
+        WHERE key_id IN (SELECT key_id FROM expired)
+        RETURNING key_id;
+      `;
+      return { deletedCount: result.length };
+    });
   }
 
   async clear(tenantId?: string): Promise<void> {
@@ -485,7 +514,9 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     if (tenantId) {
       await sql`DELETE FROM idempotency_keys WHERE tenant_id = ${tenantId}`;
     } else {
-      await sql`DELETE FROM idempotency_keys`;
+      await withPlatformScope(async (tx) => {
+        await tx`DELETE FROM idempotency_keys`;
+      });
     }
   }
 }
@@ -621,9 +652,8 @@ export async function runIdempotentTransaction<T>(
   const tenantId = params.tenantId || null;
   const operation = params.operation || "DEFAULT";
   const ttlHours = params.ttlHours || 24;
-  const sql = getDbClient();
 
-  return await sql.begin(async (tx) => {
+  const runWithScope = async (tx: any) => {
     // 1. Check or acquire row with lock inside transaction
     const existing = tenantId
       ? await tx`
@@ -706,5 +736,11 @@ export async function runIdempotentTransaction<T>(
       responsePayload: result.responsePayload,
       isIdempotentReplay: false,
     };
-  });
+  };
+
+  if (!tenantId) {
+    return await withPlatformScope(runWithScope);
+  }
+
+  return await withTenantScope({ tenantId }, runWithScope);
 }

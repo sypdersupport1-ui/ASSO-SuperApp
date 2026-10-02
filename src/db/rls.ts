@@ -50,3 +50,35 @@ export async function withTenantScope<T>(
 
   return result as T;
 }
+
+export const PLATFORM_CONTEXT_SECRET =
+  process.env.PLATFORM_CONTEXT_SECRET || "asso_platform_auth_secret_dev_32b";
+
+export function getPlatformContextToken(): string {
+  return PLATFORM_CONTEXT_SECRET;
+}
+
+/**
+ * Executes a callback within an authenticated platform transaction.
+ * Strictly clears tenant context and establishes unforgeable platform token.
+ */
+export async function withPlatformScope<T>(
+  callback: (txSql: any) => Promise<T>
+): Promise<T> {
+  const client = getDbClient();
+  const token = getPlatformContextToken();
+
+  const result = await client.begin(async (tx) => {
+    // Clear tenant context and set trusted platform authorization token
+    await tx`SELECT set_config('app.current_tenant_id', '', true)`;
+    await tx`SELECT set_config('app.platform_context_token', ${token}, true)`;
+
+    logger.debug({
+      message: "Set platform transaction scope",
+    });
+
+    return await callback(tx);
+  });
+
+  return result as T;
+}

@@ -113,6 +113,13 @@
       "when": 1790930000000,
       "tag": "0015_idempotency_strict_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790932000000,
+      "tag": "0016_idempotency_cryptographic_platform_rls",
+      "breakpoints": true
     }
   ]
 }
