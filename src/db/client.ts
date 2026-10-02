@@ -16,7 +16,9 @@ export interface DbHealthResult {
   details?: string;
 }
 
-// Extend NodeJS global type to support HMR singleton
+// Extend NodeJS global type to support HMR singleton (Local Development Only)
+// NOTE: globalThis prevents duplicate pools *within a single process* during Next.js Hot Module Reloads.
+// It DOES NOT prevent connection exhaustion across horizontally scaled production processes.
 const globalForDb = globalThis as unknown as {
   postgresClient: postgres.Sql | undefined;
   drizzleInstance: ReturnType<typeof drizzle<typeof schema>> | undefined;
@@ -24,18 +26,38 @@ const globalForDb = globalThis as unknown as {
 
 export function getDbClient() {
   if (!globalForDb.postgresClient) {
-    // 1. API runtime (Next.js serverless/edge): Small pool, fast timeout
-    // 2. Background worker runtime: Larger pool if needed, explicit ENV config
-    // 3. Local/Test runtime: Smallest pool, single connection preferred
-    const maxConnections = parseInt(process.env.DB_POOL_SIZE || "0") || (env.NODE_ENV === "production" ? 10 : 5);
-    const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || "20");
-    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "2");
+    /**
+     * CONNECTION BUDGET MODEL
+     * 
+     * Aggregate DB Connections = (API Instances × API_POOL_SIZE) + (Worker Instances × WORKER_POOL_SIZE)
+     * 
+     * Default Budget Assumptions:
+     * - Supabase Session Pooler (port 5432): Max 500 connections (typical Supabase Pro tier)
+     * - API_POOL_SIZE (default: 10): 20 Vercel serverless functions = 200 connections
+     * - WORKER_POOL_SIZE (default: 50): 2 worker processes = 100 connections
+     * - Total Peak: 300 connections (safe within 500 limit)
+     * 
+     * IMPORTANT: This singleton only applies PER PROCESS. Vercel spins up many isolated processes.
+     */
+    
+    // Check if we are running in a dedicated background worker runtime
+    const isWorker = process.env.RUNTIME_ENV === "worker";
+
+    let maxConnections = 5;
+    if (env.NODE_ENV === "production") {
+      maxConnections = isWorker
+        ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
+        : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
+    }
+
+    const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || "20", 10);
+    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "2", 10);
 
     globalForDb.postgresClient = postgres(env.DATABASE_URL, {
       max: maxConnections,
       idle_timeout: idleTimeout,
       connect_timeout: connectTimeout,
-      onnotice: () => {},
+      onnotice: () => {}, // Suppress notices
     });
   }
   return globalForDb.postgresClient;

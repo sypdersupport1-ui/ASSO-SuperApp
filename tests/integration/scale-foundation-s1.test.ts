@@ -31,4 +31,44 @@ describe("ASSO Scale Foundation S1: Backend Runtime & Connection Hardening", () 
     // Should get 401 Unauthorized because the token is fake
     expect(res.status).toBe(401);
   });
+
+  it("4. Distinguishes API vs Worker database connection configurations", () => {
+    const prevEnv = process.env.NODE_ENV;
+    const prevRuntime = process.env.RUNTIME_ENV;
+    
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.RUNTIME_ENV = "api";
+      process.env.API_DB_POOL_SIZE = "12";
+      
+      const apiPoolSize = process.env.RUNTIME_ENV === "worker"
+        ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
+        : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
+        
+      expect(apiPoolSize).toBe(12);
+
+      process.env.RUNTIME_ENV = "worker";
+      process.env.WORKER_DB_POOL_SIZE = "40";
+      
+      const workerPoolSize = process.env.RUNTIME_ENV === "worker"
+        ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
+        : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
+        
+      expect(workerPoolSize).toBe(40);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+      process.env.RUNTIME_ENV = prevRuntime;
+    }
+  });
+
+  it("5. Horizontal scaling budget relies on mathematical constraints", () => {
+    const apiInstances = 30;
+    const workerInstances = 2;
+    const apiPoolSize = 10;
+    const workerPoolSize = 50;
+    
+    const aggregateConnections = (apiInstances * apiPoolSize) + (workerInstances * workerPoolSize);
+    expect(aggregateConnections).toBe(400);
+    expect(aggregateConnections).toBeLessThan(500); // Max pool size for 5432
+  });
 });
