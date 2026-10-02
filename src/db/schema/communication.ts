@@ -18,10 +18,13 @@ export const domainOutboxEvents = pgTable(
     aggregateId: varchar("aggregate_id", { length: 100 }).notNull(),
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     payload: jsonb("payload").notNull(),
-    status: varchar("status", { length: 20 }).notNull().default("PENDING"), // 'PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'
+    status: varchar("status", { length: 20 }).notNull().default("PENDING"), // 'PENDING', 'PROCESSING', 'COMPLETED', 'RETRY_WAITING', 'FAILED', 'DEAD_LETTER'
     attemptCount: integer("attempt_count").notNull().default(0),
     lastError: text("last_error"),
     providerRef: varchar("provider_ref", { length: 255 }),
+    claimedBy: varchar("claimed_by", { length: 100 }),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
     nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
@@ -31,6 +34,8 @@ export const domainOutboxEvents = pgTable(
     uniqueIndex("uq_outbox_idempotency_key").on(table.idempotencyKey),
     index("idx_outbox_tenant_status").on(table.tenantId, table.status),
     index("idx_outbox_created_at").on(table.createdAt),
+    index("idx_outbox_claimable").on(table.status, table.nextRetryAt, table.claimExpiresAt),
+    index("idx_outbox_claimed_by").on(table.claimedBy),
   ]
 );
 

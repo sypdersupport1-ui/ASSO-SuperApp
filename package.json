@@ -14,7 +14,8 @@
     "test:security": "node --env-file=.env.local node_modules/.bin/vitest run tests/security",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local node_modules/.bin/vite-node src/db/migrate.ts",
-    "db:verify:rls": "node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-supabase-native-rls.ts"
+    "db:verify:rls": "node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-supabase-native-rls.ts",
+    "worker:outbox": "node --env-file=.env.local node_modules/.bin/vite-node src/workers/outbox-worker.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

@@ -127,128 +127,26 @@ export interface ProcessBatchResult {
 }
 
 /**
- * Processes a batch of pending or retryable outbox events.
- * Guarantees at-least-once durable processing with retry backoff and error tracking.
+ * Processes a batch of pending or retryable outbox events using the S4 OutboxWorker.
+ * Guarantees atomic SKIP LOCKED claiming, lease tracking, and duplicate-safe execution.
  */
 export async function processOutboxBatch(options: {
   batchSize?: number;
   tenantId?: string;
   maxAttempts?: number;
 } = {}): Promise<ProcessBatchResult> {
-  const db = getDb();
-  const batchSize = options.batchSize || 20;
-  const maxAttempts = options.maxAttempts || 3;
-  const now = new Date();
+  const { OutboxWorker } = await import("@/lib/outbox");
+  const worker = new OutboxWorker({
+    batchSize: options.batchSize || 20,
+    maxAttempts: options.maxAttempts || 3,
+  });
 
-  // Find candidate events to process
-  const conditions = [
-    or(
-      eq(domainOutboxEvents.status, "PENDING"),
-      and(
-        eq(domainOutboxEvents.status, "FAILED"),
-        lte(domainOutboxEvents.attemptCount, maxAttempts),
-        or(
-          isNull(domainOutboxEvents.nextRetryAt),
-          lte(domainOutboxEvents.nextRetryAt, now)
-        )
-      )
-    ),
-  ];
+  const stats = await worker.processBatch(options.batchSize, options.tenantId);
 
-  if (options.tenantId) {
-    conditions.push(eq(domainOutboxEvents.tenantId, options.tenantId));
-  }
-
-  const candidates = await db
-    .select()
-    .from(domainOutboxEvents)
-    .where(and(...conditions))
-    .orderBy(desc(domainOutboxEvents.createdAt))
-    .limit(batchSize);
-
-  const result: ProcessBatchResult = {
-    processed: candidates.length,
-    succeeded: 0,
-    failed: 0,
-    errors: [],
+  return {
+    processed: stats.claimed,
+    succeeded: stats.succeeded,
+    failed: stats.retried + stats.deadLettered,
+    errors: stats.errors || [],
   };
-
-  const commEngine = getCommunicationEngine();
-
-  for (const candidate of candidates) {
-    // Transition status to PROCESSING atomically
-    await db
-      .update(domainOutboxEvents)
-      .set({
-        status: "PROCESSING",
-        attemptCount: candidate.attemptCount + 1,
-      })
-      .where(eq(domainOutboxEvents.outboxId, candidate.outboxId));
-
-    try {
-      const domainEvent: DomainEvent<Record<string, unknown>> = {
-        eventId: candidate.eventId,
-        eventType: candidate.eventType as DomainEventType,
-        tenantId: candidate.tenantId,
-        outletId: candidate.outletId || undefined,
-        vertical: candidate.vertical as VerticalType,
-        aggregateType: candidate.aggregateType,
-        aggregateId: candidate.aggregateId,
-        occurredAt: candidate.createdAt.toISOString(),
-        payload: candidate.payload as Record<string, unknown>,
-        idempotencyKey: candidate.idempotencyKey,
-      };
-
-      await commEngine.processEvent(domainEvent, {
-        outboxId: candidate.outboxId,
-      });
-
-      // R3.3 KDS Integration
-      if (candidate.eventType === "ORDER_CONFIRMED" && (candidate.vertical === "RESTAURANT" || candidate.vertical === "HOTEL")) {
-        const { generateKdsTasksFromOrderConfirmed } = await import("@/lib/restaurant/kds-service");
-        await generateKdsTasksFromOrderConfirmed(candidate.tenantId, candidate.aggregateId);
-      }
-
-      // Mark outbox row as COMPLETED
-      await db
-        .update(domainOutboxEvents)
-        .set({
-          status: "COMPLETED",
-          processedAt: new Date(),
-          lastError: null,
-        })
-        .where(eq(domainOutboxEvents.outboxId, candidate.outboxId));
-
-      result.succeeded++;
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      result.failed++;
-      result.errors.push({ outboxId: candidate.outboxId, error: errMsg });
-
-      const nextAttempt = candidate.attemptCount + 1;
-      const backoffSeconds = Math.pow(2, nextAttempt) * 30; // 60s, 120s, 240s...
-      const nextRetryAt = new Date(Date.now() + backoffSeconds * 1000);
-
-      await db
-        .update(domainOutboxEvents)
-        .set({
-          status: "FAILED",
-          lastError: errMsg,
-          nextRetryAt: nextAttempt >= maxAttempts ? null : nextRetryAt,
-        })
-        .where(eq(domainOutboxEvents.outboxId, candidate.outboxId));
-
-      logger.error({
-        message: "Outbox event processing failed",
-        tenantId: candidate.tenantId,
-        details: {
-          outboxId: candidate.outboxId,
-          error: errMsg,
-          attempt: nextAttempt,
-        },
-      });
-    }
-  }
-
-  return result;
 }

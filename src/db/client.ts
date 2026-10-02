@@ -43,15 +43,22 @@ export function getDbClient() {
     // Check if we are running in a dedicated background worker runtime
     const isWorker = process.env.RUNTIME_ENV === "worker";
 
-    let maxConnections = 5;
+    let maxConnections = isWorker ? 10 : 5;
     if (env.NODE_ENV === "production") {
       maxConnections = isWorker
         ? parseInt(process.env.WORKER_DB_POOL_SIZE || "50", 10)
         : parseInt(process.env.API_DB_POOL_SIZE || "10", 10);
+    } else if (process.env.WORKER_DB_POOL_SIZE && isWorker) {
+      maxConnections = parseInt(process.env.WORKER_DB_POOL_SIZE, 10);
     }
 
-    const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || "20", 10);
-    const connectTimeout = parseInt(process.env.DB_CONNECT_TIMEOUT || "10", 10);
+    const idleTimeout = isWorker
+      ? parseInt(process.env.WORKER_DB_IDLE_TIMEOUT || process.env.DB_IDLE_TIMEOUT || "20", 10)
+      : parseInt(process.env.DB_IDLE_TIMEOUT || "20", 10);
+
+    const connectTimeout = isWorker
+      ? parseInt(process.env.WORKER_DB_CONNECT_TIMEOUT || process.env.DB_CONNECT_TIMEOUT || "10", 10)
+      : parseInt(process.env.DB_CONNECT_TIMEOUT || "10", 10);
 
     globalForDb.postgresClient = postgres(env.DATABASE_URL, {
       max: maxConnections,

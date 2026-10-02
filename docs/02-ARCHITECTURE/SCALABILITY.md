@@ -436,3 +436,201 @@ Inbound external webhooks implement four strict verification layers (`protectAnd
 3. **Layer 3 (Cryptographic HMAC Verification)**: Constant-time `crypto.timingSafeEqual` SHA-256 signature verification.
 4. **Layer 4 (Durable Idempotency Replay Protection)**: Webhook event IDs are recorded in `idempotency_keys` with a 48-hour retention window. Duplicate deliveries return cached processing status or 409 conflict.
 
+---
+
+## 14. Standalone Transactional Outbox Worker (Foundation S4)
+
+### 14.1 Architecture Overview & Separation of Concerns
+In earlier development slices, transactional outbox events were recorded atomically with business transactions, but event dispatch was occasionally fired in the background of Next.js serverless/API requests (`processOutboxBatch(...).catch(...)`).
+
+In **Scale Foundation S4**, outbox processing is decoupled from the Next.js API lifecycle into a dedicated, long-running Node.js worker process (`src/workers/outbox-worker.ts`).
+
+```text
+API Request Lifecycle:
+  Customer / Staff Request
+             │
+             ▼
+  ┌────────────────────────────────────────────────────────┐
+  │  Next.js API Handler                                   │
+  │  1. Begin PostgreSQL Transaction                       │
+  │  2. Mutate Business Entities (Order, Stay, Folio, etc.)│
+  │  3. Insert domain_outbox_events (Status: PENDING)      │
+  │  4. Commit Transaction                                 │
+  └────────────────────────────────────────────────────────┘
+             │
+             ▼ (Zero external HTTP I/O in API path)
+  HTTP 200 / 201 Response
+
+------------------------------------------------------------
+Dedicated Worker Lifecycle (Asynchronous & Decoupled):
+  ┌────────────────────────────────────────────────────────┐
+  │  Standalone Outbox Worker (Node.js Process)            │
+  │  1. Atomic Claim: SELECT ... FOR UPDATE SKIP LOCKED    │
+  │     (Status -> PROCESSING, lease leased to workerId)   │
+  │  2. Commit short claim transaction                     │
+  │  3. Dispatch External Side Effects Outside DB Tx:       │
+  │     - Communication Engine (SMS DLT, WhatsApp, In-App) │
+  │     - Kitchen Display System (KDS Task Generation)     │
+  │  4. Record Result in short DB Transaction:             │
+  │     - Success: COMPLETED (releases lease)              │
+  │     - Retryable: RETRY_WAITING (exponential backoff)   │
+  │     - Terminal: DEAD_LETTER (DLQ poisoned audit state) │
+  └────────────────────────────────────────────────────────┘
+```
+
+**Key Invariant**: A worker failure, provider timeout, or dispatch crash **NEVER** rolls back or blocks a committed business transaction.
+
+### 14.2 Outbox as the Transactional Source of Truth
+PostgreSQL (`domain_outbox_events`) remains the single source of truth for all asynchronous business events. ASSO does not replace transactional PostgreSQL with standalone queue brokers (e.g. Kafka, SQS, RabbitMQ) at this scale tier. The transactional outbox pattern guarantees atomicity between domain state mutations and event emission without distributed transactions or two-phase commit.
+
+### 14.3 Claiming Algorithm & SKIP LOCKED Safety
+Multiple worker instances execute concurrently across multiple containers or VMs without coordination locks:
+
+```sql
+WITH claimable AS (
+  SELECT outbox_id
+  FROM domain_outbox_events
+  WHERE (
+    status = 'PENDING'
+    OR (status = 'PROCESSING' AND claim_expires_at <= NOW())
+    OR (status IN ('RETRY_WAITING', 'FAILED') AND (next_retry_at IS NULL OR next_retry_at <= NOW()) AND attempt_count < :maxAttempts)
+  )
+  ORDER BY created_at ASC
+  LIMIT :batchSize
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE domain_outbox_events
+SET status = 'PROCESSING',
+    claimed_by = :workerId,
+    claim_expires_at = NOW() + (:leaseSeconds || ' seconds')::interval,
+    attempt_count = domain_outbox_events.attempt_count + 1,
+    last_attempted_at = NOW()
+FROM claimable
+WHERE domain_outbox_events.outbox_id = claimable.outbox_id
+RETURNING domain_outbox_events.*;
+```
+
+**Properties**:
+- **Zero Double-Claiming**: PostgreSQL `SKIP LOCKED` ensures that if Worker A locks row X, Worker B immediately skips row X and claims row Y.
+- **No In-Memory Locks**: No Redis distributed locks or JavaScript mutexes are required.
+- **Bounded Query Execution**: Batch size is enforced via `LIMIT :batchSize`.
+
+### 14.4 Lease Expiration & Crash Recovery
+Each claimed event is assigned an explicit lease expiration timestamp (`claim_expires_at = NOW() + interval '60 seconds'`).
+- If a worker crashes, experiences an unhandled kernel signal, or terminates abruptly while processing an event, the event remains in `PROCESSING` state until `claim_expires_at <= NOW()`.
+- Once expired, any healthy worker picks up the abandoned event on its next poll cycle.
+- The `attempt_count` is incremented, and active workers never steal leases from live peers while `claim_expires_at > NOW()`.
+
+### 14.5 Outbox State Machine
+The lifecycle transitions through explicit states:
+
+```text
+       ┌───────────┐
+       │  PENDING  │
+       └─────┬─────┘
+             │ (Worker Claims via SKIP LOCKED)
+             ▼
+      ┌──────────────┐
+      │  PROCESSING  │
+      └──┬───┬────┬──┘
+         │   │    │
+         │   │    └───────────────────────────────────────┐
+         │   │ (Success)                                  │
+         │   ▼                                            │
+         │ ┌───────────┐                                  │
+         │ │ COMPLETED │ (Terminal Success)               │
+         │ └───────────┘                                  │
+         │                                                │
+         │ (Retryable Failure & attempt < maxAttempts)     │
+         ▼                                                │
+ ┌───────────────┐                                        │
+ │ RETRY_WAITING │                                        │
+ └───────┬───────┘                                        │
+         │ (next_retry_at elapsed)                        │
+         └───────────► [Re-eligible for PROCESSING]       │
+                                                          │
+              (Non-Retryable or attempt >= maxAttempts)   │
+                                                          ▼
+                                                  ┌─────────────┐
+                                                  │ DEAD_LETTER │ (Terminal DLQ)
+                                                  └─────────────┘
+```
+
+### 14.6 Durable Retry & Exponential Backoff
+- **Retry Delay Formula**:
+  $$\text{backoffSeconds} = \min(\text{maxBackoffSeconds}, \text{baseBackoffSeconds} \times 2^{\text{attemptCount} - 1})$$
+- **Defaults**: `baseBackoffSeconds = 30`, `maxBackoffSeconds = 3600`, `maxAttempts = 5`.
+- **Classification**:
+  - **Retryable**: External network timeouts (HTTP 504), transient provider rate limits (HTTP 429), temporary socket disconnects.
+  - **Non-Retryable**: Malformed payloads (`MALFORMED`), invalid phone numbers or schema mismatch (`INVALID_ARGUMENT`). Non-retryable failures bypass remaining retries and immediately transition to `DEAD_LETTER`.
+
+### 14.7 Poison Messages & Dead-Letter Handling (DLQ)
+Poison events that fail repeatedly or encounter fatal errors are transitioned to `status = 'DEAD_LETTER'`:
+- **Auditability Invariant**: Historical outbox records are **NEVER** deleted.
+- Preserves `outbox_id`, `event_id`, `payload`, `last_error`, `attempt_count`, and `last_attempted_at`.
+- Emits structured operational error telemetry for alerting and dead-letter review.
+
+### 14.8 Idempotent Event Handlers & At-Least-Once Semantics
+Because distributed networks cannot guarantee exactly-once message delivery, ASSO enforces **At-Least-Once Delivery + Idempotent Handlers**:
+1. **Communication Handler (`CommunicationEventHandler`)**:
+   - Before dispatching to SMS/WhatsApp adapters, checks `communication_delivery_logs` for `outbox_id` with `status = 'DELIVERED'`.
+   - If an earlier partial attempt already succeeded, skips redundant provider API calls.
+2. **KDS Task Generation (`KdsEventHandler`)**:
+   - `generateKdsTasksFromOrderConfirmed` queries existing `kds_tasks` rows matching `order_item_id` before inserting.
+   - Prevents duplicate kitchen tickets even if an `ORDER_CONFIRMED` event is retried.
+
+### 14.9 Short Transaction Boundaries & External I/O Isolation
+- **Rule**: Workers must **NOT** keep open PostgreSQL transactions during external network calls.
+- **Workflow**:
+  1. Transaction 1 (short): Claim batch with `FOR UPDATE SKIP LOCKED`, commit immediately.
+  2. External execution: Dispatch SMS, WhatsApp, or in-app notifications without holding any database connection or lock.
+  3. Transaction 2 (short): Update outbox event to `COMPLETED` or `RETRY_WAITING`/`DEAD_LETTER`, commit immediately.
+
+### 14.10 Database Pool Budget & Sizing
+ASSO enforces a strict connection budget across application and worker tiers:
+
+$$\text{API instances} \times \text{API pool size} + \text{Worker instances} \times \text{Worker pool size} \le \text{PostgreSQL Connection Limit}$$
+
+| Metric | API Tier | Outbox Worker Tier | Combined Budget |
+|---|---|---|---|
+| **Instances** | 4 instances | 2 worker instances | 6 runtime nodes |
+| **Pool Size** | 5 connections / instance | 5 connections / instance | 30 max connections |
+| **Connect Timeout** | 10 seconds | 10 seconds (`WORKER_DB_CONNECT_TIMEOUT`) | - |
+| **Idle Timeout** | 20 seconds | 20 seconds (`WORKER_DB_IDLE_TIMEOUT`) | - |
+| **PostgreSQL Ceiling** | - | - | 60 connection pooler limit (50% headroom) |
+
+Configured in `src/db/client.ts` via `process.env.RUNTIME_ENV === "worker"` and `WORKER_DB_POOL_SIZE`.
+
+### 14.11 Bounded Worker Concurrency
+- `WORKER_CONCURRENCY`: Configured default of 5 concurrent event handlers per worker process.
+- Implemented via `mapConcurrent(events, concurrency, handler)`.
+- Eliminates unbounded `Promise.all` spikes that could overwhelm external third-party communication APIs or exhaust client sockets.
+
+### 14.12 Polling Strategy & Index Optimization
+- Polling runs on a configurable interval (`WORKER_POLL_INTERVAL_MS`, default 1000ms).
+- If a full batch (`batchSize`) is claimed, the worker drains the backlog immediately without sleeping.
+- Backed by migration `0018_outbox_worker_leasing.sql` composite index:
+  ```sql
+  CREATE INDEX idx_outbox_claimable 
+  ON domain_outbox_events (status, next_retry_at, claim_expires_at)
+  WHERE status IN ('PENDING', 'PROCESSING', 'RETRY_WAITING', 'FAILED');
+  ```
+- Prevents table scans across millions of historical `COMPLETED` events.
+
+### 14.13 Graceful Shutdown
+Worker traps `SIGTERM` and `SIGINT`:
+1. Sets `isRunning = false` to stop claiming new batches immediately.
+2. Clears active polling timer.
+3. Awaits current in-flight batch completion up to bounded `shutdownTimeoutMs` (default 10,000ms).
+4. Exits with code 0 cleanly, preventing orphaned or unrecorded processing states.
+
+### 14.14 Security Context & Multi-Tenancy RLS
+- The worker executes with trusted platform scope (`withPlatformScope(...)`), setting a secure cryptographic session token verified by `public.asso_is_platform_context()`.
+- Under migration `0018`, ordinary tenant connections can only view and update outbox events where `tenant_id = app.current_tenant_id`.
+- Untrusted event payload fields cannot alter tenant isolation or escalate privileges.
+
+### 14.15 Node.js Baseline vs. Future Go Extraction
+- **Current Architecture**: The outbox worker is implemented in TypeScript/Node.js (`src/workers/outbox-worker.ts`) using the shared database client and domain adapters.
+- **Go Extraction Analysis**: A standalone Go worker is **NOT** required at the current scale foundation. The Node.js worker comfortably processes hundreds of events per second with sub-50ms query overhead.
+- If future throughput benchmarks (e.g. >10,000 events/second) reveal Node.js event-loop or memory overhead bottlenecks, extraction to a minimal Go binary can be executed against the same database schema without changing the transactional outbox contract.
+
