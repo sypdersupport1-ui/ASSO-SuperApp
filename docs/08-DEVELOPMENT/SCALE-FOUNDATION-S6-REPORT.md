@@ -121,57 +121,75 @@ To isolate heavy analytical queries from transactional operations, a dedicated p
 
 ## 7. Load-Test Methodology
 
-* **Progression Model**: Every scenario runs through 4 progressive load tiers:
-  - **Level A (Baseline)**: Concurrency = 5, Requests = 30 to 50
-  - **Level B (~2x Baseline)**: Concurrency = 10, Requests = 60 to 100
-  - **Level C (~4x Baseline)**: Concurrency = 20, Requests = 120 to 200
-  - **Level D (Sustained High Load)**: Concurrency = 30 to 35, Requests = 180 to 350
-* **Request Generation & Concurrency**:
-  - Implemented in `tests/scale/load-test-harness.ts` via an in-process worker pool of `N` asynchronous workers sharing an atomic iteration counter.
-  - Workers fetch and execute tasks sequentially until the total request target is satisfied.
+The physical benchmark suite is implemented in [tests/scale/load-test-harness.ts](file:///Users/apple/Downloads/asso%20super%20app/tests/scale/load-test-harness.ts) and orchestrated by [tests/scale/run-load-test.ts](file:///Users/apple/Downloads/asso%20super%20app/tests/scale/run-load-test.ts).
+
+* **Scenarios Executed**:
+  1. `Scenario 1 — Customer / Menu Read Load`: Digital menu queries (`getRestaurantMenu`) and table list queries (`listTables`).
+  2. `Scenario 2 — Restaurant Order Write & Idempotent Replay Load`: Transactional order insertion (`orders`, `order_items`, `domain_outbox_events`) with 20% intentional repeated idempotency keys.
+  3. `Scenario 3 — KDS Queue Read & Task Transition Load`: Kitchen display task queries (`listKdsTasks`) and state transitions (`updateKdsTaskStatus`).
+  4. `Scenario 4 — Hotel Operational Read Load`: Operational dashboard aggregates (`getHotelDashboardMetrics`), room listings (`listRooms`), housekeeping summaries (`getHousekeepingSummary`), and maintenance summaries (`getMaintenanceSummary`).
+  5. `Scenario 5 — Realistic Multi-Tenant Mixed Load (70% Read / 30% Write)`: 30% digital menu reads, 20% table metrics, 20% hotel metrics, and 30% transactional order writes.
+* **Level A/B/C/D Definitions & Concurrency**:
+  - **Level A (Baseline)**: Concurrency = 5 workers; 30 to 50 operations.
+  - **Level B (~2x Baseline)**: Concurrency = 10 workers; 60 to 100 operations.
+  - **Level C (~4x Baseline)**: Concurrency = 20 workers; 120 to 200 operations.
+  - **Level D (Sustained High Load)**: Concurrency = 30 to 35 workers; 180 to 350 operations.
 * **Execution Sequencing**:
-  - Scenarios execute sequentially (Scenario 1 through Scenario 5).
+  - Scenarios execute sequentially (Scenario 1 through 5).
   - Within each scenario, load levels execute sequentially (Level A, then B, then C, then D).
+* **Direct Service vs API Execution**:
+  - Tasks in the load harness execute the application service layer functions and database transactions directly in-process via Node.js (`vite-node`). They do not traverse the external HTTP loopback network stack.
+* **Request Generation Model**:
+  - In-process worker pool of `N` asynchronous workers sharing an atomic iteration counter. Workers fetch and execute tasks sequentially until the total request quota is satisfied.
 * **Warm-up & Ramp-up**:
-  - Level D includes an optional 200ms stagger ramp-up (`rampUpMs: 200`) across worker initialization to avoid instantaneous thundering herd on process start.
-  - No separate unmeasured warm-up phase was performed.
+  - Level D includes a 200ms stagger ramp-up (`rampUpMs: 200`) across worker thread starts (`stagger = (workerId * rampUpMs) / concurrency`).
+  - There is no separate unmeasured warm-up phase.
 * **Timeout Threshold**:
-  - Every individual request is bounded by a strict 15,000ms timeout promise (`Promise.race`). If a request exceeds 15,000ms, it is aborted and recorded as a timeout.
+  - Every individual request is bounded by a strict 15,000ms timeout promise (`Promise.race`). Any task exceeding 15,000ms is aborted and tracked in `timeoutCount`.
 * **Error Definition**:
-  - Any thrown exception from service logic, unexpected HTTP/DB status, failed assertion, or request timeout increments the error counter.
+  - Any thrown exception from service logic, unexpected null/empty payload, unhandled database error, or request timeout increments `errorCount`.
 * **Throughput Calculation**:
-  - Throughput (RPS) is computed as $\text{Total Requests} / \text{Elapsed Duration in Seconds}$, where elapsed duration is measured via `perf_hooks.performance.now()`.
-* **Latency Percentile Calculation**:
-  - Latencies are recorded with high-resolution microsecond precision.
-  - Sorted arrays are sampled at indices $\lfloor N \times 0.50 \rfloor$ (p50), $\lfloor N \times 0.95 \rfloor$ (p95), and $\lfloor N \times 0.99 \rfloor$ (p99).
-* **Database Connection Sampling**:
-  - Active connections and connection wait states are queried directly from `pg_stat_activity` immediately before and immediately after each load level run.
-* **Reproducibility**:
-  - Deterministic fixture seeding with fixed UUIDs (`Tenant 99990001` and `Tenant 99990002`).
-  - Automated platform-scoped database cleanup in a `finally` block ensures that scale outbox events and communication logs are purged after runs.
+  - Throughput (RPS) is calculated as:
+    $$\text{Throughput (RPS)} = \frac{\text{Total Requests}}{\max(\text{Duration Seconds}, 0.001)}$$
+    where duration is recorded via `perf_hooks.performance.now()`.
+* **Percentile & Maximum Latency Calculations**:
+  - Latencies are captured per operation in milliseconds using high-resolution timestamps.
+  - Latency arrays are sorted ascending:
+    - $\text{p50} = \text{sorted}[\lfloor N \times 0.50 \rfloor]$
+    - $\text{p95} = \text{sorted}[\lfloor N \times 0.95 \rfloor]$
+    - $\text{p99} = \text{sorted}[\lfloor N \times 0.99 \rfloor]$
+    - $\text{min} = \text{sorted}[0]$
+    - $\text{max} = \text{sorted}[N - 1]$
+* **Database Connection Sampling Method**:
+  - Queried directly via `pg_stat_activity` immediately before and immediately after each load level:
+    ```sql
+    SELECT count(*)::int as active, count(*) FILTER (WHERE wait_event_type IS NOT NULL)::int as waiting
+    FROM pg_stat_activity WHERE datname = current_database();
+    ```
+* **Harness Execution Command**:
+  - `npm run test:load` (resolving to `node --env-file=.env.local node_modules/.bin/vite-node --config vitest.config.ts tests/scale/run-load-test.ts`).
 
 ---
 
 ## 8. Load-Test Environment & Configuration
 
-| Parameter | Configuration / Value |
+| Parameter | Configuration / Measured Value |
 | :--- | :--- |
-| **Workstation OS** | macOS Darwin 25.6.0 (Kernel x86_64), Host: `SPYDER-Macbook.local` |
-| **Node.js Runtime** | Node.js v24.21.0 |
-| **PostgreSQL Database Engine** | PostgreSQL 17.6 on x86_64-pc-linux-gnu, 64-bit |
-| **Colocation Topology** | API runtime, worker runtime, and PostgreSQL instance **all ran on the same machine**, sharing physical CPU, RAM, and disk I/O |
-| **API Runtime Configuration** | Next.js 15.5 API router / Node.js process executed via Vite-Node runner |
+| **Operating System** | macOS Darwin 25.6.0 (Kernel x86_64), Host: `SPYDER-Macbook.local` |
+| **Node.js Runtime Version** | Node.js v24.21.0 |
+| **PostgreSQL Version** | PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit |
+| **Colocation Topology** | API runtime, worker runtime, and PostgreSQL instance **all ran on the same machine**, sharing physical CPU cores, RAM, and disk I/O |
+| **API Runtime Configuration** | In-process execution via Vite-Node runner using Next.js 15.5 application dependencies |
 | **API Database Pool Size** | Default `max: 5` client connections (local development default in `src/db/client.ts`) |
 | **Worker Database Pool Size** | Default `max: 10` client connections (local development default in `src/db/client.ts`) |
-| **Worker Concurrency** | In-process execution via Node.js async worker pools |
+| **Worker Concurrency** | In-process asynchronous worker pools matching level concurrency (5, 10, 20, 30, 35) |
 | **Worker Batch Size** | 50 events per batch (configured in `OutboxWorker`) |
-| **Rate Limit Configuration** | PostgreSQL sliding-window limiter (`PostgresRateLimiter`) |
-| **Load-Test Harness Command** | `npm run test:load` (`node --env-file=.env.local node_modules/.bin/vite-node --config vitest.config.ts tests/scale/run-load-test.ts`) |
-| **Total Benchmark Duration** | ~185 seconds across all 20 progressive runs |
-| **Per-Level Concurrency** | Level A: 5; Level B: 10; Level C: 20; Level D: 30–35 |
-| **Per-Level Request Counts** | Level A: 30–50; Level B: 60–100; Level C: 120–200; Level D: 180–350 (Total: 3,180 operations across matrix) |
-| **Test Dataset Characteristics** | 2 scale organizations, 50 menu items, 30 tables, 40 hotel rooms, 30 KDS tasks, pre-seeded orders and sessions |
-| **PostgreSQL Buffer / Work Mem** | Default PostgreSQL 17 local container configuration *(detailed shared_buffers/work_mem uninstrumented)* |
+| **Rate-Limit Configuration** | PostgreSQL sliding-window limiter (`PostgresRateLimiter`) |
+| **Database Topology** | Single local PostgreSQL instance; no replication, read replicas, or external proxy |
+| **Test Dataset / Cardinality** | 2 scale organizations (`Tenant 99990001`, `Tenant 99990002`), 50 menu items, 30 tables, 40 hotel rooms, 30 KDS tasks, pre-seeded orders and sessions |
+| **Benchmark Timeout** | 15,000ms per request |
+| **PostgreSQL Buffer / Work Mem** | Default PostgreSQL 17 local container configuration *(shared_buffers/work_mem: Not instrumented / not recorded in this benchmark)* |
+| **DB Host / Connection Type** | Local TCP socket connection via `postgres.js` driver over `localhost:54322` |
 
 ---
 
@@ -183,26 +201,26 @@ The full matrix of 5 scenarios across 4 progressive load levels was executed phy
 
 | Scenario | Level | Concurrency | Requests | Duration (s) | Throughput (RPS) | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Active DB Connections | Error Rate | Timeouts |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Customer / Menu Read Load** | **A** | 5 | 50 | 3.48s | 14.35 | 316.30 | 641.15 | 644.87 | 644.87 | 13 → 13 | **0.00%** | 0 |
-| **1. Customer / Menu Read Load** | **B** | 10 | 100 | 6.43s | 15.56 | 641.25 | 852.18 | 910.99 | 910.99 | 13 → 13 | **0.00%** | 0 |
-| **1. Customer / Menu Read Load** | **C** | 20 | 200 | 12.74s | 15.70 | 1,243.14 | 1,492.28 | 1,561.90 | 1,561.90 | 13 → 13 | **0.00%** | 0 |
-| **1. Customer / Menu Read Load** | **D** | 35 | 350 | 21.51s | 16.27 | 2,136.23 | 2,342.92 | 2,420.89 | 2,508.41 | 13 → 13 | **0.00%** | 0 |
-| **2. Order Write & Idempotent Replay** | **A** | 5 | 30 | 3.78s | 7.95 | 657.96 | 861.23 | 940.90 | 940.90 | 13 → 13 | **0.00%** | 0 |
-| **2. Order Write & Idempotent Replay** | **B** | 10 | 60 | 6.82s | 8.80 | 1,076.77 | 1,281.17 | 1,320.82 | 1,320.82 | 13 → 13 | **0.00%** | 0 |
-| **2. Order Write & Idempotent Replay** | **C** | 20 | 120 | 13.72s | 8.75 | 2,191.95 | 2,687.28 | 2,832.78 | 2,918.26 | 13 → 13 | **0.00%** | 0 |
-| **2. Order Write & Idempotent Replay** | **D** | 30 | 180 | 20.58s | 8.75 | 3,300.96 | 3,866.50 | 3,957.49 | 3,967.38 | 13 → 13 | **0.00%** | 0 |
-| **3. KDS Read & Task Transitions** | **A** | 5 | 40 | 12.38s | 3.23 | 309.93 | 544.20 | 638.57 | 638.57 | 13 → 13 | **0.00%** | 0 |
-| **3. KDS Read & Task Transitions** | **B** | 10 | 80 | 13.68s | 5.85 | 513.66 | 814.15 | 842.42 | 842.42 | 13 → 13 | **0.00%** | 0 |
-| **3. KDS Read & Task Transitions** | **C** | 20 | 160 | 18.48s | 8.66 | 1,040.80 | 1,414.73 | 1,546.43 | 1,572.14 | 13 → 13 | **0.00%** | 0 |
-| **3. KDS Read & Task Transitions** | **D** | 30 | 240 | 22.53s | 10.65 | 1,609.32 | 2,064.89 | 2,134.78 | 2,288.09 | 13 → 13 | **0.00%** | 0 |
-| **4. Hotel Operational Read Load** | **A** | 5 | 40 | 2.40s | 16.65 | 266.70 | 700.04 | 832.53 | 832.53 | 13 → 13 | **0.00%** | 0 |
-| **4. Hotel Operational Read Load** | **B** | 10 | 80 | 4.28s | 18.70 | 458.97 | 925.38 | 993.15 | 993.15 | 13 → 13 | **0.00%** | 0 |
-| **4. Hotel Operational Read Load** | **C** | 20 | 160 | 8.32s | 19.23 | 858.60 | 1,691.80 | 1,805.64 | 1,866.79 | 13 → 13 | **0.00%** | 0 |
-| **4. Hotel Operational Read Load** | **D** | 30 | 240 | 12.45s | 19.28 | 1,244.89 | 2,707.17 | 2,950.67 | 2,970.31 | 13 → 13 | **0.00%** | 0 |
-| **5. Mixed 70% Read / 30% Write** | **A** | 5 | 50 | 2.22s | 22.52 | 194.60 | 465.95 | 497.21 | 497.21 | 13 → 13 | **0.00%** | 0 |
-| **5. Mixed 70% Read / 30% Write** | **B** | 10 | 100 | 4.44s | 22.52 | 451.58 | 712.73 | 773.81 | 773.81 | 13 → 13 | **0.00%** | 0 |
-| **5. Mixed 70% Read / 30% Write** | **C** | 20 | 200 | 9.93s | 20.14 | 1,025.88 | 1,494.26 | 1,621.56 | 1,709.18 | 13 → 13 | **0.00%** | 0 |
-| **5. Mixed 70% Read / 30% Write** | **D** | 35 | 350 | 16.07s | 21.78 | 1,572.46 | 2,288.92 | 2,412.01 | 2,475.90 | 13 → 13 | **0.00%** | 0 |
+| **1. Customer / Menu Read Load** | **A** | 5 | 50 | 3.57s | 14.01 | 334.83 | 654.81 | 669.68 | 669.68 | 8 → 12 | **0.00%** | 0 |
+| **1. Customer / Menu Read Load** | **B** | 10 | 100 | 5.68s | 17.61 | 558.43 | 690.53 | 821.04 | 821.04 | 12 → 12 | **0.00%** | 0 |
+| **1. Customer / Menu Read Load** | **C** | 20 | 200 | 11.47s | 17.44 | 1,112.35 | 1,273.69 | 1,429.80 | 1,430.15 | 12 → 12 | **0.00%** | 0 |
+| **1. Customer / Menu Read Load** | **D** | 35 | 350 | 19.77s | 17.70 | 1,971.98 | 2,102.58 | 2,135.65 | 2,360.61 | 12 → 12 | **0.00%** | 0 |
+| **2. Order Write & Idempotent Replay** | **A** | 5 | 30 | 3.18s | 9.43 | 579.58 | 720.40 | 733.64 | 733.64 | 12 → 12 | **0.00%** | 0 |
+| **2. Order Write & Idempotent Replay** | **B** | 10 | 60 | 6.59s | 9.10 | 1,073.27 | 1,414.46 | 1,533.32 | 1,533.32 | 12 → 12 | **0.00%** | 0 |
+| **2. Order Write & Idempotent Replay** | **C** | 20 | 120 | 12.62s | 9.51 | 2,069.45 | 2,348.18 | 2,554.30 | 2,576.90 | 12 → 12 | **0.00%** | 0 |
+| **2. Order Write & Idempotent Replay** | **D** | 30 | 180 | 18.09s | 9.95 | 2,956.37 | 3,384.73 | 3,519.38 | 3,521.16 | 12 → 12 | **0.00%** | 0 |
+| **3. KDS Read & Task Transitions** | **A** | 5 | 40 | 10.55s | 3.79 | 254.28 | 464.66 | 465.42 | 465.42 | 12 → 12 | **0.00%** | 0 |
+| **3. KDS Read & Task Transitions** | **B** | 10 | 80 | 13.00s | 6.16 | 484.86 | 777.24 | 850.43 | 850.43 | 12 → 12 | **0.00%** | 0 |
+| **3. KDS Read & Task Transitions** | **C** | 20 | 160 | 16.73s | 9.56 | 966.96 | 1,202.45 | 1,457.75 | 1,509.73 | 12 → 12 | **0.00%** | 0 |
+| **3. KDS Read & Task Transitions** | **D** | 30 | 240 | 20.31s | 11.82 | 1,437.39 | 1,765.87 | 1,903.25 | 1,936.75 | 12 → 12 | **0.00%** | 0 |
+| **4. Hotel Operational Read Load** | **A** | 5 | 40 | 1.95s | 20.55 | 218.57 | 436.78 | 444.65 | 444.65 | 12 → 12 | **0.00%** | 0 |
+| **4. Hotel Operational Read Load** | **B** | 10 | 80 | 4.07s | 19.64 | 443.25 | 861.79 | 902.33 | 902.33 | 12 → 12 | **0.00%** | 0 |
+| **4. Hotel Operational Read Load** | **C** | 20 | 160 | 8.17s | 19.59 | 845.71 | 1,666.59 | 1,905.24 | 1,926.08 | 12 → 12 | **0.00%** | 0 |
+| **4. Hotel Operational Read Load** | **D** | 30 | 240 | 11.51s | 20.85 | 1,133.59 | 2,466.54 | 2,653.60 | 2,840.17 | 12 → 12 | **0.00%** | 0 |
+| **5. Mixed 70% Read / 30% Write** | **A** | 5 | 50 | 2.01s | 24.89 | 199.24 | 354.71 | 362.86 | 362.86 | 12 → 12 | **0.00%** | 0 |
+| **5. Mixed 70% Read / 30% Write** | **B** | 10 | 100 | 4.07s | 24.58 | 456.33 | 655.11 | 673.78 | 673.78 | 12 → 12 | **0.00%** | 0 |
+| **5. Mixed 70% Read / 30% Write** | **C** | 20 | 200 | 8.35s | 23.96 | 823.29 | 1,236.51 | 1,350.84 | 1,361.85 | 12 → 12 | **0.00%** | 0 |
+| **5. Mixed 70% Read / 30% Write** | **D** | 35 | 350 | 14.65s | 23.88 | 1,475.91 | 2,092.79 | 2,187.03 | 2,322.86 | 12 → 12 | **0.00%** | 0 |
 
 ---
 
@@ -211,14 +229,14 @@ The full matrix of 5 scenarios across 4 progressive load levels was executed phy
 From the physical measurements across all 20 runs, three distinct operating regions were observed:
 
 1. **Stable Measured Region (Levels A & B: Concurrency 5 to 10)**:
-   - At 5–10 concurrent workers, latencies are low and consistent (p50: 194ms to 1,076ms; p95: 465ms to 1,281ms).
-   - Throughput scales predictably (7.95 to 22.52 RPS across workloads).
+   - At 5–10 concurrent workers, latencies remained low and predictable (p50: 199ms to 1,073ms; p95: 354ms to 1,414ms).
+   - Throughput remained within a relatively narrow range across the tested concurrency levels, while latency increased materially as concurrency increased.
 2. **First Meaningful Degradation Point (Level C: Concurrency 20)**:
-   - At concurrency 20, p50 and p95 latency increased across all scenarios (p50 rising to 858ms–2,191ms; p95 rising to 1,414ms–2,687ms).
+   - At concurrency 20, p50 and p95 latencies increased across all scenarios (p50 rising to 823ms–2,069ms; p95 rising to 1,202ms–2,348ms).
    - Observed latency degradation coincided with connection-pool saturation; pool checkout is a likely contributor, but causal attribution was not directly instrumented.
-   - Throughput remained stable (e.g. 20.14 RPS on mixed workloads).
+   - Throughput remained stable (e.g., 23.96 RPS on mixed workloads).
 3. **Sustained High Load / Safe Environment Ceiling (Level D: Concurrency 30 to 35)**:
-   - At concurrency 30–35 with 180–350 total requests, p95 latency reached 3,866ms in write-heavy Scenario 2 and 2,707ms in Scenario 4.
+   - At concurrency 30–35 with 180–350 total requests, p95 latency reached 3,384ms in write-heavy Scenario 2 and 2,466ms in Scenario 4.
    - Across the executed benchmark runs, no request errors or timeouts were observed (error rate was strictly 0.00% and timeout count was 0).
 
 ---
@@ -238,22 +256,24 @@ From the physical measurements across all 20 runs, three distinct operating regi
 
 The following factors are recognized as potential bottlenecks but remain **unproven by current physical evidence**:
 
-1. **Exact Connection Pool Wait Causality**:
+1. **Exact Connection Pool Wait Time Causality**:
    - While latency growth coincided with concurrency exceeding pool size, internal pool checkout wait duration vs database query execution duration was not isolated or instrumented independently.
 2. **Production Cloud Capacity**:
    - Throughput bounds on distributed cloud infrastructure (e.g. AWS/Vercel serverless functions connecting over public/private networks to Supabase) have not been measured.
 3. **Production Database CPU and Disk I/O Limits**:
    - Local runs did not capture hardware disk IOPS saturation or CPU core utilization profiles under continuous hour-long load.
-4. **Multi-Instance Horizontal Scaling Behavior**:
-   - The test was conducted within a single Node.js runtime process; multi-instance cluster coordination and cross-process connection pool aggregation remain unproven.
-5. **Internet / Network Latency Effects**:
-   - Benchmarks did not introduce simulated client network latency, cellular jitter, or TLS handshake round-trips.
-6. **Managed PostgreSQL Pooler Behavior**:
+4. **Production Managed-Pooler Behavior**:
    - The local benchmark was constrained by its configured connection pool. Production capacity with a managed pooler (e.g. Supabase PgBouncer) remains unmeasured and requires production-like staging tests.
+5. **Multi-Instance Horizontal Scaling**:
+   - The test was conducted within a single Node.js runtime process; multi-instance cluster coordination and cross-process connection pool aggregation remain unproven.
+6. **Network Latency Effects**:
+   - Benchmarks did not introduce simulated client network latency, cellular jitter, or TLS handshake round-trips.
 7. **Very Large Tenant and Data Cardinalities**:
    - Tested against multi-tenant fixtures with dozens of tables, rooms, and items; performance under millions of rows per tenant table has not been measured.
-8. **Sustained Long-Duration Soak Behavior**:
-   - Runs lasted up to 47 seconds per level; multi-hour endurance/soak performance and potential memory leakage under continuous load remain unmeasured.
+8. **Long-Duration Sustained-Load Behavior**:
+   - Runs lasted up to 21 seconds per level; multi-hour endurance/soak performance and potential memory leakage under continuous load remain unmeasured.
+9. **Production Analytics Projection Lag Under Sustained Load**:
+   - Analytics projections are asynchronous; exact production lag under sustained load remains unproven.
 
 ---
 
@@ -284,7 +304,9 @@ Scale Foundation S6 read optimizations and analytics projections were verified a
 
 * **Active Branch**: `feature/restaurant-r3-3-kds`
 * **Base Commit**: `7b2ccad` (`feat(scale): scale foundation S6 read and analytics scaling with load testing`)
-* **Verification Commit**: `333ed8b` (`feat(scale): complete S6 progressive load testing and final acceptance report`)
+* **Progressive Load Test Commit**: `333ed8b` (`feat(scale): complete S6 progressive load testing and final acceptance report`)
+* **Evidence Calibration Commit**: `dd1f1b3` (`docs(scale): calibrate S6 report evidence causality and environment configuration`)
+* **Final Report Acceptance Commit**: *(this commit)*
 * **Working Tree**: Clean (`nothing to commit, working tree clean`)
 * **Tracked Artifacts**: Strictly code, migrations, tests, and documentation. Zero temporary load files or PII committed.
 
