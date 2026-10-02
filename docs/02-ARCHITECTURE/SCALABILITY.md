@@ -230,3 +230,75 @@ The following are not required for ASSO to scale to a significant tenant base:
 | Redis | In-process caching handles ASSO's cache requirements initially |
 
 These may be revisited with documented evidence as ASSO grows.
+
+---
+
+## 12. Durable, Horizontally Scalable Idempotency (Scale Foundation S2)
+
+### 12.1 Defect in Process-Local Memory
+The initial local development prototype used an in-memory Node.js `Map<string, IdempotencyRecord>` within `src/lib/api/idempotency.ts`. In horizontally scaled production environments (such as Vercel serverless functions or multiple Node container instances), separate processes maintain disjoint memory spaces. Two concurrent requests with the identical idempotency key arriving at separate instances could both proceed, resulting in double-processing, duplicate orders, and inconsistent financial transactions.
+
+### 12.2 Durable PostgreSQL Storage Design
+To resolve this defect without introducing external operational dependencies prematurely, idempotency persistence is backed by PostgreSQL via the `idempotency_keys` table:
+
+```sql
+CREATE TABLE "idempotency_keys" (
+  "key_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "tenant_id" uuid REFERENCES organizations(organization_id),
+  "operation" varchar(100) DEFAULT 'DEFAULT' NOT NULL,
+  "idempotency_key" varchar(128) NOT NULL,
+  "request_hash" varchar(64) NOT NULL,
+  "status" varchar(20) DEFAULT 'IN_PROGRESS' NOT NULL,
+  "response_code" integer,
+  "response_body" jsonb,
+  "response_headers" jsonb,
+  "resource_id" varchar(128),
+  "locked_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "lease_expires_at" timestamp with time zone DEFAULT (now() + interval '120 seconds') NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "expires_at" timestamp with time zone NOT NULL
+);
+```
+
+### 12.3 Concurrency & Atomic Claim Algorithm
+Concurrency control relies on database-level uniqueness across `(COALESCE(tenant_id, NULL_SENTINEL), operation, idempotency_key)`:
+
+1. **Initial Acquisition**: An atomic `INSERT ... ON CONFLICT DO NOTHING RETURNING *` attempts to insert the key with `status = 'IN_PROGRESS'` and a processing lease (`lease_expires_at = now() + 120s`).
+2. **Conflict Resolution**: If the insert returns 0 rows, the instance queries the authoritative existing record:
+   - **Mismatched Request Hash**: Rejects immediately with HTTP 409 `IdempotencyConflictError` ("Idempotency key reused with mismatched request parameters"). Authoritative hash is immutable.
+   - **Completed Mutation**: Returns cached response code, body, and headers without re-executing domain transactions.
+   - **Active In-Flight Lease**: If `status == 'IN_PROGRESS'` and `lease_expires_at > now()`, throws HTTP 409 `IdempotencyConflictError` ("A mutation with this Idempotency-Key is currently in flight").
+   - **Crashed Process Recovery**: If `status == 'IN_PROGRESS'` but `lease_expires_at <= now()` (or `status == 'FAILED'`), the instance attempts an atomic conditional update:
+     ```sql
+     UPDATE idempotency_keys
+     SET status = 'IN_PROGRESS', locked_at = now(), lease_expires_at = now() + interval '120 seconds', updated_at = now()
+     WHERE key_id = $id AND (status = 'FAILED' OR (status = 'IN_PROGRESS' AND lease_expires_at <= now()))
+     RETURNING *;
+     ```
+     Only one retry instance can win this update; the other receives an in-flight conflict.
+
+### 12.4 Response Replay & Decimal Integrity
+For completed idempotent requests, `response_code`, `response_body`, and `response_headers` are retrieved. Replay returns identical resource identifiers and exact financial values (GST tax, platform fees, subtotals, totals) without recalculation or redundant side-effects.
+
+### 12.5 Request Hash Normalization
+Hashing uses `canonicalizeJson()` which recursively sorts all object keys alphabetically prior to SHA-256 computation (`METHOD:PATH:CANONICAL_BODY`). Unstable JSON serialization or property ordering differences between clients produce identical hashes.
+
+### 12.6 Multi-Tenant Isolation
+Every idempotency record is partitioned by `tenant_id` at both the database unique index level and PostgreSQL Row Level Security (RLS). Tenant A and Tenant B can utilize identical idempotency keys simultaneously with complete isolation and zero cross-tenant interference.
+
+### 12.7 Expiration & Bounded Cleanup
+Idempotency records maintain an `expires_at` timestamp (default: 24 hours, configured via `IDEMPOTENCY_EXPIRATION_HOURS`). Cleanup operates via bounded batch deletion:
+```sql
+WITH expired AS (
+  SELECT key_id FROM idempotency_keys WHERE expires_at < NOW() LIMIT $limit
+)
+DELETE FROM idempotency_keys WHERE key_id IN (SELECT key_id FROM expired);
+```
+Expired records are also eligible for atomic in-place overwrite upon new incoming claims.
+
+### 12.8 Storage Abstraction & Future Redis Migration
+All idempotency operations are mediated through the `IdempotencyStore` interface (`claim`, `get`, `complete`, `fail`, `cleanup`). The application and domain logic are completely decoupled from PostgreSQL:
+- **Current State**: `PostgresIdempotencyStore` provides ACID durability and zero additional infrastructure.
+- **Future Redis Trigger**: If API mutation load exceeds 5,000 req/sec sustained hot-path write IOPS on PostgreSQL, a `RedisIdempotencyStore` can be dropped in behind the `IdempotencyStore` interface using atomic Redis transactions (`SET NX PX` or Lua scripts).
+

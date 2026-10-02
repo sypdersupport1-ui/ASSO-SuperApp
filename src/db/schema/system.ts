@@ -1,20 +1,40 @@
-import { pgTable, uuid, varchar, text, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { organizations } from "./core";
 
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {
     keyId: uuid("key_id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    tenantId: uuid("tenant_id").references(() => organizations.organizationId),
+    operation: varchar("operation", { length: 100 }).notNull().default("DEFAULT"),
     idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
     requestHash: varchar("request_hash", { length: 64 }).notNull(),
     status: varchar("status", { length: 20 }).notNull().default("IN_PROGRESS"), // 'IN_PROGRESS', 'COMPLETED', 'FAILED'
     responseCode: integer("response_code"),
     responseBody: jsonb("response_body"),
+    responseHeaders: jsonb("response_headers"),
+    resourceId: varchar("resource_id", { length: 128 }),
+    lockedAt: timestamp("locked_at", { withTimezone: true }).notNull().defaultNow(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  }
+  },
+  (table) => [
+    uniqueIndex("uq_idempotency_keys_tenant_op_key").on(
+      sql`COALESCE(${table.tenantId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      table.operation,
+      table.idempotencyKey
+    ),
+    index("idx_idempotency_keys_expires_at").on(table.expiresAt),
+    index("idx_idempotency_keys_lease").on(table.status, table.leaseExpiresAt),
+  ]
 );
+
+export type IdempotencyKey = typeof idempotencyKeys.$inferSelect;
+export type NewIdempotencyKey = typeof idempotencyKeys.$inferInsert;
+
 
 export const auditEvents = pgTable(
   "audit_events",

@@ -12,8 +12,8 @@ describe("API Idempotency Framework Verification", () => {
   const idempotencyKey = "idemp_test_abc123";
   const payload = { amount: 1500, currency: "INR", items: ["item_1"] };
 
-  beforeEach(() => {
-    clearIdempotencyStore();
+  beforeEach(async () => {
+    await clearIdempotencyStore();
   });
 
   it("1. Fresh request acquires lock (IN_PROGRESS)", async () => {
