@@ -3,43 +3,63 @@ import { organizations, outlets, users, staffProfiles, customers } from "./core"
 import { businessContexts, customerSessions } from "./context";
 import { restaurantTables, restaurantTableSessions } from "./restaurant";
 
-export const catalogs = pgTable("catalogs", {
-  catalogId: uuid("catalog_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  outletId: uuid("outlet_id").references(() => outlets.outletId),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const catalogs = pgTable(
+  "catalogs",
+  {
+    catalogId: uuid("catalog_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").references(() => outlets.outletId),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_catalogs_tenant_outlet").on(table.tenantId, table.outletId),
+  ]
+);
 
-export const catalogCategories = pgTable("catalog_categories", {
-  categoryId: uuid("category_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  catalogId: uuid("catalog_id").notNull().references(() => catalogs.catalogId, { onDelete: "cascade" }),
-  name: varchar("name", { length: 100 }).notNull(),
-  displayOrder: integer("display_order").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const catalogCategories = pgTable(
+  "catalog_categories",
+  {
+    categoryId: uuid("category_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    catalogId: uuid("catalog_id").notNull().references(() => catalogs.catalogId, { onDelete: "cascade" }),
+    name: varchar("name", { length: 100 }).notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_catalog_categories_catalog_order").on(table.catalogId, table.displayOrder),
+    index("idx_catalog_categories_tenant").on(table.tenantId, table.catalogId),
+  ]
+);
 
-export const catalogItems = pgTable("catalog_items", {
-  itemId: uuid("item_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  categoryId: uuid("category_id").notNull().references(() => catalogCategories.categoryId),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  sku: varchar("sku", { length: 100 }),
-  basePrice: numeric("base_price", { precision: 14, scale: 4 }).notNull(),
-  taxRate: numeric("tax_rate", { precision: 6, scale: 4 }).notNull().default("0.0500"),
-  isAvailable: boolean("is_available").notNull().default(true),
-  fulfillmentStation: varchar("fulfillment_station", { length: 50 }).notNull().default("KITCHEN"),
-  imageUrl: text("image_url"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const catalogItems = pgTable(
+  "catalog_items",
+  {
+    itemId: uuid("item_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    categoryId: uuid("category_id").notNull().references(() => catalogCategories.categoryId),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    sku: varchar("sku", { length: 100 }),
+    basePrice: numeric("base_price", { precision: 14, scale: 4 }).notNull(),
+    taxRate: numeric("tax_rate", { precision: 6, scale: 4 }).notNull().default("0.0500"),
+    isAvailable: boolean("is_available").notNull().default(true),
+    fulfillmentStation: varchar("fulfillment_station", { length: 50 }).notNull().default("KITCHEN"),
+    imageUrl: text("image_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_catalog_items_category_avail").on(table.categoryId, table.isAvailable),
+    index("idx_catalog_items_tenant_avail").on(table.tenantId, table.isAvailable),
+  ]
+);
 
 export const orders = pgTable(
   "orders",
@@ -165,44 +185,61 @@ export const orderStatusHistory = pgTable("order_status_history", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const bills = pgTable("bills", {
-  billId: uuid("bill_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
-  contextId: uuid("context_id").references(() => businessContexts.contextId),
-  billNumber: varchar("bill_number", { length: 50 }).notNull(),
-  status: varchar("status", { length: 50 }).notNull().default("OPEN"),
-  subtotalAmount: numeric("subtotal_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  settledAmount: numeric("settled_amount", { precision: 14, scale: 4 }).notNull().default("0"),
-  idempotencyKey: varchar("idempotency_key", { length: 100 }),
-  settledAt: timestamp("settled_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const bills = pgTable(
+  "bills",
+  {
+    billId: uuid("bill_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    contextId: uuid("context_id").references(() => businessContexts.contextId),
+    billNumber: varchar("bill_number", { length: 50 }).notNull(),
+    status: varchar("status", { length: 50 }).notNull().default("OPEN"),
+    subtotalAmount: numeric("subtotal_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    settledAmount: numeric("settled_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    idempotencyKey: varchar("idempotency_key", { length: 100 }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_bills_outlet_number").on(table.outletId, table.billNumber),
+    index("idx_bills_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_bills_tenant_status").on(table.tenantId, table.status),
+    index("idx_bills_context").on(table.contextId),
+  ]
+);
 
 // Canonical Ledger: Payment Transactions
-export const paymentTransactions = pgTable("payment_transactions", {
-  paymentId: uuid("payment_id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
-  outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
-  billId: uuid("bill_id").references(() => bills.billId),
-  paymentMethod: varchar("payment_method", { length: 50 }).notNull(), // 'CASH', 'UPI', 'CARD', 'NETBANKING', 'GATEWAY', 'HOUSE_ACCOUNT'
-  gatewayProvider: varchar("gateway_provider", { length: 50 }).notNull().default("MOCK"),
-  gatewayTransactionReference: varchar("gateway_transaction_reference", { length: 100 }),
-  gatewayMetadata: jsonb("gateway_metadata").default({}),
-  amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
-  currency: varchar("currency", { length: 3 }).notNull().default("INR"),
-  status: varchar("status", { length: 50 }).notNull().default("PENDING"),
-  idempotencyKey: varchar("idempotency_key", { length: 100 }).unique(),
-  errorCode: varchar("error_code", { length: 100 }),
-  errorDescription: text("error_description"),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const paymentTransactions = pgTable(
+  "payment_transactions",
+  {
+    paymentId: uuid("payment_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    billId: uuid("bill_id").references(() => bills.billId),
+    paymentMethod: varchar("payment_method", { length: 50 }).notNull(), // 'CASH', 'UPI', 'CARD', 'NETBANKING', 'GATEWAY', 'HOUSE_ACCOUNT'
+    gatewayProvider: varchar("gateway_provider", { length: 50 }).notNull().default("MOCK"),
+    gatewayTransactionReference: varchar("gateway_transaction_reference", { length: 100 }),
+    gatewayMetadata: jsonb("gateway_metadata").default({}),
+    amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
+    currency: varchar("currency", { length: 3 }).notNull().default("INR"),
+    status: varchar("status", { length: 50 }).notNull().default("PENDING"),
+    idempotencyKey: varchar("idempotency_key", { length: 100 }).unique(),
+    errorCode: varchar("error_code", { length: 100 }),
+    errorDescription: text("error_description"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_payment_tx_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_payment_tx_bill").on(table.billId),
+    index("idx_payment_tx_tenant_status").on(table.tenantId, table.status),
+  ]
+);
 
 // Canonical Ledger: Payment Refunds
 export const paymentRefunds = pgTable("payment_refunds", {
@@ -289,6 +326,7 @@ export const serviceRequests = pgTable(
   },
   (table) => [
     index("idx_service_requests_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_service_requests_tenant_outlet_type").on(table.tenantId, table.outletId, table.requestType),
     index("idx_service_requests_context").on(table.contextId),
     index("idx_service_requests_status").on(table.status),
     index("idx_service_requests_assigned").on(table.assignedToStaffId),

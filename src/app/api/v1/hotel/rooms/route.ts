@@ -49,15 +49,21 @@ export async function GET(req: NextRequest) {
     const operationalStatus = req.nextUrl.searchParams.get("operationalStatus") || undefined;
     const housekeepingStatus = req.nextUrl.searchParams.get("housekeepingStatus") || undefined;
     const roomTypeId = req.nextUrl.searchParams.get("roomTypeId") || undefined;
+    const limitParam = req.nextUrl.searchParams.get("limit");
+    const offsetParam = req.nextUrl.searchParams.get("offset");
+    const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || 50), 100) : 50;
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
 
     const rooms = await listRooms(tenantId, outletId, {
       floorNumber,
       operationalStatus,
       housekeepingStatus,
       roomTypeId,
+      limit,
+      offset,
     });
 
-    return apiSuccess(rooms, ctx.requestId, 200, { outletId });
+    return apiSuccess(rooms, ctx.requestId, 200, { outletId, limit, offset, count: rooms.length });
   } catch (err) {
     return apiError(err);
   }

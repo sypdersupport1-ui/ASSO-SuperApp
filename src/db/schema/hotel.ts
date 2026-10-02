@@ -70,6 +70,10 @@ export const hotelRooms = pgTable(
   },
   (table) => [
     uniqueIndex("uq_hotel_rooms_outlet_number").on(table.outletId, table.roomNumber),
+    index("idx_hotel_rooms_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_hotel_rooms_context").on(table.contextId),
+    index("idx_hotel_rooms_room_type").on(table.roomTypeId),
+    index("idx_hotel_rooms_status").on(table.tenantId, table.operationalStatus),
   ]
 );
 
@@ -169,6 +173,8 @@ export const hotelStays = pgTable(
   (table) => [
     uniqueIndex("uq_hotel_stays_outlet_number").on(table.outletId, table.stayNumber),
     index("idx_hotel_stays_tenant_status").on(table.tenantId, table.status),
+    index("idx_hotel_stays_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_hotel_stays_room_status").on(table.tenantId, table.roomId, table.status),
     index("idx_hotel_stays_reservation").on(table.reservationId),
     index("idx_hotel_stays_room").on(table.roomId),
     index("idx_hotel_stays_guest").on(table.guestId),
@@ -231,6 +237,7 @@ export const hotelHousekeepingTasks = pgTable(
   },
   (table) => [
     index("idx_hk_tasks_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_hk_tasks_tenant_outlet_status").on(table.tenantId, table.outletId, table.status),
     index("idx_hk_tasks_room").on(table.roomId),
     index("idx_hk_tasks_status").on(table.status),
     index("idx_hk_tasks_assigned").on(table.assignedStaffId),

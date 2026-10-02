@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray, or, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { outlets, customers } from "@/db/schema/core";
 import { businessContexts } from "@/db/schema/context";
@@ -314,6 +314,8 @@ export async function listRooms(
     operationalStatus?: string;
     housekeepingStatus?: string;
     roomTypeId?: string;
+    limit?: number;
+    offset?: number;
   }
 ) {
   const db = getDb();
@@ -337,6 +339,9 @@ export async function listRooms(
     conditions.push(eq(hotelRooms.roomTypeId, filters.roomTypeId));
   }
 
+  const safeLimit = Math.min(Math.max(1, filters?.limit || 100), 200);
+  const safeOffset = Math.max(0, filters?.offset || 0);
+
   const rows = await db
     .select({
       roomId: hotelRooms.roomId,
@@ -359,9 +364,17 @@ export async function listRooms(
     .from(hotelRooms)
     .innerJoin(hotelRoomTypes, eq(hotelRooms.roomTypeId, hotelRoomTypes.roomTypeId))
     .where(and(...conditions))
-    .orderBy(hotelRooms.floorNumber, hotelRooms.roomNumber);
+    .orderBy(hotelRooms.floorNumber, hotelRooms.roomNumber)
+    .limit(safeLimit)
+    .offset(safeOffset);
 
-  // Fetch active stays for rooms in this property
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const roomIds = rows.map((r) => r.roomId);
+
+  // Fetch active stays scoped strictly to these room IDs
   const activeStays = await db
     .select({
       roomId: hotelStays.roomId,
@@ -377,6 +390,7 @@ export async function listRooms(
       and(
         eq(hotelStays.tenantId, tenantId),
         eq(hotelStays.outletId, outletId),
+        inArray(hotelStays.roomId, roomIds),
         eq(hotelStays.status, "ACTIVE")
       )
     );
@@ -667,38 +681,40 @@ export async function getHotelDashboardMetrics(
 
   const occupancyRatePct = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
 
-  // Compute stay metrics from PostgreSQL
-  const stays = await db
-    .select({
-      stayId: hotelStays.stayId,
-      checkInAt: hotelStays.checkInAt,
-      actualCheckOutAt: hotelStays.actualCheckOutAt,
-      status: hotelStays.status,
-    })
-    .from(hotelStays)
-    .where(
-      and(
-        eq(hotelStays.tenantId, tenantId),
-        eq(hotelStays.outletId, outletId)
-      )
-    );
-
+  // Compute stay metrics from PostgreSQL using conditional aggregation
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
 
-  let activeStaysCount = 0;
-  let todayCheckInsCount = 0;
-  let todayCheckOutsCount = 0;
+  const [stayMetrics] = await db
+    .select({
+      activeStaysCount: sql<number>`count(*) filter (where ${hotelStays.status} = 'ACTIVE')::int`,
+      todayCheckInsCount: sql<number>`count(*) filter (where ${hotelStays.checkInAt} >= ${todayStart.toISOString()}::timestamptz and ${hotelStays.checkInAt} <= ${todayEnd.toISOString()}::timestamptz)::int`,
+      todayCheckOutsCount: sql<number>`count(*) filter (where ${hotelStays.actualCheckOutAt} >= ${todayStart.toISOString()}::timestamptz and ${hotelStays.actualCheckOutAt} <= ${todayEnd.toISOString()}::timestamptz)::int`,
+    })
+    .from(hotelStays)
+    .where(
+      and(
+        eq(hotelStays.tenantId, tenantId),
+        eq(hotelStays.outletId, outletId),
+        or(
+          eq(hotelStays.status, "ACTIVE"),
+          and(
+            gte(hotelStays.checkInAt, todayStart),
+            lte(hotelStays.checkInAt, todayEnd)
+          ),
+          and(
+            gte(hotelStays.actualCheckOutAt, todayStart),
+            lte(hotelStays.actualCheckOutAt, todayEnd)
+          )
+        )
+      )
+    );
 
-  for (const s of stays) {
-    if (s.status === "ACTIVE") activeStaysCount++;
-    if (s.checkInAt >= todayStart && s.checkInAt <= todayEnd) todayCheckInsCount++;
-    if (s.actualCheckOutAt && s.actualCheckOutAt >= todayStart && s.actualCheckOutAt <= todayEnd) {
-      todayCheckOutsCount++;
-    }
-  }
+  const activeStaysCount = stayMetrics?.activeStaysCount ?? 0;
+  const todayCheckInsCount = stayMetrics?.todayCheckInsCount ?? 0;
+  const todayCheckOutsCount = stayMetrics?.todayCheckOutsCount ?? 0;
 
   return {
     totalRooms,

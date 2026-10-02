@@ -1,6 +1,7 @@
 import { OutboxEvent, OutboxEventHandler, ProcessEventResult } from "./types";
 import { CommunicationEventHandler } from "./handlers/communication-handler";
 import { KdsEventHandler } from "./handlers/kds-handler";
+import { AnalyticsEventHandler } from "./handlers/analytics-handler";
 import { logger } from "@/lib/logger";
 
 export class OutboxDispatcher {
@@ -9,6 +10,7 @@ export class OutboxDispatcher {
   constructor() {
     this.registerHandler(new CommunicationEventHandler());
     this.registerHandler(new KdsEventHandler());
+    this.registerHandler(new AnalyticsEventHandler());
   }
 
   registerHandler(handler: OutboxEventHandler): void {

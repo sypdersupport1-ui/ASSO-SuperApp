@@ -49,7 +49,11 @@ export const auditEvents = pgTable(
     ipAddress: varchar("ip_address", { length: 50 }),
     userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  }
+  },
+  (table) => [
+    index("idx_audit_events_tenant_created").on(table.tenantId, table.createdAt),
+    index("idx_audit_events_resource").on(table.resourceType, table.resourceId),
+  ]
 );
 
 export const fileRecords = pgTable(

@@ -52,6 +52,8 @@ export const restaurantTables = pgTable(
     index("idx_restaurant_tables_tenant_outlet").on(table.tenantId, table.outletId),
     index("idx_restaurant_tables_context_id").on(table.contextId),
     index("idx_restaurant_tables_status").on(table.tenantId, table.status),
+    index("idx_restaurant_tables_tenant_outlet_status").on(table.tenantId, table.outletId, table.status),
+    index("idx_restaurant_tables_tenant_outlet_sec").on(table.tenantId, table.outletId, table.section),
   ]
 );
 
@@ -94,6 +96,7 @@ export const restaurantTableSessions = pgTable(
       .where(sql`"status" = 'ACTIVE'`),
     index("idx_restaurant_table_sessions_tenant_table").on(table.tenantId, table.tableId),
     index("idx_restaurant_table_sessions_status").on(table.tenantId, table.status),
+    index("idx_restaurant_table_sessions_tenant_outlet_status").on(table.tenantId, table.outletId, table.status),
   ]
 );
 

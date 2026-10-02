@@ -36,6 +36,7 @@ export const domainOutboxEvents = pgTable(
     index("idx_outbox_created_at").on(table.createdAt),
     index("idx_outbox_claimable").on(table.status, table.nextRetryAt, table.claimExpiresAt),
     index("idx_outbox_claimed_by").on(table.claimedBy),
+    index("idx_outbox_status_created").on(table.status, table.createdAt),
   ]
 );
 
@@ -91,6 +92,7 @@ export const inAppNotifications = pgTable(
     index("idx_in_app_tenant_recipient").on(table.tenantId, table.recipientType, table.recipientId),
     index("idx_in_app_tenant_role_scope").on(table.tenantId, table.roleScope),
     index("idx_in_app_created_at").on(table.createdAt),
+    index("idx_in_app_recipient_unread").on(table.tenantId, table.recipientId, table.isRead),
   ]
 );
 

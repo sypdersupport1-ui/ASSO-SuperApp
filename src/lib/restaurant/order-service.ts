@@ -625,10 +625,106 @@ export async function listCustomerSessionOrders(
     .orderBy(desc(orders.createdAt))
     .limit(safeLimit);
 
-  const results: CustomerOrderResponseDto[] = [];
-  for (const ord of sessionOrders) {
-    results.push(await formatExistingOrderResponse(tenantId, ord));
+  if (sessionOrders.length === 0) {
+    return [];
   }
 
-  return results;
+  const orderIds = sessionOrders.map((o) => o.orderId);
+  const tableIds = Array.from(new Set(sessionOrders.map((o) => o.tableId).filter(Boolean))) as string[];
+  const customerIds = Array.from(new Set(sessionOrders.map((o) => o.customerId).filter(Boolean))) as string[];
+
+  // Batch 1: Order items
+  const allItems = await db
+    .select()
+    .from(orderItems)
+    .where(
+      and(
+        eq(orderItems.tenantId, tenantId),
+        inArray(orderItems.orderId, orderIds)
+      )
+    );
+
+  const itemsByOrderId = new Map<string, typeof allItems>();
+  for (const item of allItems) {
+    let list = itemsByOrderId.get(item.orderId);
+    if (!list) {
+      list = [];
+      itemsByOrderId.set(item.orderId, list);
+    }
+    list.push(item);
+  }
+
+  // Batch 2: Tables
+  const tableMap = new Map<string, string>();
+  if (tableIds.length > 0) {
+    const tableRows = await db
+      .select({ tableId: restaurantTables.tableId, tableNumber: restaurantTables.tableNumber })
+      .from(restaurantTables)
+      .where(
+        and(
+          eq(restaurantTables.tenantId, tenantId),
+          inArray(restaurantTables.tableId, tableIds)
+        )
+      );
+    for (const t of tableRows) {
+      tableMap.set(t.tableId, t.tableNumber);
+    }
+  }
+
+  // Batch 3: Customers
+  const customerMap = new Map<string, string>();
+  if (customerIds.length > 0) {
+    const customerRows = await db
+      .select({ customerId: customers.customerId, fullName: customers.fullName })
+      .from(customers)
+      .where(
+        and(
+          eq(customers.tenantId, tenantId),
+          inArray(customers.customerId, customerIds)
+        )
+      );
+    for (const c of customerRows) {
+      customerMap.set(c.customerId, c.fullName);
+    }
+  }
+
+  return sessionOrders.map((existingOrder) => {
+    const items = itemsByOrderId.get(existingOrder.orderId) || [];
+    const tableNumber = (existingOrder.tableId && tableMap.get(existingOrder.tableId)) || "Unknown";
+    const customerName = (existingOrder.customerId && customerMap.get(existingOrder.customerId)) || null;
+
+    return {
+      orderId: existingOrder.orderId,
+      orderNumber: existingOrder.orderNumber,
+      status: existingOrder.status as OrderStatus,
+      displayStatus: mapToCustomerOrderStatus(existingOrder.status),
+      tableNumber,
+      tableSessionId: existingOrder.tableSessionId || "",
+      customerId: existingOrder.customerId,
+      customerName,
+      diningContext: existingOrder.diningContext,
+      orderSource: existingOrder.orderSource,
+      subtotalAmount: Decimal.from(existingOrder.subtotalAmount).toFixed(2),
+      taxRate: Decimal.from(existingOrder.taxRate || "0").toFixed(4),
+      taxAmount: Decimal.from(existingOrder.taxAmount || "0").toFixed(2),
+      platformFeeType: existingOrder.platformFeeType || "PERCENTAGE",
+      platformFeeRate: Decimal.from(existingOrder.platformFeeRate || "0").toFixed(4),
+      platformFeeAmount: Decimal.from(existingOrder.platformFeeAmount || "0").toFixed(2),
+      discountAmount: Decimal.from(existingOrder.discountAmount || "0").toFixed(2),
+      totalAmount: Decimal.from(existingOrder.totalAmount).toFixed(2),
+      itemCount: items.length,
+      items: items.map((it) => ({
+        orderItemId: it.orderItemId,
+        itemId: it.itemId,
+        itemName: it.itemName,
+        unitPrice: Decimal.from(it.unitPrice).toFixed(2),
+        quantity: it.quantity,
+        subtotal: Decimal.from(it.subtotal).toFixed(2),
+        fulfillmentStation: it.fulfillmentStation,
+        specialNotes: it.specialNotes,
+      })),
+      guestNotes: null,
+      createdAt: existingOrder.createdAt.toISOString(),
+    };
+  });
 }

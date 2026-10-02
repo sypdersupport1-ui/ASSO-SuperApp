@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, timestamp, check, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const organizations = pgTable(
@@ -30,7 +30,10 @@ export const outlets = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  }
+  },
+  (table) => [
+    index("idx_outlets_tenant_vertical").on(table.tenantId, table.verticalType),
+  ]
 );
 
 export const users = pgTable(
@@ -100,7 +103,11 @@ export const customers = pgTable(
     email: varchar("email", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  }
+  },
+  (table) => [
+    index("idx_customers_tenant_phone").on(table.tenantId, table.phone),
+    index("idx_customers_tenant_email").on(table.tenantId, table.email),
+  ]
 );
 
 export type Customer = typeof customers.$inferSelect;

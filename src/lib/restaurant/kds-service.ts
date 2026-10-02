@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, asc } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { orders, orderItems, kdsTasks, orderStatusHistory, type NewKdsTask } from "@/db/schema/operations";
 import { logger } from "@/lib/logger";
@@ -267,4 +267,47 @@ export async function updateKdsTaskStatus(
       });
     }
   });
+}
+
+export interface KdsTaskQueryFilters {
+  outletId: string;
+  stationRouting?: string;
+  taskStatus?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Retrieves ordered KDS tasks for kitchen/station displays.
+ * Strictly bounded FIFO queue ordering (oldest pending tickets first).
+ */
+export async function listKdsTasks(
+  tenantId: string,
+  filters: KdsTaskQueryFilters
+) {
+  const db = getDb();
+
+  const conditions = [
+    eq(kdsTasks.tenantId, tenantId),
+    eq(kdsTasks.outletId, filters.outletId),
+  ];
+
+  if (filters.stationRouting) {
+    conditions.push(eq(kdsTasks.stationRouting, filters.stationRouting));
+  }
+
+  if (filters.taskStatus) {
+    conditions.push(eq(kdsTasks.taskStatus, filters.taskStatus));
+  }
+
+  const safeLimit = Math.min(Math.max(1, filters.limit || 50), 100);
+  const safeOffset = Math.max(0, filters.offset || 0);
+
+  return await db
+    .select()
+    .from(kdsTasks)
+    .where(and(...conditions))
+    .orderBy(asc(kdsTasks.createdAt))
+    .limit(safeLimit)
+    .offset(safeOffset);
 }

@@ -51,14 +51,20 @@ export async function GET(req: NextRequest) {
     const status = req.nextUrl.searchParams.get("status") || undefined;
     const isActiveParam = req.nextUrl.searchParams.get("isActive");
     const isActive = isActiveParam !== null ? isActiveParam === "true" : undefined;
+    const limitParam = req.nextUrl.searchParams.get("limit");
+    const offsetParam = req.nextUrl.searchParams.get("offset");
+    const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || 50), 100) : 50;
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
 
     const tables = await listTables(tenantId, outletId, {
       section,
       status,
       isActive,
+      limit,
+      offset,
     });
 
-    return apiSuccess(tables, ctx.requestId, 200, { outletId });
+    return apiSuccess(tables, ctx.requestId, 200, { outletId, limit, offset, count: tables.length });
   } catch (err) {
     return apiError(err);
   }

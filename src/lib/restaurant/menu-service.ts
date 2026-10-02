@@ -1,4 +1,4 @@
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   catalogs,
@@ -360,52 +360,85 @@ export async function getRestaurantMenu(
   options: { includeUnavailable?: boolean } = {}
 ): Promise<RestaurantMenuDto> {
   const db = getDb();
-  const catalogId = await ensureRestaurantMenuCatalog(tenantId, outletId);
 
-  const [catalog] = await db
-    .select()
+  // Fast path: find active catalog for this outlet directly
+  let [catalog] = await db
+    .select({ catalogId: catalogs.catalogId, name: catalogs.name })
     .from(catalogs)
-    .where(and(eq(catalogs.catalogId, catalogId), eq(catalogs.tenantId, tenantId)))
+    .where(and(eq(catalogs.tenantId, tenantId), eq(catalogs.outletId, outletId), eq(catalogs.isActive, true)))
     .limit(1);
 
   if (!catalog) {
-    throw new NotFoundError("Catalog", "Restaurant catalog not found.");
+    const ensuredCatalogId = await ensureRestaurantMenuCatalog(tenantId, outletId);
+    const [fetched] = await db
+      .select({ catalogId: catalogs.catalogId, name: catalogs.name })
+      .from(catalogs)
+      .where(and(eq(catalogs.catalogId, ensuredCatalogId), eq(catalogs.tenantId, tenantId)))
+      .limit(1);
+    if (!fetched) {
+      throw new NotFoundError("Catalog", "Restaurant catalog not found.");
+    }
+    catalog = fetched;
   }
 
-  // Fetch categories
-  const categoryRows = await db
+  // Fetch categories for this catalog
+  const categoryConditions = [
+    eq(catalogCategories.catalogId, catalog.catalogId),
+    eq(catalogCategories.tenantId, tenantId),
+  ];
+  if (!options.includeUnavailable) {
+    categoryConditions.push(eq(catalogCategories.isActive, true));
+  }
+
+  const visibleCategories = await db
     .select()
     .from(catalogCategories)
-    .where(
-      and(
-        eq(catalogCategories.catalogId, catalogId),
-        eq(catalogCategories.tenantId, tenantId)
-      )
-    )
+    .where(and(...categoryConditions))
     .orderBy(asc(catalogCategories.displayOrder));
 
-  const visibleCategories = options.includeUnavailable
-    ? categoryRows
-    : categoryRows.filter((c) => c.isActive);
+  if (visibleCategories.length === 0) {
+    return {
+      catalogId: catalog.catalogId,
+      catalogName: catalog.name,
+      categories: [],
+    };
+  }
 
-  // Fetch all items for this tenant
+  const categoryIds = visibleCategories.map((c) => c.categoryId);
+
+  // Fetch items scoped strictly to this catalog's categories
+  const itemConditions = [
+    eq(catalogItems.tenantId, tenantId),
+    inArray(catalogItems.categoryId, categoryIds),
+  ];
+  if (!options.includeUnavailable) {
+    itemConditions.push(eq(catalogItems.isAvailable, true));
+  }
+
   const itemRows = await db
     .select()
     .from(catalogItems)
-    .where(eq(catalogItems.tenantId, tenantId));
+    .where(and(...itemConditions));
+
+  const itemsByCategoryId = new Map<string, typeof itemRows>();
+  for (const item of itemRows) {
+    let list = itemsByCategoryId.get(item.categoryId);
+    if (!list) {
+      list = [];
+      itemsByCategoryId.set(item.categoryId, list);
+    }
+    list.push(item);
+  }
 
   const categories: MenuCategoryDto[] = visibleCategories.map((cat) => {
-    let itemsForCat = itemRows.filter((item) => item.categoryId === cat.categoryId);
-    if (!options.includeUnavailable) {
-      itemsForCat = itemsForCat.filter((item) => item.isAvailable);
-    }
+    const catItems = itemsByCategoryId.get(cat.categoryId) || [];
 
     return {
       categoryId: cat.categoryId,
       name: cat.name,
       displayOrder: cat.displayOrder,
       isActive: cat.isActive,
-      items: itemsForCat.map((item) => ({
+      items: catItems.map((item) => ({
         itemId: item.itemId,
         categoryId: item.categoryId,
         name: item.name,

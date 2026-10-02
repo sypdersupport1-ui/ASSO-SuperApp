@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   restaurantTables,
@@ -144,6 +144,8 @@ export async function listTables(
     section?: string;
     status?: string;
     isActive?: boolean;
+    limit?: number;
+    offset?: number;
   }
 ) {
   const db = getDb();
@@ -163,13 +165,25 @@ export async function listTables(
     conditions.push(eq(restaurantTables.isActive, filters.isActive));
   }
 
+  const safeLimit = Math.min(Math.max(1, filters?.limit || 100), 200);
+  const safeOffset = Math.max(0, filters?.offset || 0);
+
   const tables = await db
     .select()
     .from(restaurantTables)
     .where(and(...conditions))
-    .orderBy(restaurantTables.section, restaurantTables.tableNumber);
+    .orderBy(restaurantTables.section, restaurantTables.tableNumber)
+    .limit(safeLimit)
+    .offset(safeOffset);
 
-  // Fetch active sessions for these tables
+  if (tables.length === 0) {
+    return [];
+  }
+
+  const tableIds = tables.map((t) => t.tableId);
+  const contextIds = tables.map((t) => t.contextId);
+
+  // Fetch active sessions scoped strictly to these table IDs
   const activeSessions = await db
     .select()
     .from(restaurantTableSessions)
@@ -177,13 +191,14 @@ export async function listTables(
       and(
         eq(restaurantTableSessions.tenantId, tenantId),
         eq(restaurantTableSessions.outletId, outletId),
+        inArray(restaurantTableSessions.tableId, tableIds),
         eq(restaurantTableSessions.status, "ACTIVE")
       )
     );
 
   const sessionMap = new Map(activeSessions.map((s) => [s.tableId, s]));
 
-  // Fetch active QR tokens
+  // Fetch active QR tokens scoped strictly to these context IDs
   const activeTokens = await db
     .select({
       contextId: qrTokens.contextId,
@@ -196,6 +211,7 @@ export async function listTables(
       and(
         eq(qrTokens.tenantId, tenantId),
         eq(qrTokens.outletId, outletId),
+        inArray(qrTokens.contextId, contextIds),
         eq(qrTokens.tokenStatus, "ACTIVE")
       )
     );
@@ -629,13 +645,16 @@ export async function getTableSummaryMetrics(
 ): Promise<TableSummaryMetrics> {
   const db = getDb();
 
-  const tables = await db
+  // 1. Single database-side aggregation for table operational counts
+  const [aggregates] = await db
     .select({
-      tableId: restaurantTables.tableId,
-      status: restaurantTables.status,
-      capacity: restaurantTables.capacity,
-      section: restaurantTables.section,
-      isActive: restaurantTables.isActive,
+      totalTables: sql<number>`count(*)::int`,
+      availableTables: sql<number>`count(*) filter (where ${restaurantTables.status} = 'AVAILABLE')::int`,
+      occupiedTables: sql<number>`count(*) filter (where ${restaurantTables.status} = 'OCCUPIED')::int`,
+      reservedTables: sql<number>`count(*) filter (where ${restaurantTables.status} = 'RESERVED')::int`,
+      cleaningTables: sql<number>`count(*) filter (where ${restaurantTables.status} = 'CLEANING')::int`,
+      outOfServiceTables: sql<number>`count(*) filter (where ${restaurantTables.status} = 'OUT_OF_SERVICE')::int`,
+      totalCapacity: sql<number>`coalesce(sum(${restaurantTables.capacity}), 0)::int`,
     })
     .from(restaurantTables)
     .where(
@@ -646,47 +665,34 @@ export async function getTableSummaryMetrics(
       )
     );
 
-  let totalTables = tables.length;
-  let availableTables = 0;
-  let occupiedTables = 0;
-  let reservedTables = 0;
-  let cleaningTables = 0;
-  let outOfServiceTables = 0;
-  let totalCapacity = 0;
+  const totalTables = aggregates?.totalTables ?? 0;
+  const availableTables = aggregates?.availableTables ?? 0;
+  const occupiedTables = aggregates?.occupiedTables ?? 0;
+  const reservedTables = aggregates?.reservedTables ?? 0;
+  const cleaningTables = aggregates?.cleaningTables ?? 0;
+  const outOfServiceTables = aggregates?.outOfServiceTables ?? 0;
+  const totalCapacity = aggregates?.totalCapacity ?? 0;
 
-  const sectionMap = new Map<string, { total: number; available: number; occupied: number }>();
+  // 2. Section breakdown via SQL group by
+  const sectionRows = await db
+    .select({
+      section: restaurantTables.section,
+      total: sql<number>`count(*)::int`,
+      available: sql<number>`count(*) filter (where ${restaurantTables.status} = 'AVAILABLE')::int`,
+      occupied: sql<number>`count(*) filter (where ${restaurantTables.status} = 'OCCUPIED')::int`,
+    })
+    .from(restaurantTables)
+    .where(
+      and(
+        eq(restaurantTables.tenantId, tenantId),
+        eq(restaurantTables.outletId, outletId),
+        eq(restaurantTables.isActive, true)
+      )
+    )
+    .groupBy(restaurantTables.section)
+    .orderBy(restaurantTables.section);
 
-  for (const t of tables) {
-    totalCapacity += t.capacity;
-
-    if (!sectionMap.has(t.section)) {
-      sectionMap.set(t.section, { total: 0, available: 0, occupied: 0 });
-    }
-    const sec = sectionMap.get(t.section)!;
-    sec.total += 1;
-
-    switch (t.status) {
-      case "AVAILABLE":
-        availableTables += 1;
-        sec.available += 1;
-        break;
-      case "OCCUPIED":
-        occupiedTables += 1;
-        sec.occupied += 1;
-        break;
-      case "RESERVED":
-        reservedTables += 1;
-        break;
-      case "CLEANING":
-        cleaningTables += 1;
-        break;
-      case "OUT_OF_SERVICE":
-        outOfServiceTables += 1;
-        break;
-    }
-  }
-
-  // Active dining sessions count
+  // 3. Active dining sessions count
   const [sessionCount] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(restaurantTableSessions)
@@ -701,11 +707,6 @@ export async function getTableSummaryMetrics(
   const activeSessionsCount = sessionCount?.count ?? 0;
   const occupancyRatePct = totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0;
 
-  const sectionBreakdown = Array.from(sectionMap.entries()).map(([section, data]) => ({
-    section,
-    ...data,
-  }));
-
   return {
     totalTables,
     availableTables,
@@ -716,6 +717,6 @@ export async function getTableSummaryMetrics(
     totalCapacity,
     activeSessionsCount,
     occupancyRatePct,
-    sectionBreakdown,
+    sectionBreakdown: sectionRows,
   };
 }

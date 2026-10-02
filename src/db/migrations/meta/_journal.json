@@ -134,6 +134,13 @@
       "when": 1790938000000,
       "tag": "0018_outbox_worker_leasing",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790941000000,
+      "tag": "0019_scale_foundation_s6_read_analytics",
+      "breakpoints": true
     }
   ]
 }
