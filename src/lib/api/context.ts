@@ -60,7 +60,7 @@ export function extractRequestContext(req: NextRequest, options: SecurityOptions
   }
 
   if (options.requiredPermission && user) {
-    assertPermission(user, options.requiredPermission);
+    assertPermission(user, options.requiredPermission, tenantId);
   }
 
   if (options.policyAction && user && tenantId) {

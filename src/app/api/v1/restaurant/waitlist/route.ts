@@ -3,6 +3,7 @@ import { z } from "zod";
 import { extractRequestContext } from "@/lib/api/context";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { ValidationError, PermissionDeniedError } from "@/lib/api/errors";
+import { assertPermission } from "@/lib/auth/rbac";
 import {
   listWaitlist,
   addToWaitlist,
@@ -106,15 +107,7 @@ export async function POST(req: NextRequest) {
 
     // RBAC validation:
     if (ctx.user?.sessionType === "STAFF") {
-      const perms = ctx.user.permissions || [];
-      const hasPerm =
-        ctx.user.isSuperAdmin ||
-        perms.includes("restaurant.*") ||
-        perms.includes("restaurant.waitlist.manage") ||
-        perms.includes("restaurant.tables.manage");
-      if (!hasPerm) {
-        throw new PermissionDeniedError("restaurant.waitlist.manage");
-      }
+      assertPermission(ctx.user, "restaurant.waitlist.manage", tenantId);
     }
 
     // Idempotency check

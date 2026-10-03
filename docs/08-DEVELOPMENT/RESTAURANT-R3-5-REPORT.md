@@ -2,9 +2,13 @@
 ## Final Delivery Verification Report
 
 ### 1. Verification Verdict
-**VERDICT: ACCEPTED & FULLY VERIFIED (PASS)**
+**VERDICT: APPROVED & FULLY ACCEPTED (PASS)**
 
-Restaurant R3.5 (Table Reservations & Waitlist Management) has been implemented and verified on top of the accepted Phase 8 shared communication, S1–S6 scale foundations, and Restaurant R1–R3.4 baselines without regressing existing flows, compromising tenant isolation, creating duplicate table domains, or altering financial ledgers.
+Restaurant R3.5 (Table Reservations & Waitlist Management) has been fully implemented, reconciled, and verified on top of the accepted Phase 8 shared communication, S1–S6 scale foundations, and Restaurant R1–R3.4 baselines without regressing existing flows, compromising tenant isolation, creating duplicate table domains, or altering financial ledgers.
+
+Both final acceptance criteria have been conclusively met:
+1. **Hotel Admin / Hotel Restaurant Authorization Reconciled**: Confirmed and tested that `HOTEL_ADMIN` retains owner-level authority over the Hotel Restaurant module when both `HOTEL` and `RESTAURANT` are entitled on the tenant, while remaining strictly denied on standalone restaurant tenants.
+2. **Vercel Preview Mutation Verification Completed**: Executed a safe, reversible 10-point remote mutation smoke test on Vercel Preview using synthetic fixtures with zero disruption to shared state, verifying idempotency, DB persistence, error guards, and transactional outbox event emission.
 
 ---
 
@@ -128,13 +132,21 @@ Restaurant R3.5 (Table Reservations & Waitlist Management) has been implemented 
 ---
 
 ### 10. RBAC / Security / Tenant Isolation
-- **Role Permissions**:
-  - `RESTAURANT_MANAGER`: Full management (`restaurant.*`, `restaurant.reservations.manage`, `restaurant.waitlist.manage`).
-  - `RESTAURANT_STAFF`: Operational handling (`restaurant.reservations.view`, `restaurant.reservations.manage`, `restaurant.waitlist.view`, `restaurant.waitlist.manage`).
-  - `GUEST`: Restricted to public booking creation; denied access to staff administrative lists and queue manipulation.
-  - `HOTEL_ADMIN`: Confined to hotel domains; blocked from restaurant reservation/waitlist mutation.
+- **Role Permissions & Scoping**:
+  - **Standalone Restaurant Tenant**:
+    - `RESTAURANT_MANAGER`: Full management (`restaurant.*`, `restaurant.reservations.manage`, `restaurant.waitlist.manage`).
+    - `RESTAURANT_STAFF`: Operational handling (`restaurant.reservations.view`, `restaurant.reservations.manage`, `restaurant.waitlist.view`, `restaurant.waitlist.manage`).
+    - `HOTEL_ADMIN`: Denied (403 `PERMISSION_DENIED`). In a standalone restaurant business without the Hotel vertical module enabled, Hotel Admin possesses no authority.
+  - **Hotel Tenant with Restaurant Module Enabled**:
+    - `HOTEL_ADMIN`: Holds owner-level authority over the Hotel business, including the enabled Hotel Restaurant module (`restaurant.*`). Can create, manage, and cancel dining reservations and walk-in waitlist entries.
+    - `HOTEL_MANAGER`: Confined to delegated hotel operational scope (`hotel.*`); denied restaurant management operations (403 `PERMISSION_DENIED`).
+    - `RESTAURANT_MANAGER`: Retains delegated operational authority over the restaurant module within the hotel business.
+  - **Hotel Tenant without Restaurant Module**:
+    - `HOTEL_ADMIN`: Denied access to restaurant endpoints (403 `MODULE_NOT_ENTITLED`).
+  - `GUEST`: Confined strictly to public booking creation; denied access to staff administrative lists, status transitions, table assignments, and queue manipulation (403 `PERMISSION_DENIED`).
 - **Tenant Isolation**:
-  - Multi-tenant boundary verified with tests: cross-tenant reservation queries and status mutations return 404 / 0 rows.
+  - Server-authoritative Layer 2 tenant isolation ensures `HOTEL_ADMIN` cannot access or mutate reservations or waitlist records in other tenants (returns 404 / 0 rows).
+  - Cross-tenant reservation queries and status mutations return 404 / 0 rows.
 
 ---
 
@@ -165,20 +177,35 @@ Restaurant R3.5 (Table Reservations & Waitlist Management) has been implemented 
 
 ---
 
-### 14. Tests
-- **Dedicated R3.5 Integration Tests**: `tests/integration/restaurant-r3-5-reservations.test.ts` (25/25 passed).
-- **Security Tests**: `tests/security/` (42/42 passed).
-- **RLS Verification**: `scripts/verify-supabase-native-rls.ts` (11/11 passed).
-- **Full Test Suite**: `npm test` (543/543 passed across 44 test files).
-- **Load Regression**: `npm run test:load` (20/20 scenarios passed, 0% errors across all levels).
+### 14. Automated Tests
+- **Dedicated R3.5 Integration Tests**: `tests/integration/restaurant-r3-5-reservations.test.ts` (**31/31 passed**, 100%).
+  - Section 1: Reservation lifecycle and states (6 tests)
+  - Section 2: Waitlist queue management and auto-reindexing (5 tests)
+  - Section 3: Availability calculations & conflict detection (5 tests)
+  - Section 4: Table assignment & atomic seating handshake (4 tests)
+  - Section 5: Multi-tenant isolation & reconciled RBAC matrix (11 tests):
+    - Standalone Restaurant Manager & Staff operate within their tenant
+    - Hotel Admin blocked on standalone restaurant tenant (403 `PERMISSION_DENIED`)
+    - Hotel Admin permitted on Hotel with Restaurant module enabled (201/200)
+    - Cross-tenant isolation strictly blocks Hotel Admin across tenant boundaries (404)
+    - Hotel Manager restricted to hotel scope (403 `PERMISSION_DENIED`)
+    - Restaurant Manager retains delegated restaurant scope within Hotel tenant
+    - Hotel Admin on Hotel without Restaurant module blocked (403 `MODULE_NOT_ENTITLED`)
+    - Guest denied administrative operations (403 `PERMISSION_DENIED`)
+- **Security Tests**: `tests/security/` (**42/42 passed**, 100%, 7 test files).
+- **RLS Verification**: `scripts/verify-supabase-native-rls.ts` (**11/11 passed**, 100%).
+- **Full Test Suite**: `npm test` (**549/549 passed**, 100%, 44 test files).
+- **TypeScript Typecheck**: `npm run typecheck` (**0 errors**, code 0).
+- **Production Build**: `npm run build` (**Build successful**, code 0).
+- **Scale S6 Load Test**: `npm run test:load` (**20/20 runs passed**, 0% errors across all levels).
 
 ---
 
 ### 15. Exact Verification Command Results
 | Verification Step | Command | Result |
 |---|---|---|
-| Dedicated R3.5 Suite | `npm run test:restaurant:r3:5` | **25/25 passed** (100%) |
-| Full Test Suite | `npm test` | **543/543 passed** (100%, 44 test files) |
+| Dedicated R3.5 Suite | `npm run test:restaurant:r3:5` | **31/31 passed** (100%) |
+| Full Test Suite | `npm test` | **549/549 passed** (100%, 44 test files) |
 | Security Suite | `npm run test:security` | **42/42 passed** (100%, 7 test files) |
 | Native Supabase RLS | `npm run db:verify:rls` | **11/11 passed** (100%) |
 | TypeScript Typecheck | `npm run typecheck` | **0 errors** (code 0) |
@@ -187,23 +214,55 @@ Restaurant R3.5 (Table Reservations & Waitlist Management) has been implemented 
 
 ---
 
-### 16. Vercel Preview Verification
-- **Deployment URL**: `https://asso-super-on8enfnc4-sypdersupport1-ui.vercel.app`
-- **Environment**: `Preview`
-- **Status**: `● Ready`
-- **Verification Details**:
-  - Live PostgreSQL database connected via Supabase pooler.
-  - `GET /restaurant/reservations`: HTTP 200 OK.
-  - `GET /api/v1/restaurant/reservations`: HTTP 200 OK (returned 8 live database reservations).
-  - `GET /api/v1/restaurant/waitlist`: HTTP 200 OK (returned 3 live database waitlist entries).
-  - RLS policies and multi-tenant isolation verified live.
+### 16. Remote Vercel Preview Verification
+*Clear architectural distinction maintained between local automated test execution and remote Vercel Preview verification.*
+
+- **Target Deployment**: `https://asso-super-5fe3zhhgq-sypdersupport1-ui.vercel.app` (active preview)
+- **Environment**: `Preview` (connected to remote Supabase transactional PostgreSQL pooler)
+- **Safety Policy**: Non-destructive, reversible mutation sequence using synthetic non-PII test fixtures (`db2a7905-73bd-4255-b58d-32a3417e52a7`, `92565a10-5b08-4eeb-8cab-c997d0630910`). Zero customer PII used.
+
+#### Executed Remote E2E Mutation Sequence:
+1. **Create Test Reservation**: `POST /api/v1/restaurant/reservations` with Idempotency Key
+   - **Result**: `HTTP 201 Created`
+   - **Verified**: Synthetic reservation created (`db2a7905-73bd-4255-b58d-32a3417e52a7`, status `CONFIRMED`).
+2. **Idempotency Replay**: `POST /api/v1/restaurant/reservations` with duplicate key
+   - **Result**: `HTTP 201 Created`
+   - **Verified**: Replayed cached response with identical payload; zero duplicate records created in Supabase DB.
+3. **Database Persistence Verification**: `GET /api/v1/restaurant/reservations`
+   - **Result**: `HTTP 200 OK`
+   - **Verified**: Confirmed reservation successfully persisted in remote database.
+4. **Reservation State Restoration**: `POST /api/v1/restaurant/reservations/:id/status`
+   - **Result**: `HTTP 200 OK`
+   - **Verified**: Transitioned reservation to `CANCELLED` (reason: `Preview non-destructive smoke test cleanup`), restoring baseline state.
+5. **Create Test Waitlist Entry**: `POST /api/v1/restaurant/waitlist` with Idempotency Key
+   - **Result**: `HTTP 201 Created`
+   - **Verified**: Synthetic queue entry created (`92565a10-5b08-4eeb-8cab-c997d0630910`, status `WAITING`, position 1).
+6. **Waitlist Idempotency Replay**: `POST /api/v1/restaurant/waitlist` with duplicate key
+   - **Result**: `HTTP 201 Created`
+   - **Verified**: Replayed cached response; zero duplicate queue entries created.
+7. **Waitlist Status Transition**: `POST /api/v1/restaurant/waitlist/:id/status`
+   - **Result**: `HTTP 200 OK`
+   - **Verified**: Successfully called guest (`WAITING` -> `CALLED`).
+8. **Waitlist State Restoration**: `POST /api/v1/restaurant/waitlist/:id/status`
+   - **Result**: `HTTP 200 OK`
+   - **Verified**: Transitioned waitlist entry to `CANCELLED`, restoring clean queue state.
+9. **Validation Guard Verification**: `POST /api/v1/restaurant/reservations` with `partySize: 0`
+   - **Result**: `HTTP 400 Bad Request`
+   - **Verified**: Proper structured error payload `{"code":"VALIDATION_FAILED"}` returned; no invalid state created.
+10. **Transactional Outbox Event Verification**: Direct query against remote Supabase PostgreSQL
+    - **Result**: `VERIFIED`
+    - **Verified**: Outbox events persisted with strict tenant scoping in `domain_outbox_events`:
+      - `RESTAURANT_RESERVATION_CONFIRMED`
+      - `RESTAURANT_RESERVATION_CANCELLED`
+      - `RESTAURANT_WAITLIST_CALLED`
+- **Table Seating Safety Decision**: Table assignment and physical seating mutation was deliberately omitted against active restaurant tables in the shared development DB to avoid disrupting any real active dining sessions.
 
 ---
 
 ### 17. Git State
 - **Branch**: `feature/restaurant-r3-5-reservations`
-- **Commit Hash**: `cab985d`
-- **Commit Message**: `feat(restaurant): implement R3.5 Table Reservations and Waitlist Management`
+- **Commit Hash**: `0b3c432`
+- **Commit Message**: `fix(restaurant): reconcile Hotel Admin RBAC and verify Vercel preview mutations for R3.5 acceptance`
 - **Working Tree**: Clean
 
 ---
@@ -214,5 +273,5 @@ Restaurant R3.5 (Table Reservations & Waitlist Management) has been implemented 
 
 ---
 
-### 19. Recommended Next Phase
-- **Restaurant R3.6**: Bill Splitting, Tip Distribution & Multi-Payment Settlement.
+### 19. Next Phase
+- **Restaurant R3.6**: Bill Splitting, Tip Distribution & Multi-Payment Settlement (awaiting explicit instruction).

@@ -81,16 +81,59 @@ describe("ASSO Restaurant Vertical — Slice 3.5 Reservations & Waitlist Managem
     isSuperAdmin: false,
   });
 
+  // Hotel tenant with RESTAURANT enabled
+  const TENANT_HOTEL_REST = "33333333-3333-3333-3333-333333333333";
+  const hotelAdminTokenHotel = signJwt({
+    sub: "usr_hotel_admin_hotel",
+    tenantId: TENANT_HOTEL_REST,
+    roles: ["HOTEL_ADMIN"],
+    permissions: ["hotel.*"],
+    sessionType: "STAFF",
+    isSuperAdmin: false,
+  });
+
+  const hotelManagerTokenHotel = signJwt({
+    sub: "usr_hotel_mgr_hotel",
+    tenantId: TENANT_HOTEL_REST,
+    roles: ["HOTEL_MANAGER"],
+    permissions: ["hotel.*"],
+    sessionType: "STAFF",
+    isSuperAdmin: false,
+  });
+
+  const restaurantManagerTokenHotel = signJwt({
+    sub: "usr_rest_mgr_hotel",
+    tenantId: TENANT_HOTEL_REST,
+    roles: ["RESTAURANT_MANAGER"],
+    permissions: ["restaurant.*"],
+    sessionType: "STAFF",
+    isSuperAdmin: false,
+  });
+
+  // Hotel tenant without RESTAURANT module
+  const TENANT_HOTEL_NO_REST = "44444444-4444-4444-4444-444444444444";
+  const hotelAdminTokenNoRest = signJwt({
+    sub: "usr_hotel_admin_no_rest",
+    tenantId: TENANT_HOTEL_NO_REST,
+    roles: ["HOTEL_ADMIN"],
+    permissions: ["hotel.*"],
+    sessionType: "STAFF",
+    isSuperAdmin: false,
+  });
+
   let outletIdA: string;
   let outletIdB: string;
+  let outletIdHotel: string;
   let tableA1Id: string; // 4 seats
   let tableA2Id: string; // 2 seats
   let tableA3Id: string; // 6 seats
 
   beforeAll(async () => {
-    // Enable module entitlements for both test tenants
+    // Enable module entitlements for test tenants
     setTenantEntitlements(TENANT_A, ["CORE", "RESTAURANT", "ORDERING", "POS", "TABLE_MANAGEMENT", "QR_ORDERING", "ORDERS"]);
     setTenantEntitlements(TENANT_B, ["CORE", "RESTAURANT", "ORDERING", "POS", "TABLE_MANAGEMENT", "QR_ORDERING", "ORDERS"]);
+    setTenantEntitlements(TENANT_HOTEL_REST, ["CORE", "HOTEL", "RESTAURANT", "ORDERING", "POS", "TABLE_MANAGEMENT", "QR_ORDERING", "ORDERS"]);
+    setTenantEntitlements(TENANT_HOTEL_NO_REST, ["CORE", "HOTEL"]);
 
     // Create Outlet for Tenant A
     const outACode = `OUT_R35_${Date.now().toString().slice(-4)}`;
@@ -121,6 +164,21 @@ describe("ASSO Restaurant Vertical — Slice 3.5 Reservations & Waitlist Managem
     const jsonB = await resB.json();
     expect(resB.status).toBe(201);
     outletIdB = jsonB.data.outletId;
+
+    // Create Outlet for Hotel Tenant with Restaurant
+    const outHotelCode = `OUT_H35_${Date.now().toString().slice(-4)}`;
+    const reqH = new NextRequest("http://localhost:3000/api/v1/restaurant/outlets", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${restaurantManagerTokenHotel}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Grand Palace Dining", code: outHotelCode }),
+    });
+    const resH = await outletsPost(reqH);
+    const jsonH = await resH.json();
+    expect(resH.status).toBe(201);
+    outletIdHotel = jsonH.data.outletId;
 
     // Create 3 standard test tables for Tenant A
     const req1 = new NextRequest("http://localhost/api/v1/restaurant/tables", {
@@ -888,7 +946,9 @@ describe("ASSO Restaurant Vertical — Slice 3.5 Reservations & Waitlist Managem
       expect(res.status).toBe(403);
     });
 
-    it("denies Hotel Admin without restaurant permissions from mutating restaurant waitlist", async () => {
+    it("denies Hotel Admin on standalone restaurant tenant (lacking HOTEL entitlement) from mutating waitlist", async () => {
+      // Standalone Restaurant Tenant A has RESTAURANT entitlement, but lacks HOTEL entitlement.
+      // Therefore, HOTEL_ADMIN has no owner authority over this standalone business.
       const req = new NextRequest("http://localhost/api/v1/restaurant/waitlist", {
         method: "POST",
         headers: {
@@ -904,6 +964,156 @@ describe("ASSO Restaurant Vertical — Slice 3.5 Reservations & Waitlist Managem
       });
       const res = await waitlistPost(req);
       expect(res.status).toBe(403);
+    });
+
+    it("allows Hotel Admin to manage restaurant reservations in Hotel tenant with Restaurant module enabled", async () => {
+      // HOTEL_ADMIN is the owner-level role for the Hotel business and controls enabled modules,
+      // including the optional Hotel Restaurant module.
+      const req = new NextRequest("http://localhost/api/v1/restaurant/reservations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          customerName: "Hotel Admin Guest",
+          customerPhone: "+1555019077",
+          partySize: 4,
+          reservationDate: "2026-11-05",
+          reservationTime: "20:00",
+        }),
+      });
+      const res = await reservationsPost(req);
+      const json = await res.json();
+      expect(res.status).toBe(201);
+      expect(json.data.reservationId).toBeDefined();
+      expect(json.data.status).toBe("CONFIRMED");
+
+      // Verify Hotel Admin can view the reservation
+      const getReq = new NextRequest(`http://localhost/api/v1/restaurant/reservations/${json.data.reservationId}?outletId=${outletIdHotel}`, {
+        headers: { Authorization: `Bearer ${hotelAdminTokenHotel}` },
+      });
+      const getRes = await reservationDetailGet(getReq, { params: Promise.resolve({ id: json.data.reservationId }) });
+      expect(getRes.status).toBe(200);
+
+      // Verify Hotel Admin can transition the reservation status
+      const statusReq = new NextRequest(`http://localhost/api/v1/restaurant/reservations/${json.data.reservationId}/status`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          status: "CANCELLED",
+        }),
+      });
+      const statusRes = await reservationStatusPost(statusReq, { params: Promise.resolve({ id: json.data.reservationId }) });
+      expect(statusRes.status).toBe(200);
+    });
+
+    it("allows Hotel Admin to manage restaurant waitlist in Hotel tenant with Restaurant module enabled", async () => {
+      const req = new NextRequest("http://localhost/api/v1/restaurant/waitlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          customerName: "Hotel Waitlist Guest",
+          customerPhone: "+1555019078",
+          partySize: 2,
+        }),
+      });
+      const res = await waitlistPost(req);
+      const json = await res.json();
+      expect(res.status).toBe(201);
+      expect(json.data.waitlistId).toBeDefined();
+
+      // Verify Hotel Admin can transition waitlist status
+      const statusReq = new NextRequest(`http://localhost/api/v1/restaurant/waitlist/${json.data.waitlistId}/status`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          status: "CALLED",
+        }),
+      });
+      const statusRes = await waitlistStatusPost(statusReq, { params: Promise.resolve({ id: json.data.waitlistId }) });
+      expect(statusRes.status).toBe(200);
+    });
+
+    it("prevents Hotel Admin from crossing into an unrelated tenant (Tenant Isolation)", async () => {
+      // Hotel Admin from TENANT_HOTEL_REST tries to access reservation from Standalone TENANT_B
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/reservations/${tenantBReservationId}?outletId=${outletIdB}`, {
+        headers: { Authorization: `Bearer ${hotelAdminTokenHotel}` },
+      });
+      const res = await reservationDetailGet(req, { params: Promise.resolve({ id: tenantBReservationId }) });
+      expect(res.status).toBe(404);
+    });
+
+    it("restricts Hotel Manager to delegated hotel scope, denying restaurant mutation", async () => {
+      // HOTEL_MANAGER is a delegated hotel operations role (hotel.*) and lacks restaurant permissions
+      const req = new NextRequest("http://localhost/api/v1/restaurant/waitlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelManagerTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          customerName: "Delegated Hotel Mgr Attempt",
+          customerPhone: "+1555019079",
+          partySize: 2,
+        }),
+      });
+      const res = await waitlistPost(req);
+      expect(res.status).toBe(403);
+    });
+
+    it("allows Restaurant Manager in Hotel tenant to manage restaurant operations (delegated scope)", async () => {
+      const req = new NextRequest("http://localhost/api/v1/restaurant/waitlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${restaurantManagerTokenHotel}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          customerName: "Hotel Rest Mgr Entry",
+          customerPhone: "+1555019080",
+          partySize: 3,
+        }),
+      });
+      const res = await waitlistPost(req);
+      expect(res.status).toBe(201);
+    });
+
+    it("blocks Hotel Admin when Restaurant module is NOT entitled for the Hotel tenant", async () => {
+      const req = new NextRequest("http://localhost/api/v1/restaurant/reservations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hotelAdminTokenNoRest}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          outletId: outletIdHotel,
+          customerName: "Unentitled Module Guest",
+          customerPhone: "+1555019081",
+          partySize: 2,
+          reservationDate: "2026-11-06",
+          reservationTime: "19:00",
+        }),
+      });
+      const res = await reservationsPost(req);
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error?.code).toBe("MODULE_NOT_ENTITLED");
     });
   });
 

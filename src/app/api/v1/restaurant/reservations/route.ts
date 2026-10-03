@@ -3,6 +3,7 @@ import { z } from "zod";
 import { extractRequestContext } from "@/lib/api/context";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { ValidationError, PermissionDeniedError } from "@/lib/api/errors";
+import { assertPermission } from "@/lib/auth/rbac";
 import {
   listReservations,
   createReservation,
@@ -124,15 +125,7 @@ export async function POST(req: NextRequest) {
     // RBAC & Customer boundary checks:
     // If user is staff, check permission
     if (ctx.user?.sessionType === "STAFF") {
-      const perms = ctx.user.permissions || [];
-      const hasPerm =
-        ctx.user.isSuperAdmin ||
-        perms.includes("restaurant.*") ||
-        perms.includes("restaurant.reservations.manage") ||
-        perms.includes("restaurant.tables.manage");
-      if (!hasPerm) {
-        throw new PermissionDeniedError("restaurant.reservations.manage");
-      }
+      assertPermission(ctx.user, "restaurant.reservations.manage", tenantId);
     } else {
       // Customer-facing reservation flow: customers cannot arbitrarily assign internal tables
       if (parsed.data.assignedTableId) {
