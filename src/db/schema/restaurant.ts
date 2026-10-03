@@ -1,8 +1,8 @@
-import { pgTable, uuid, varchar, text, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { organizations, outlets, users, customers } from "./core";
+import { organizations, outlets, users, customers, staffProfiles } from "./core";
 import { businessContexts, customerSessions } from "./context";
-import { catalogItems } from "./operations";
+import { catalogItems, bills, orderItems } from "./operations";
 
 // Operational table statuses for restaurant vertical
 export const RESTAURANT_TABLE_STATUSES = [
@@ -298,3 +298,166 @@ export const restaurantWaitlist = pgTable(
 
 export type RestaurantWaitlistItem = typeof restaurantWaitlist.$inferSelect;
 export type NewRestaurantWaitlistItem = typeof restaurantWaitlist.$inferInsert;
+
+// ============================================================================
+// Restaurant R3.6: Bill Splits, Portions, Items & Tip Distribution
+// ============================================================================
+
+export const RESTAURANT_SPLIT_TYPES = [
+  "EQUAL",
+  "ITEM",
+  "CUSTOM",
+] as const;
+export type RestaurantSplitType = (typeof RESTAURANT_SPLIT_TYPES)[number];
+
+export const RESTAURANT_SPLIT_STATUSES = [
+  "ACTIVE",
+  "SETTLED",
+  "CANCELLED",
+] as const;
+export type RestaurantSplitStatus = (typeof RESTAURANT_SPLIT_STATUSES)[number];
+
+export const RESTAURANT_PORTION_STATUSES = [
+  "UNPAID",
+  "PARTIALLY_PAID",
+  "PAID",
+] as const;
+export type RestaurantPortionStatus = (typeof RESTAURANT_PORTION_STATUSES)[number];
+
+/**
+ * Restaurant Bill Splits (Splitting Scheme Header)
+ */
+export const restaurantBillSplits = pgTable(
+  "restaurant_bill_splits",
+  {
+    splitId: uuid("split_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    billId: uuid("bill_id")
+      .notNull()
+      .references(() => bills.billId, { onDelete: "cascade" }),
+    splitType: varchar("split_type", { length: 50 }).notNull(), // 'EQUAL', 'ITEM', 'CUSTOM'
+    totalPortions: integer("total_portions").notNull(),
+    status: varchar("status", { length: 50 }).notNull().default("ACTIVE"), // 'ACTIVE', 'SETTLED', 'CANCELLED'
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_bill_splits_tenant_bill").on(table.tenantId, table.billId),
+    index("idx_restaurant_bill_splits_tenant_status").on(table.tenantId, table.status),
+  ]
+);
+
+export type RestaurantBillSplit = typeof restaurantBillSplits.$inferSelect;
+export type NewRestaurantBillSplit = typeof restaurantBillSplits.$inferInsert;
+
+/**
+ * Restaurant Bill Split Portions (Individual Portion / Share)
+ */
+export const restaurantBillSplitPortions = pgTable(
+  "restaurant_bill_split_portions",
+  {
+    portionId: uuid("portion_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    splitId: uuid("split_id")
+      .notNull()
+      .references(() => restaurantBillSplits.splitId, { onDelete: "cascade" }),
+    portionNumber: integer("portion_number").notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    allocatedAmount: numeric("allocated_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    platformFeeAmount: numeric("platform_fee_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    tipAmount: numeric("tip_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull(),
+    paidAmount: numeric("paid_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    status: varchar("status", { length: 50 }).notNull().default("UNPAID"), // 'UNPAID', 'PARTIALLY_PAID', 'PAID'
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_split_portions_tenant_split").on(table.tenantId, table.splitId),
+    index("idx_restaurant_split_portions_tenant_status").on(table.tenantId, table.status),
+  ]
+);
+
+export type RestaurantBillSplitPortion = typeof restaurantBillSplitPortions.$inferSelect;
+export type NewRestaurantBillSplitPortion = typeof restaurantBillSplitPortions.$inferInsert;
+
+/**
+ * Restaurant Bill Split Items (Order Item Allocations for Item Splits)
+ */
+export const restaurantBillSplitItems = pgTable(
+  "restaurant_bill_split_items",
+  {
+    splitItemId: uuid("split_item_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    portionId: uuid("portion_id")
+      .notNull()
+      .references(() => restaurantBillSplitPortions.portionId, { onDelete: "cascade" }),
+    orderItemId: uuid("order_item_id")
+      .notNull()
+      .references(() => orderItems.orderItemId, { onDelete: "cascade" }),
+    allocatedQuantity: integer("allocated_quantity").notNull(),
+    allocatedAmount: numeric("allocated_amount", { precision: 14, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_split_items_tenant_portion").on(table.tenantId, table.portionId),
+    index("idx_restaurant_split_items_order_item").on(table.orderItemId),
+  ]
+);
+
+export type RestaurantBillSplitItem = typeof restaurantBillSplitItems.$inferSelect;
+export type NewRestaurantBillSplitItem = typeof restaurantBillSplitItems.$inferInsert;
+
+/**
+ * Restaurant Tip Distributions
+ */
+export const restaurantTipDistributions = pgTable(
+  "restaurant_tip_distributions",
+  {
+    tipDistributionId: uuid("tip_distribution_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    billId: uuid("bill_id")
+      .notNull()
+      .references(() => bills.billId, { onDelete: "cascade" }),
+    staffId: uuid("staff_id")
+      .references(() => staffProfiles.staffId, { onDelete: "set null" }),
+    recipientName: varchar("recipient_name", { length: 100 }).notNull(),
+    amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
+    percentage: numeric("percentage", { precision: 6, scale: 4 }),
+    notes: text("notes"),
+    distributedByUserId: uuid("distributed_by_user_id")
+      .references(() => users.userId, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_tip_dist_tenant_bill").on(table.tenantId, table.billId),
+    index("idx_restaurant_tip_dist_staff").on(table.tenantId, table.staffId),
+  ]
+);
+
+export type RestaurantTipDistribution = typeof restaurantTipDistributions.$inferSelect;
+export type NewRestaurantTipDistribution = typeof restaurantTipDistributions.$inferInsert;

@@ -23,6 +23,7 @@ import {
   Sparkles,
   Flame,
   Filter,
+  Receipt,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -404,6 +405,13 @@ export default function RestaurantReservationsPage() {
             <Button variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
               <Grid3X3 className="h-3.5 w-3.5 text-indigo-500" />
               Floor Map
+            </Button>
+          </Link>
+
+          <Link href="/restaurant/billing">
+            <Button variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+              <Receipt className="h-3.5 w-3.5 text-emerald-500" />
+              Billing (POS)
             </Button>
           </Link>
 

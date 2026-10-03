@@ -12,6 +12,11 @@ export const DOMAIN_EVENT_TYPES = {
   RESTAURANT_RESERVATION_CONFIRMED: "RESTAURANT_RESERVATION_CONFIRMED",
   RESTAURANT_RESERVATION_CANCELLED: "RESTAURANT_RESERVATION_CANCELLED",
   RESTAURANT_WAITLIST_CALLED: "RESTAURANT_WAITLIST_CALLED",
+  RESTAURANT_BILL_GENERATED: "RESTAURANT_BILL_GENERATED",
+  RESTAURANT_BILL_SPLIT_CREATED: "RESTAURANT_BILL_SPLIT_CREATED",
+  RESTAURANT_PAYMENT_RECEIVED: "RESTAURANT_PAYMENT_RECEIVED",
+  RESTAURANT_BILL_SETTLED: "RESTAURANT_BILL_SETTLED",
+  RESTAURANT_TIP_ALLOCATED: "RESTAURANT_TIP_ALLOCATED",
   // Shared Financial Events
   BILL_PAYMENT_SUCCESS: "BILL_PAYMENT_SUCCESS",
   BILL_GENERATED: "BILL_GENERATED",
@@ -144,6 +149,63 @@ export interface RestaurantWaitlistCalledPayload {
   customerPhone: string;
   partySize: number;
   tableNumber?: string | null;
+}
+
+export interface RestaurantBillGeneratedPayload {
+  billId: string;
+  billNumber: string;
+  tenantId: string;
+  outletId: string;
+  tableSessionId?: string | null;
+  tableNumber?: string | null;
+  totalAmount: string;
+  subtotalAmount: string;
+  taxAmount: string;
+  platformFeeAmount: string;
+  discountAmount: string;
+}
+
+export interface RestaurantBillSplitCreatedPayload {
+  billId: string;
+  splitId: string;
+  tenantId: string;
+  outletId: string;
+  splitType: string;
+  totalPortions: number;
+  totalAmount: string;
+}
+
+export interface RestaurantPaymentReceivedPayload {
+  billId: string;
+  paymentId: string;
+  portionId?: string | null;
+  tenantId: string;
+  outletId: string;
+  amount: string;
+  paymentMethod: string;
+  settledAmount: string;
+  remainingAmount: string;
+  status: string;
+}
+
+export interface RestaurantBillSettledPayload {
+  billId: string;
+  billNumber: string;
+  tenantId: string;
+  outletId: string;
+  tableSessionId?: string | null;
+  totalAmount: string;
+  settledAmount: string;
+  tipAmount: string;
+  settledAt: string;
+}
+
+export interface RestaurantTipAllocatedPayload {
+  billId: string;
+  tenantId: string;
+  outletId: string;
+  tipAmount: string;
+  distributionCount: number;
 }
 
 // ----------------------------------------------------------------------------

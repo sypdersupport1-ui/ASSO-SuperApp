@@ -29,10 +29,10 @@ const TENANT_B = "22222222-2222-2222-2222-222222222222";
 
 describe("ASSO Scale Foundation S4 — Standalone Transactional Outbox Worker", () => {
   beforeEach(async () => {
-    // Clean up test outbox events and logs
+    // Clean up test outbox events and logs across test suites
     await withPlatformScope(async (tx) => {
-      await tx`DELETE FROM communication_delivery_logs WHERE tenant_id IN (${TENANT_A}, ${TENANT_B})`;
-      await tx`DELETE FROM domain_outbox_events WHERE tenant_id IN (${TENANT_A}, ${TENANT_B})`;
+      await tx`DELETE FROM communication_delivery_logs`;
+      await tx`DELETE FROM domain_outbox_events`;
     });
   });
 

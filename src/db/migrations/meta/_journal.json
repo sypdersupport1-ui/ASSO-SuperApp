@@ -155,6 +155,13 @@
       "when": 1790947000000,
       "tag": "0021_restaurant_r3_5_reservations_waitlist",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790950000000,
+      "tag": "0022_restaurant_r3_6_billing_splits",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,7 @@ import {
   Armchair,
   LayoutGrid,
   Calendar,
+  Receipt,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -364,6 +365,17 @@ export default function RestaurantTableManagementPage() {
             >
               <Calendar className="h-4 w-4" />
               Reservations & Waitlist
+            </Button>
+          </Link>
+
+          <Link href="/restaurant/billing">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+            >
+              <Receipt className="h-4 w-4" />
+              Billing & Settlement
             </Button>
           </Link>
 

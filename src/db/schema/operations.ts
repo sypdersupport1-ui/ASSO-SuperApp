@@ -192,13 +192,18 @@ export const bills = pgTable(
     tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
     outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
     contextId: uuid("context_id").references(() => businessContexts.contextId),
+    tableSessionId: uuid("table_session_id").references(() => restaurantTableSessions.sessionId, { onDelete: "set null" }),
+    orderId: uuid("order_id").references(() => orders.orderId, { onDelete: "set null" }),
     billNumber: varchar("bill_number", { length: 50 }).notNull(),
     status: varchar("status", { length: 50 }).notNull().default("OPEN"),
     subtotalAmount: numeric("subtotal_amount", { precision: 14, scale: 4 }).notNull().default("0"),
     taxAmount: numeric("tax_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    platformFeeAmount: numeric("platform_fee_amount", { precision: 14, scale: 4 }).notNull().default("0"),
     discountAmount: numeric("discount_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    tipAmount: numeric("tip_amount", { precision: 14, scale: 4 }).notNull().default("0"),
     totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull().default("0"),
     settledAmount: numeric("settled_amount", { precision: 14, scale: 4 }).notNull().default("0"),
+    notes: text("notes"),
     idempotencyKey: varchar("idempotency_key", { length: 100 }),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -209,8 +214,13 @@ export const bills = pgTable(
     index("idx_bills_tenant_outlet").on(table.tenantId, table.outletId),
     index("idx_bills_tenant_status").on(table.tenantId, table.status),
     index("idx_bills_context").on(table.contextId),
+    index("idx_bills_tenant_session").on(table.tenantId, table.tableSessionId),
+    index("idx_bills_tenant_order").on(table.tenantId, table.orderId),
   ]
 );
+
+export type Bill = typeof bills.$inferSelect;
+export type NewBill = typeof bills.$inferInsert;
 
 // Canonical Ledger: Payment Transactions
 export const paymentTransactions = pgTable(
@@ -220,6 +230,7 @@ export const paymentTransactions = pgTable(
     tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
     outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
     billId: uuid("bill_id").references(() => bills.billId),
+    portionId: uuid("portion_id"),
     paymentMethod: varchar("payment_method", { length: 50 }).notNull(), // 'CASH', 'UPI', 'CARD', 'NETBANKING', 'GATEWAY', 'HOUSE_ACCOUNT'
     gatewayProvider: varchar("gateway_provider", { length: 50 }).notNull().default("MOCK"),
     gatewayTransactionReference: varchar("gateway_transaction_reference", { length: 100 }),
@@ -230,6 +241,8 @@ export const paymentTransactions = pgTable(
     idempotencyKey: varchar("idempotency_key", { length: 100 }).unique(),
     errorCode: varchar("error_code", { length: 100 }),
     errorDescription: text("error_description"),
+    receivedByStaffId: uuid("received_by_staff_id").references(() => users.userId, { onDelete: "set null" }),
+    notes: text("notes"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -238,8 +251,13 @@ export const paymentTransactions = pgTable(
     index("idx_payment_tx_tenant_outlet").on(table.tenantId, table.outletId),
     index("idx_payment_tx_bill").on(table.billId),
     index("idx_payment_tx_tenant_status").on(table.tenantId, table.status),
+    index("idx_payment_tx_portion").on(table.portionId),
   ]
 );
+
+export type PaymentTransaction = typeof paymentTransactions.$inferSelect;
+export type NewPaymentTransaction = typeof paymentTransactions.$inferInsert;
+
 
 // Canonical Ledger: Payment Refunds
 export const paymentRefunds = pgTable("payment_refunds", {
