@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { apiSuccess } from "@/lib/api/response";
 import { checkDatabaseHealth } from "@/db/client";
 import { realtimeHub } from "@/lib/realtime/sse";
+import { getAppEnvironment } from "@/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       status: platformStatus,
       service: "ASSO Platform Core",
       version: "0.1.0",
-      environment: process.env.NODE_ENV || "development",
+      environment: getAppEnvironment(),
       uptimeSeconds: Math.floor(process.uptime()),
       database: dbHealth,
       realtime: {
