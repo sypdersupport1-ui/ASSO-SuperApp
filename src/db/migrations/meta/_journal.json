@@ -141,6 +141,13 @@
       "when": 1790941000000,
       "tag": "0019_scale_foundation_s6_read_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790944000000,
+      "tag": "0020_restaurant_r3_4_floor_plan_tables",
+      "breakpoints": true
     }
   ]
 }

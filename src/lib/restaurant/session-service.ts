@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   restaurantTables,
@@ -6,6 +6,7 @@ import {
   type RestaurantTableSession,
 } from "@/db/schema/restaurant";
 import { businessContexts } from "@/db/schema/context";
+import { orders, orderItems } from "@/db/schema/operations";
 import { recordAuditEvent } from "@/lib/audit";
 import { realtimeHub } from "@/lib/realtime/sse";
 import { NotFoundError, BusinessRuleError, ValidationError } from "@/lib/api/errors";
@@ -22,6 +23,12 @@ export interface OpenTableSessionInput {
 export interface CloseTableSessionInput {
   notes?: string;
   nextTableStatus?: "CLEANING" | "AVAILABLE";
+}
+
+export interface TransferTableSessionInput {
+  targetTableId: string;
+  notes?: string;
+  nextSourceTableStatus?: "CLEANING" | "AVAILABLE";
 }
 
 /**
@@ -376,4 +383,339 @@ export async function listTableSessions(
     tableNumber: r.tableNumber,
     displayLabel: r.displayLabel,
   }));
+}
+
+/**
+ * Safely transfers an active dining session from one physical table to another.
+ * 
+ * Invariants & Guarantees:
+ * 1. Atomicity: Executed inside a single PostgreSQL database transaction with row-level locks (FOR UPDATE).
+ * 2. Session validation: Session must exist, belong to tenant/outlet, and be ACTIVE.
+ * 3. Source table validation: Must exist, be OCCUPIED, and match current session tableId.
+ * 4. Target table validation: Must exist, belong to tenant/outlet, be isActive=true, not OUT_OF_SERVICE.
+ * 5. Collision safety: Target table must NOT have an active session. Target table cannot equal source table.
+ * 6. Order & Ledger preservation: Existing orders and items linked to session remain intact and auditable.
+ * 7. State transitions: Source table becomes CLEANING (or AVAILABLE), target table becomes OCCUPIED.
+ * 8. Auditability: Detailed audit event recorded with source/target tables, session, user, and timestamps.
+ * 9. Realtime broadcast: Immediate notification emitted for both source and target table UI synchronization.
+ */
+export async function transferTableSession(
+  tenantId: string,
+  outletId: string,
+  sessionId: string,
+  input: TransferTableSessionInput,
+  userId?: string
+): Promise<{
+  session: RestaurantTableSession;
+  sourceTable: { tableId: string; tableNumber: string; status: string };
+  targetTable: { tableId: string; tableNumber: string; status: string };
+}> {
+  const db = getDb();
+  const targetTableId = input.targetTableId;
+
+  if (!targetTableId) {
+    throw new ValidationError("Target table ID is required for table transfer.");
+  }
+
+  const result = await db.transaction(async (tx) => {
+    // 1. Lock session row FOR UPDATE
+    const [session] = await tx
+      .select()
+      .from(restaurantTableSessions)
+      .where(
+        and(
+          eq(restaurantTableSessions.sessionId, sessionId),
+          eq(restaurantTableSessions.tenantId, tenantId),
+          eq(restaurantTableSessions.outletId, outletId)
+        )
+      )
+      .for("update");
+
+    if (!session) {
+      throw new NotFoundError("Restaurant Table Session", `Session with ID '${sessionId}' not found.`);
+    }
+
+    if (session.status !== "ACTIVE") {
+      throw new BusinessRuleError(
+        `Cannot transfer session '${session.sessionNumber}' because it is in '${session.status}' status (must be ACTIVE).`
+      );
+    }
+
+    if (session.tableId === targetTableId) {
+      throw new BusinessRuleError("Cannot transfer session to the same table.");
+    }
+
+    // 2. Lock source table row FOR UPDATE
+    const [sourceTable] = await tx
+      .select()
+      .from(restaurantTables)
+      .where(
+        and(
+          eq(restaurantTables.tableId, session.tableId),
+          eq(restaurantTables.tenantId, tenantId),
+          eq(restaurantTables.outletId, outletId)
+        )
+      )
+      .for("update");
+
+    if (!sourceTable) {
+      throw new NotFoundError("Restaurant Table", `Source table '${session.tableId}' not found.`);
+    }
+
+    // 3. Lock target table row FOR UPDATE
+    const [targetTable] = await tx
+      .select()
+      .from(restaurantTables)
+      .where(
+        and(
+          eq(restaurantTables.tableId, targetTableId),
+          eq(restaurantTables.tenantId, tenantId),
+          eq(restaurantTables.outletId, outletId)
+        )
+      )
+      .for("update");
+
+    if (!targetTable) {
+      throw new NotFoundError("Restaurant Table", `Target table '${targetTableId}' not found in this outlet.`);
+    }
+
+    if (!targetTable.isActive) {
+      throw new BusinessRuleError(`Target table ${targetTable.tableNumber} is currently inactive.`);
+    }
+
+    if (targetTable.status === "OUT_OF_SERVICE") {
+      throw new BusinessRuleError(`Target table ${targetTable.tableNumber} is OUT_OF_SERVICE and cannot receive transfers.`);
+    }
+
+    // 4. Verify target table has no active dining session
+    const [targetActiveSession] = await tx
+      .select({ sessionId: restaurantTableSessions.sessionId, sessionNumber: restaurantTableSessions.sessionNumber })
+      .from(restaurantTableSessions)
+      .where(
+        and(
+          eq(restaurantTableSessions.tableId, targetTableId),
+          eq(restaurantTableSessions.status, "ACTIVE")
+        )
+      )
+      .for("update");
+
+    if (targetActiveSession) {
+      throw new BusinessRuleError(
+        `Target table ${targetTable.tableNumber} already has an active dining session (${targetActiveSession.sessionNumber}).`
+      );
+    }
+
+    // 5. State transitions
+    const nextSourceStatus = input.nextSourceTableStatus || "CLEANING";
+    assertTableStatusTransition(sourceTable.status as any, nextSourceStatus, sourceTable.tableNumber);
+    assertTableStatusTransition(targetTable.status as any, "OCCUPIED", targetTable.tableNumber);
+
+    const now = new Date();
+    const transferNote = `[Transfer]: Moved from Table ${sourceTable.tableNumber} to Table ${targetTable.tableNumber} on ${now.toISOString()}${userId ? ` by user ${userId}` : ""}${input.notes ? ` - ${input.notes}` : ""}`;
+    const updatedNotes = session.notes ? `${session.notes}\n${transferNote}` : transferNote;
+
+    // 6. Mutate Session: update tableId to targetTable
+    const [updatedSession] = await tx
+      .update(restaurantTableSessions)
+      .set({
+        tableId: targetTable.tableId,
+        notes: updatedNotes,
+        updatedAt: now,
+      })
+      .where(eq(restaurantTableSessions.sessionId, session.sessionId))
+      .returning();
+
+    // 7. Mutate Source Table: transition to CLEANING / AVAILABLE
+    const [updatedSourceTable] = await tx
+      .update(restaurantTables)
+      .set({
+        status: nextSourceStatus,
+        updatedAt: now,
+      })
+      .where(eq(restaurantTables.tableId, sourceTable.tableId))
+      .returning();
+
+    // Sync source business context
+    await tx
+      .update(businessContexts)
+      .set({
+        status: nextSourceStatus,
+        updatedAt: now,
+      })
+      .where(eq(businessContexts.contextId, sourceTable.contextId));
+
+    // 8. Mutate Target Table: transition to OCCUPIED
+    const [updatedTargetTable] = await tx
+      .update(restaurantTables)
+      .set({
+        status: "OCCUPIED",
+        updatedAt: now,
+      })
+      .where(eq(restaurantTables.tableId, targetTable.tableId))
+      .returning();
+
+    // Sync target business context
+    await tx
+      .update(businessContexts)
+      .set({
+        status: "OCCUPIED",
+        updatedAt: now,
+      })
+      .where(eq(businessContexts.contextId, targetTable.contextId));
+
+    return {
+      session: updatedSession,
+      sourceTable: {
+        tableId: updatedSourceTable.tableId,
+        tableNumber: updatedSourceTable.tableNumber,
+        status: updatedSourceTable.status,
+      },
+      targetTable: {
+        tableId: updatedTargetTable.tableId,
+        tableNumber: updatedTargetTable.tableNumber,
+        status: updatedTargetTable.status,
+      },
+    };
+  });
+
+  // 9. Audit event
+  await recordAuditEvent({
+    tenantId,
+    userId,
+    action: "restaurant.session.transferred",
+    resourceType: "restaurant_table_session",
+    resourceId: result.session.sessionId,
+    payload: {
+      sessionId: result.session.sessionId,
+      sessionNumber: result.session.sessionNumber,
+      sourceTableId: result.sourceTable.tableId,
+      sourceTableNumber: result.sourceTable.tableNumber,
+      sourceNewStatus: result.sourceTable.status,
+      targetTableId: result.targetTable.tableId,
+      targetTableNumber: result.targetTable.tableNumber,
+      targetNewStatus: result.targetTable.status,
+      transferredByUserId: userId || null,
+      notes: input.notes || null,
+    },
+  });
+
+  // 10. Realtime broadcasts
+  await realtimeHub.broadcastToTenant(tenantId, "restaurant:table_updated", {
+    tableId: result.sourceTable.tableId,
+    tableNumber: result.sourceTable.tableNumber,
+    status: result.sourceTable.status,
+    activeSession: null,
+  });
+
+  await realtimeHub.broadcastToTenant(tenantId, "restaurant:table_updated", {
+    tableId: result.targetTable.tableId,
+    tableNumber: result.targetTable.tableNumber,
+    status: result.targetTable.status,
+    activeSession: {
+      sessionId: result.session.sessionId,
+      sessionNumber: result.session.sessionNumber,
+      guestCount: result.session.guestCount,
+      customerName: result.session.customerName,
+      openedAt: result.session.openedAt,
+    },
+  });
+
+  await realtimeHub.broadcastToTenant(tenantId, "restaurant:session_transferred", {
+    sessionId: result.session.sessionId,
+    sessionNumber: result.session.sessionNumber,
+    sourceTableId: result.sourceTable.tableId,
+    sourceTableNumber: result.sourceTable.tableNumber,
+    targetTableId: result.targetTable.tableId,
+    targetTableNumber: result.targetTable.tableNumber,
+  });
+
+  return result;
+}
+
+/**
+ * Retrieves full details for a session including physical table and active orders.
+ */
+export async function getSessionById(
+  tenantId: string,
+  outletId: string,
+  sessionId: string
+) {
+  const db = getDb();
+
+  const [row] = await db
+    .select({
+      session: restaurantTableSessions,
+      tableNumber: restaurantTables.tableNumber,
+      displayLabel: restaurantTables.displayLabel,
+      capacity: restaurantTables.capacity,
+      section: restaurantTables.section,
+      tableStatus: restaurantTables.status,
+    })
+    .from(restaurantTableSessions)
+    .innerJoin(restaurantTables, eq(restaurantTableSessions.tableId, restaurantTables.tableId))
+    .where(
+      and(
+        eq(restaurantTableSessions.sessionId, sessionId),
+        eq(restaurantTableSessions.tenantId, tenantId),
+        eq(restaurantTableSessions.outletId, outletId)
+      )
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new NotFoundError("Restaurant Table Session", `Session with ID '${sessionId}' not found.`);
+  }
+
+  // Fetch orders associated with this dining session
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(
+      and(
+        eq(orders.tenantId, tenantId),
+        eq(orders.outletId, outletId),
+        eq(orders.tableSessionId, sessionId)
+      )
+    )
+    .orderBy(desc(orders.createdAt));
+
+  let items: any[] = [];
+  if (sessionOrders.length > 0) {
+    const orderIds = sessionOrders.map((o) => o.orderId);
+    items = await db
+      .select()
+      .from(orderItems)
+      .where(
+        and(
+          eq(orderItems.tenantId, tenantId),
+          inArray(orderItems.orderId, orderIds)
+        )
+      );
+  }
+
+  const itemsByOrderId = new Map<string, typeof items>();
+  for (const item of items) {
+    let list = itemsByOrderId.get(item.orderId);
+    if (!list) {
+      list = [];
+      itemsByOrderId.set(item.orderId, list);
+    }
+    list.push(item);
+  }
+
+  return {
+    ...row.session,
+    table: {
+      tableId: row.session.tableId,
+      tableNumber: row.tableNumber,
+      displayLabel: row.displayLabel,
+      capacity: row.capacity,
+      section: row.section,
+      status: row.tableStatus,
+    },
+    orders: sessionOrders.map((o) => ({
+      ...o,
+      items: itemsByOrderId.get(o.orderId) || [],
+    })),
+  };
 }

@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Power,
   Armchair,
+  LayoutGrid,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { FloorMap } from "@/components/restaurant/floor-map";
 
 interface TableItem {
   tableId: string;
@@ -42,7 +44,14 @@ interface TableItem {
   displayLabel: string;
   capacity: number;
   section: string;
+  sectionId?: string | null;
   status: "AVAILABLE" | "OCCUPIED" | "RESERVED" | "CLEANING" | "OUT_OF_SERVICE";
+  posX: number;
+  posY: number;
+  width: number;
+  height: number;
+  shape: "RECTANGLE" | "ROUND" | "SQUARE";
+  rotation: number;
   isActive: boolean;
   activeSession?: {
     sessionId: string;
@@ -62,6 +71,9 @@ export default function RestaurantTableManagementPage() {
   const [tables, setTables] = useState<TableItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // View Switcher: Floor Plan vs Tabular List
+  const [activeView, setActiveView] = useState<"FLOOR_MAP" | "LIST">("FLOOR_MAP");
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState("");
@@ -372,173 +384,209 @@ export default function RestaurantTableManagementPage() {
         </Alert>
       )}
 
-      {/* Filter Controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-card p-4 rounded-xl border border-border">
-        <div className="flex-1 max-w-sm">
-          <Input
-            placeholder="Search by table number, label, section..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="text-xs"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={filterSection}
-            onChange={(e) => setFilterSection(e.target.value)}
-            className="bg-background border border-border rounded px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary"
+      {/* View Switcher: Floor Plan Map vs Table Directory */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="inline-flex items-center bg-muted/60 p-1 rounded-lg border border-border">
+          <Button
+            type="button"
+            variant={activeView === "FLOOR_MAP" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveView("FLOOR_MAP")}
+            className={`h-8 text-xs font-semibold ${
+              activeView === "FLOOR_MAP" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <option value="ALL">All Sections</option>
-            {sections.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-background border border-border rounded px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary"
+            <Grid3X3 className="h-3.5 w-3.5 mr-1.5 text-indigo-500" />
+            Floor Plan Map
+          </Button>
+          <Button
+            type="button"
+            variant={activeView === "LIST" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveView("LIST")}
+            className={`h-8 text-xs font-semibold ${
+              activeView === "LIST" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <option value="ALL">All Statuses</option>
-            <option value="AVAILABLE">Available</option>
-            <option value="OCCUPIED">Occupied</option>
-            <option value="RESERVED">Reserved</option>
-            <option value="CLEANING">Cleaning</option>
-            <option value="OUT_OF_SERVICE">Out of Service</option>
-          </select>
+            <LayoutGrid className="h-3.5 w-3.5 mr-1.5 text-amber-500" />
+            Table List & Directory
+          </Button>
         </div>
       </div>
 
-      {/* Tables Table View */}
-      <div className="border border-border rounded-xl bg-card overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-border bg-muted/50 text-muted-foreground uppercase text-[10px] tracking-wider font-semibold">
-                <th className="py-3 px-4">Table</th>
-                <th className="py-3 px-4">Display Label</th>
-                <th className="py-3 px-4">Section</th>
-                <th className="py-3 px-4">Capacity</th>
-                <th className="py-3 px-4">Current Status</th>
-                <th className="py-3 px-4">Active Dining Session</th>
-                <th className="py-3 px-4">QR Token</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-muted-foreground">
-                    No tables found. Click &quot;Add Table&quot; to create one.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((table) => {
-                  const statusBadgeClass =
-                    table.status === "AVAILABLE"
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
-                      : table.status === "OCCUPIED"
-                      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300"
-                      : table.status === "RESERVED"
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
-                      : table.status === "CLEANING"
-                      ? "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300"
-                      : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+      {activeView === "FLOOR_MAP" ? (
+        <FloorMap tables={tables} onRefresh={fetchTables} onViewQr={openQrDialog} />
+      ) : (
+        <>
+          {/* Filter Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-card p-4 rounded-xl border border-border">
+            <div className="flex-1 max-w-sm">
+              <Input
+                placeholder="Search by table number, label, section..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="text-xs"
+              />
+            </div>
 
-                  return (
-                    <tr
-                      key={table.tableId}
-                      className={`hover:bg-muted/40 transition-colors ${
-                        !table.isActive ? "opacity-50" : ""
-                      }`}
-                    >
-                      <td className="py-3.5 px-4 font-bold text-foreground font-display text-sm">
-                        {table.tableNumber}
-                      </td>
-                      <td className="py-3.5 px-4 font-medium text-foreground">
-                        {table.displayLabel}
-                      </td>
-                      <td className="py-3.5 px-4 text-muted-foreground">{table.section}</td>
-                      <td className="py-3.5 px-4 font-mono font-medium">
-                        {table.capacity} guests
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <button
-                          onClick={() => {
-                            setStatusChangeTable(table);
-                            setTargetStatus(table.status);
-                          }}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase transition-opacity hover:opacity-80 ${statusBadgeClass}`}
-                          title="Click to transition status"
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                          {table.status}
-                        </button>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {table.activeSession ? (
-                          <div className="space-y-0.5">
-                            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
-                              {table.activeSession.customerName || "Walk-in Party"} (
-                              {table.activeSession.guestCount}p)
-                            </span>
-                            <p className="text-[10px] text-muted-foreground font-mono">
-                              {table.activeSession.sessionNumber}
-                            </p>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-[11px]">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <button
-                          onClick={() => openQrDialog(table)}
-                          className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium"
-                        >
-                          <QrCode className="h-3.5 w-3.5" />
-                          {table.hasActiveQr ? "Active QR" : "Generate"}
-                        </button>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => {
-                              setEditTable(table);
-                              setEditDisplayLabel(table.displayLabel);
-                              setEditCapacity(table.capacity);
-                              setEditSection(table.section);
-                              setEditIsActive(table.isActive);
-                            }}
-                            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            title="Edit Table Properties"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </button>
+            <div className="flex items-center gap-2">
+              <select
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="bg-background border border-border rounded px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary"
+              >
+                <option value="ALL">All Sections</option>
+                {sections.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
 
-                          <button
-                            onClick={() => handleToggleActive(table)}
-                            className={`p-1.5 rounded hover:bg-muted transition-colors ${
-                              table.isActive
-                                ? "text-emerald-600 hover:text-rose-600"
-                                : "text-rose-600 hover:text-emerald-600"
-                            }`}
-                            title={table.isActive ? "Deactivate Table" : "Activate Table"}
-                          >
-                            <Power className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-background border border-border rounded px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="AVAILABLE">Available</option>
+                <option value="OCCUPIED">Occupied</option>
+                <option value="RESERVED">Reserved</option>
+                <option value="CLEANING">Cleaning</option>
+                <option value="OUT_OF_SERVICE">Out of Service</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Tables Table View */}
+          <div className="border border-border rounded-xl bg-card overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-muted-foreground uppercase text-[10px] tracking-wider font-semibold">
+                    <th className="py-3 px-4">Table</th>
+                    <th className="py-3 px-4">Display Label</th>
+                    <th className="py-3 px-4">Section</th>
+                    <th className="py-3 px-4">Capacity</th>
+                    <th className="py-3 px-4">Current Status</th>
+                    <th className="py-3 px-4">Active Dining Session</th>
+                    <th className="py-3 px-4">QR Token</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-muted-foreground">
+                        No tables found. Click &quot;Add Table&quot; to create one.
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ) : (
+                    filtered.map((table) => {
+                      const statusBadgeClass =
+                        table.status === "AVAILABLE"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+                          : table.status === "OCCUPIED"
+                          ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300"
+                          : table.status === "RESERVED"
+                          ? "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+                          : table.status === "CLEANING"
+                          ? "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300"
+                          : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+
+                      return (
+                        <tr
+                          key={table.tableId}
+                          className={`hover:bg-muted/40 transition-colors ${
+                            !table.isActive ? "opacity-50" : ""
+                          }`}
+                        >
+                          <td className="py-3.5 px-4 font-bold text-foreground font-display text-sm">
+                            {table.tableNumber}
+                          </td>
+                          <td className="py-3.5 px-4 font-medium text-foreground">
+                            {table.displayLabel}
+                          </td>
+                          <td className="py-3.5 px-4 text-muted-foreground">{table.section}</td>
+                          <td className="py-3.5 px-4 font-mono font-medium">
+                            {table.capacity} guests
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <button
+                              onClick={() => {
+                                setStatusChangeTable(table);
+                                setTargetStatus(table.status);
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase transition-opacity hover:opacity-80 ${statusBadgeClass}`}
+                              title="Click to transition status"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                              {table.status}
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {table.activeSession ? (
+                              <div className="space-y-0.5">
+                                <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                                  {table.activeSession.customerName || "Walk-in Party"} (
+                                  {table.activeSession.guestCount}p)
+                                </span>
+                                <p className="text-[10px] text-muted-foreground font-mono">
+                                  {table.activeSession.sessionNumber}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <button
+                              onClick={() => openQrDialog(table)}
+                              className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium"
+                            >
+                              <QrCode className="h-3.5 w-3.5" />
+                              {table.hasActiveQr ? "Active QR" : "Generate"}
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditTable(table);
+                                  setEditDisplayLabel(table.displayLabel);
+                                  setEditCapacity(table.capacity);
+                                  setEditSection(table.section);
+                                  setEditIsActive(table.isActive);
+                                }}
+                                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                title="Edit Table Properties"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleToggleActive(table)}
+                                className={`p-1.5 rounded hover:bg-muted transition-colors ${
+                                  table.isActive
+                                    ? "text-emerald-600 hover:text-rose-600"
+                                    : "text-rose-600 hover:text-emerald-600"
+                                }`}
+                                title={table.isActive ? "Deactivate Table" : "Activate Table"}
+                              >
+                                <Power className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Modal: Create Table */}
       <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>

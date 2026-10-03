@@ -8,6 +8,7 @@ import {
   updateTable,
   listRestaurantOutlets,
 } from "@/lib/restaurant/table-service";
+import { RESTAURANT_TABLE_SHAPES } from "@/db/schema/restaurant";
 import { DEMO_TENANT_ID } from "@/lib/restaurant/seed";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,13 @@ const updateTableSchema = z.object({
   displayLabel: z.string().max(100).optional(),
   capacity: z.number().int().min(1).optional(),
   section: z.string().max(100).optional(),
+  sectionId: z.string().uuid().nullable().optional(),
+  posX: z.number().int().optional(),
+  posY: z.number().int().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  shape: z.enum(RESTAURANT_TABLE_SHAPES).optional(),
+  rotation: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });
 

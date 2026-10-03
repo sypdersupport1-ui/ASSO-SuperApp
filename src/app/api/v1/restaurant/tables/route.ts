@@ -14,7 +14,7 @@ import {
   checkOrAcquireIdempotencyKey,
   saveIdempotentResponse,
 } from "@/lib/api/idempotency";
-import { RESTAURANT_TABLE_STATUSES } from "@/db/schema/restaurant";
+import { RESTAURANT_TABLE_STATUSES, RESTAURANT_TABLE_SHAPES } from "@/db/schema/restaurant";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,13 @@ const createTableSchema = z.object({
   displayLabel: z.string().max(100).optional(),
   capacity: z.number().int().min(1, "Capacity must be at least 1").optional(),
   section: z.string().max(100).optional(),
+  sectionId: z.string().uuid().nullable().optional(),
+  posX: z.number().int().optional(),
+  posY: z.number().int().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  shape: z.enum(RESTAURANT_TABLE_SHAPES).optional(),
+  rotation: z.number().int().optional(),
   status: z.enum(RESTAURANT_TABLE_STATUSES).optional(),
 });
 

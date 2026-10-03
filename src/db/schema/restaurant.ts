@@ -22,6 +22,44 @@ export const RESTAURANT_SESSION_STATUSES = [
 ] as const;
 export type RestaurantSessionStatus = (typeof RESTAURANT_SESSION_STATUSES)[number];
 
+// Table shapes for visual floor map
+export const RESTAURANT_TABLE_SHAPES = [
+  "RECTANGLE",
+  "ROUND",
+  "SQUARE",
+] as const;
+export type RestaurantTableShape = (typeof RESTAURANT_TABLE_SHAPES)[number];
+
+/**
+ * Restaurant Sections (Floor / Dining Area Groupings, e.g. Main Hall, Outdoor, Patio, Bar)
+ */
+export const restaurantSections = pgTable(
+  "restaurant_sections",
+  {
+    sectionId: uuid("section_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    name: varchar("name", { length: 100 }).notNull(),
+    code: varchar("code", { length: 50 }),
+    displayOrder: integer("display_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_restaurant_sections_outlet_name").on(table.outletId, table.name),
+    index("idx_restaurant_sections_tenant_outlet").on(table.tenantId, table.outletId),
+    index("idx_restaurant_sections_tenant_outlet_order").on(table.tenantId, table.outletId, table.displayOrder),
+  ]
+);
+
+export type RestaurantSection = typeof restaurantSections.$inferSelect;
+export type NewRestaurantSection = typeof restaurantSections.$inferInsert;
+
 /**
  * Restaurant Tables (Physical Entity, mapped 1:1 to BusinessContext)
  */
@@ -38,11 +76,18 @@ export const restaurantTables = pgTable(
     contextId: uuid("context_id")
       .notNull()
       .references(() => businessContexts.contextId),
+    sectionId: uuid("section_id").references(() => restaurantSections.sectionId),
     tableNumber: varchar("table_number", { length: 50 }).notNull(),
     displayLabel: varchar("display_label", { length: 100 }).notNull(),
     capacity: integer("capacity").notNull().default(4),
     section: varchar("section", { length: 100 }).notNull().default("Main Dining"),
     status: varchar("status", { length: 50 }).notNull().default("AVAILABLE"),
+    posX: integer("pos_x").notNull().default(0),
+    posY: integer("pos_y").notNull().default(0),
+    width: integer("width").notNull().default(90),
+    height: integer("height").notNull().default(90),
+    shape: varchar("shape", { length: 20 }).notNull().default("RECTANGLE"),
+    rotation: integer("rotation").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -54,6 +99,8 @@ export const restaurantTables = pgTable(
     index("idx_restaurant_tables_status").on(table.tenantId, table.status),
     index("idx_restaurant_tables_tenant_outlet_status").on(table.tenantId, table.outletId, table.status),
     index("idx_restaurant_tables_tenant_outlet_sec").on(table.tenantId, table.outletId, table.section),
+    index("idx_restaurant_tables_section_id").on(table.sectionId),
+    index("idx_restaurant_tables_tenant_outlet_section_id").on(table.tenantId, table.outletId, table.sectionId),
   ]
 );
 

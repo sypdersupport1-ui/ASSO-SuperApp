@@ -3,8 +3,10 @@ import { getDb } from "@/db/client";
 import {
   restaurantTables,
   restaurantTableSessions,
+  restaurantSections,
   type RestaurantTable,
   type RestaurantTableStatus,
+  type RestaurantTableShape,
 } from "@/db/schema/restaurant";
 import { businessContexts, qrTokens } from "@/db/schema/context";
 import { outlets } from "@/db/schema/core";
@@ -19,14 +21,49 @@ export interface CreateTableInput {
   displayLabel?: string;
   capacity?: number;
   section?: string;
+  sectionId?: string | null;
   status?: RestaurantTableStatus;
+  posX?: number;
+  posY?: number;
+  width?: number;
+  height?: number;
+  shape?: RestaurantTableShape;
+  rotation?: number;
 }
 
 export interface UpdateTableInput {
   displayLabel?: string;
   capacity?: number;
   section?: string;
+  sectionId?: string | null;
   isActive?: boolean;
+  posX?: number;
+  posY?: number;
+  width?: number;
+  height?: number;
+  shape?: RestaurantTableShape;
+  rotation?: number;
+}
+
+export interface UpdateTableLayoutInput {
+  posX: number;
+  posY: number;
+  width?: number;
+  height?: number;
+  shape?: RestaurantTableShape;
+  rotation?: number;
+  sectionId?: string | null;
+}
+
+export interface BatchTableLayoutItem {
+  tableId: string;
+  posX: number;
+  posY: number;
+  width?: number;
+  height?: number;
+  shape?: RestaurantTableShape;
+  rotation?: number;
+  sectionId?: string | null;
 }
 
 export interface RestaurantOutletSummary {
@@ -142,6 +179,7 @@ export async function listTables(
   outletId: string,
   filters?: {
     section?: string;
+    sectionId?: string;
     status?: string;
     isActive?: boolean;
     limit?: number;
@@ -155,6 +193,9 @@ export async function listTables(
     eq(restaurantTables.outletId, outletId),
   ];
 
+  if (filters?.sectionId) {
+    conditions.push(eq(restaurantTables.sectionId, filters.sectionId));
+  }
   if (filters?.section) {
     conditions.push(eq(restaurantTables.section, filters.section));
   }
@@ -341,13 +382,54 @@ export async function createTable(
     throw new ValidationError("Table capacity must be at least 1.");
   }
 
-  const section = input.section?.trim() || "Main Dining";
+  let section = input.section?.trim() || "Main Dining";
+  let sectionId = input.sectionId || null;
+
+  if (sectionId) {
+    const [sec] = await db
+      .select()
+      .from(restaurantSections)
+      .where(
+        and(
+          eq(restaurantSections.sectionId, sectionId),
+          eq(restaurantSections.tenantId, tenantId),
+          eq(restaurantSections.outletId, outletId)
+        )
+      )
+      .limit(1);
+    if (sec) {
+      section = sec.name;
+    }
+  } else if (input.section) {
+    const [sec] = await db
+      .select()
+      .from(restaurantSections)
+      .where(
+        and(
+          eq(restaurantSections.name, section),
+          eq(restaurantSections.tenantId, tenantId),
+          eq(restaurantSections.outletId, outletId)
+        )
+      )
+      .limit(1);
+    if (sec) {
+      sectionId = sec.sectionId;
+    }
+  }
+
   const displayLabel = input.displayLabel?.trim() || `Table ${tableNumber}`;
   const initialStatus = input.status || "AVAILABLE";
 
   if (!isValidTableStatus(initialStatus)) {
     throw new ValidationError(`Invalid initial table status: '${initialStatus}'.`);
   }
+
+  const posX = input.posX !== undefined ? Math.max(0, Math.round(input.posX)) : 0;
+  const posY = input.posY !== undefined ? Math.max(0, Math.round(input.posY)) : 0;
+  const width = input.width !== undefined ? Math.max(40, Math.min(400, Math.round(input.width))) : 90;
+  const height = input.height !== undefined ? Math.max(40, Math.min(400, Math.round(input.height))) : 90;
+  const shape = input.shape || "RECTANGLE";
+  const rotation = input.rotation !== undefined ? ((input.rotation % 360) + 360) % 360 : 0;
 
   // 2. Create canonical Business Context record
   const [context] = await db
@@ -359,7 +441,7 @@ export async function createTable(
       identifier: tableNumber,
       displayLabel,
       status: initialStatus,
-      metadata: { section, capacity },
+      metadata: { section, sectionId, capacity, posX, posY, shape },
       isActive: true,
     })
     .returning();
@@ -371,11 +453,18 @@ export async function createTable(
       tenantId,
       outletId,
       contextId: context.contextId,
+      sectionId,
       tableNumber,
       displayLabel,
       capacity,
       section,
       status: initialStatus,
+      posX,
+      posY,
+      width,
+      height,
+      shape,
+      rotation,
       isActive: true,
     })
     .returning();
@@ -395,7 +484,11 @@ export async function createTable(
       displayLabel: table.displayLabel,
       capacity: table.capacity,
       section: table.section,
+      sectionId: table.sectionId,
       status: table.status,
+      posX: table.posX,
+      posY: table.posY,
+      shape: table.shape,
       contextId: context.contextId,
     },
   });
@@ -407,7 +500,14 @@ export async function createTable(
     displayLabel: table.displayLabel,
     status: table.status,
     section: table.section,
+    sectionId: table.sectionId,
     capacity: table.capacity,
+    posX: table.posX,
+    posY: table.posY,
+    width: table.width,
+    height: table.height,
+    shape: table.shape,
+    rotation: table.rotation,
   });
 
   return {
@@ -421,7 +521,7 @@ export async function createTable(
 }
 
 /**
- * Updates physical table properties (display label, capacity, section, isActive).
+ * Updates physical table properties (display label, capacity, section, isActive, layout).
  */
 export async function updateTable(
   tenantId: string,
@@ -463,11 +563,58 @@ export async function updateTable(
     updates.capacity = input.capacity;
   }
 
-  if (input.section !== undefined) {
-    const sec = input.section.trim();
-    if (!sec) throw new ValidationError("Section cannot be empty.");
-    updates.section = sec;
+  if (input.sectionId !== undefined) {
+    if (input.sectionId) {
+      const [sec] = await db
+        .select()
+        .from(restaurantSections)
+        .where(
+          and(
+            eq(restaurantSections.sectionId, input.sectionId),
+            eq(restaurantSections.tenantId, tenantId),
+            eq(restaurantSections.outletId, outletId)
+          )
+        )
+        .limit(1);
+      if (!sec) {
+        throw new NotFoundError("Restaurant Section", `Section with ID '${input.sectionId}' not found.`);
+      }
+      updates.sectionId = sec.sectionId;
+      updates.section = sec.name;
+    } else {
+      updates.sectionId = null;
+    }
+  } else if (input.section !== undefined) {
+    const secName = input.section.trim();
+    if (!secName) throw new ValidationError("Section cannot be empty.");
+    updates.section = secName;
+    const [sec] = await db
+      .select()
+      .from(restaurantSections)
+      .where(
+        and(
+          eq(restaurantSections.name, secName),
+          eq(restaurantSections.tenantId, tenantId),
+          eq(restaurantSections.outletId, outletId)
+        )
+      )
+      .limit(1);
+    if (sec) {
+      updates.sectionId = sec.sectionId;
+    }
   }
+
+  if (input.posX !== undefined) updates.posX = Math.max(0, Math.round(input.posX));
+  if (input.posY !== undefined) updates.posY = Math.max(0, Math.round(input.posY));
+  if (input.width !== undefined) updates.width = Math.max(40, Math.min(400, Math.round(input.width)));
+  if (input.height !== undefined) updates.height = Math.max(40, Math.min(400, Math.round(input.height)));
+  if (input.shape !== undefined) {
+    if (!["RECTANGLE", "ROUND", "SQUARE"].includes(input.shape)) {
+      throw new ValidationError(`Invalid table shape '${input.shape}'.`);
+    }
+    updates.shape = input.shape;
+  }
+  if (input.rotation !== undefined) updates.rotation = ((input.rotation % 360) + 360) % 360;
 
   if (input.isActive !== undefined) {
     updates.isActive = input.isActive;
@@ -480,12 +627,19 @@ export async function updateTable(
     .returning();
 
   // Sync context display label or metadata if changed
-  if (updates.displayLabel || updates.section || updates.capacity) {
+  if (updates.displayLabel || updates.section || updates.capacity || updates.posX !== undefined || updates.posY !== undefined) {
     await db
       .update(businessContexts)
       .set({
         displayLabel: updated.displayLabel,
-        metadata: { section: updated.section, capacity: updated.capacity },
+        metadata: {
+          section: updated.section,
+          sectionId: updated.sectionId,
+          capacity: updated.capacity,
+          posX: updated.posX,
+          posY: updated.posY,
+          shape: updated.shape,
+        },
         isActive: updated.isActive,
         updatedAt: new Date(),
       })
@@ -517,11 +671,213 @@ export async function updateTable(
     displayLabel: updated.displayLabel,
     capacity: updated.capacity,
     section: updated.section,
+    sectionId: updated.sectionId,
+    posX: updated.posX,
+    posY: updated.posY,
+    width: updated.width,
+    height: updated.height,
+    shape: updated.shape,
+    rotation: updated.rotation,
     isActive: updated.isActive,
     status: updated.status,
   });
 
   return updated;
+}
+
+/**
+ * Updates spatial layout metadata for a table (coordinates, dimensions, shape, section).
+ * GUARANTEE: Does NOT regenerate QR token, alter active session, or mutate orders.
+ */
+export async function updateTableLayout(
+  tenantId: string,
+  outletId: string,
+  tableId: string,
+  input: UpdateTableLayoutInput,
+  userId?: string
+) {
+  const db = getDb();
+
+  const [table] = await db
+    .select()
+    .from(restaurantTables)
+    .where(
+      and(
+        eq(restaurantTables.tableId, tableId),
+        eq(restaurantTables.tenantId, tenantId),
+        eq(restaurantTables.outletId, outletId)
+      )
+    )
+    .limit(1);
+
+  if (!table) {
+    throw new NotFoundError("Restaurant Table", `Table with ID '${tableId}' not found.`);
+  }
+
+  const updates: Partial<typeof restaurantTables.$inferInsert> = {
+    posX: Math.max(0, Math.round(input.posX)),
+    posY: Math.max(0, Math.round(input.posY)),
+    updatedAt: new Date(),
+  };
+
+  if (input.width !== undefined) {
+    updates.width = Math.max(40, Math.min(400, Math.round(input.width)));
+  }
+  if (input.height !== undefined) {
+    updates.height = Math.max(40, Math.min(400, Math.round(input.height)));
+  }
+  if (input.shape !== undefined) {
+    if (!["RECTANGLE", "ROUND", "SQUARE"].includes(input.shape)) {
+      throw new ValidationError(`Invalid table shape '${input.shape}'.`);
+    }
+    updates.shape = input.shape;
+  }
+  if (input.rotation !== undefined) {
+    updates.rotation = ((input.rotation % 360) + 360) % 360;
+  }
+
+  if (input.sectionId !== undefined) {
+    if (input.sectionId) {
+      const [sec] = await db
+        .select()
+        .from(restaurantSections)
+        .where(
+          and(
+            eq(restaurantSections.sectionId, input.sectionId),
+            eq(restaurantSections.tenantId, tenantId),
+            eq(restaurantSections.outletId, outletId)
+          )
+        )
+        .limit(1);
+      if (!sec) {
+        throw new NotFoundError("Restaurant Section", `Section '${input.sectionId}' not found.`);
+      }
+      updates.sectionId = sec.sectionId;
+      updates.section = sec.name;
+    } else {
+      updates.sectionId = null;
+    }
+  }
+
+  const [updated] = await db
+    .update(restaurantTables)
+    .set(updates)
+    .where(eq(restaurantTables.tableId, tableId))
+    .returning();
+
+  await recordAuditEvent({
+    tenantId,
+    userId,
+    action: "restaurant.table.layout_updated",
+    resourceType: "restaurant_table",
+    resourceId: updated.tableId,
+    payload: {
+      tableNumber: updated.tableNumber,
+      posX: updated.posX,
+      posY: updated.posY,
+      width: updated.width,
+      height: updated.height,
+      shape: updated.shape,
+      rotation: updated.rotation,
+      sectionId: updated.sectionId,
+    },
+  });
+
+  await realtimeHub.broadcastToTenant(tenantId, "restaurant:table_layout_updated", {
+    tableId: updated.tableId,
+    posX: updated.posX,
+    posY: updated.posY,
+    width: updated.width,
+    height: updated.height,
+    shape: updated.shape,
+    rotation: updated.rotation,
+    sectionId: updated.sectionId,
+  });
+
+  return updated;
+}
+
+/**
+ * Batch updates spatial layout metadata for multiple tables on the floor plan.
+ * GUARANTEE: Does NOT regenerate QR tokens, alter active sessions, or mutate orders.
+ */
+export async function batchUpdateTableLayout(
+  tenantId: string,
+  outletId: string,
+  items: BatchTableLayoutItem[],
+  userId?: string
+) {
+  const db = getDb();
+  if (!items || items.length === 0) {
+    return [];
+  }
+
+  const results: RestaurantTable[] = [];
+  await db.transaction(async (tx) => {
+    for (const item of items) {
+      const [table] = await tx
+        .select()
+        .from(restaurantTables)
+        .where(
+          and(
+            eq(restaurantTables.tableId, item.tableId),
+            eq(restaurantTables.tenantId, tenantId),
+            eq(restaurantTables.outletId, outletId)
+          )
+        )
+        .limit(1);
+
+      if (!table) continue;
+
+      const updates: Partial<typeof restaurantTables.$inferInsert> = {
+        posX: Math.max(0, Math.round(item.posX)),
+        posY: Math.max(0, Math.round(item.posY)),
+        updatedAt: new Date(),
+      };
+
+      if (item.width !== undefined) updates.width = Math.max(40, Math.min(400, Math.round(item.width)));
+      if (item.height !== undefined) updates.height = Math.max(40, Math.min(400, Math.round(item.height)));
+      if (item.shape !== undefined && ["RECTANGLE", "ROUND", "SQUARE"].includes(item.shape)) {
+        updates.shape = item.shape;
+      }
+      if (item.rotation !== undefined) updates.rotation = ((item.rotation % 360) + 360) % 360;
+      if (item.sectionId !== undefined) updates.sectionId = item.sectionId;
+
+      const [updated] = await tx
+        .update(restaurantTables)
+        .set(updates)
+        .where(eq(restaurantTables.tableId, item.tableId))
+        .returning();
+
+      results.push(updated);
+    }
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    userId,
+    action: "restaurant.tables.batch_layout_updated",
+    resourceType: "restaurant_table",
+    payload: {
+      count: results.length,
+      tableIds: results.map((r) => r.tableId),
+    },
+  });
+
+  await realtimeHub.broadcastToTenant(tenantId, "restaurant:tables_batch_layout_updated", {
+    tables: results.map((r) => ({
+      tableId: r.tableId,
+      posX: r.posX,
+      posY: r.posY,
+      width: r.width,
+      height: r.height,
+      shape: r.shape,
+      rotation: r.rotation,
+      sectionId: r.sectionId,
+    })),
+  });
+
+  return results;
 }
 
 /**
