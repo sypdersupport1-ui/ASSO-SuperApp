@@ -9,6 +9,9 @@ export const DOMAIN_EVENT_TYPES = {
   HOTEL_CHECK_OUT_SUCCESS: "HOTEL_CHECK_OUT_SUCCESS",
   // RESTAURANT & CINEMA Events
   ORDER_CONFIRMED: "ORDER_CONFIRMED",
+  RESTAURANT_RESERVATION_CONFIRMED: "RESTAURANT_RESERVATION_CONFIRMED",
+  RESTAURANT_RESERVATION_CANCELLED: "RESTAURANT_RESERVATION_CANCELLED",
+  RESTAURANT_WAITLIST_CALLED: "RESTAURANT_WAITLIST_CALLED",
   // Shared Financial Events
   BILL_PAYMENT_SUCCESS: "BILL_PAYMENT_SUCCESS",
   BILL_GENERATED: "BILL_GENERATED",
@@ -109,6 +112,38 @@ export interface BillGeneratedPayload {
   customerName?: string;
   customerPhone?: string | null;
   receiptUrl?: string;
+}
+
+export interface RestaurantReservationConfirmedPayload {
+  reservationId: string;
+  tenantId: string;
+  outletId: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string | null;
+  partySize: number;
+  reservationDate: string;
+  reservationTime: string;
+  tableNumber?: string | null;
+}
+
+export interface RestaurantReservationCancelledPayload {
+  reservationId: string;
+  tenantId: string;
+  outletId: string;
+  customerName: string;
+  customerPhone: string;
+  reason?: string;
+}
+
+export interface RestaurantWaitlistCalledPayload {
+  waitlistId: string;
+  tenantId: string;
+  outletId: string;
+  customerName: string;
+  customerPhone: string;
+  partySize: number;
+  tableNumber?: string | null;
 }
 
 // ----------------------------------------------------------------------------

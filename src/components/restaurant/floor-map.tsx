@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import {
   Grid3X3,
   Layers,
@@ -24,6 +25,7 @@ import {
   Trash2,
   FolderPlus,
   LayoutGrid,
+  Calendar,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -851,13 +853,33 @@ export function FloorMap({ tables, onRefresh, onViewQr }: FloorMapProps) {
                   </Button>
                 )}
 
-                {/* RESERVED or OUT_OF_SERVICE Actions */}
-                {(activeTableModal.status === "RESERVED" || activeTableModal.status === "OUT_OF_SERVICE") && (
+                {/* RESERVED Actions */}
+                {activeTableModal.status === "RESERVED" && (
+                  <div className="space-y-2">
+                    <Link href="/restaurant/reservations" className="block w-full">
+                      <Button
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
+                      >
+                        <Calendar className="h-4 w-4 mr-2" /> View Reservations / Seat Guest
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => handleQuickStatusChange(activeTableModal, "AVAILABLE")}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" /> Release to Available
+                    </Button>
+                  </div>
+                )}
+
+                {/* OUT_OF_SERVICE Actions */}
+                {activeTableModal.status === "OUT_OF_SERVICE" && (
                   <Button
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
                     onClick={() => handleQuickStatusChange(activeTableModal, "AVAILABLE")}
                   >
-                    <CheckCircle2 className="h-4 w-4 mr-2" /> Release to Available
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> Return to Service (Available)
                   </Button>
                 )}
 

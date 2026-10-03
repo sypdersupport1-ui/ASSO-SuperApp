@@ -17,7 +17,8 @@
     "db:verify:rls": "node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-supabase-native-rls.ts",
     "worker:outbox": "node --env-file=.env.local node_modules/.bin/vite-node src/workers/outbox-worker.ts",
     "test:load": "node --env-file=.env.local node_modules/.bin/vite-node --config vitest.config.ts tests/scale/run-load-test.ts",
-    "test:restaurant:r3:4": "node --env-file=.env.local node_modules/.bin/vitest run tests/integration/restaurant-r3-4-floor-plan.test.ts"
+    "test:restaurant:r3:4": "node --env-file=.env.local node_modules/.bin/vitest run tests/integration/restaurant-r3-4-floor-plan.test.ts",
+    "test:restaurant:r3:5": "node --env-file=.env.local node_modules/.bin/vitest run tests/integration/restaurant-r3-5-reservations.test.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

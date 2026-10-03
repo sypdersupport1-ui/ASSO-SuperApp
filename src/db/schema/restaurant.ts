@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { organizations, outlets, users } from "./core";
+import { organizations, outlets, users, customers } from "./core";
 import { businessContexts, customerSessions } from "./context";
 import { catalogItems } from "./operations";
 
@@ -181,3 +181,120 @@ export const restaurantCartItems = pgTable(
 
 export type RestaurantCartItem = typeof restaurantCartItems.$inferSelect;
 export type NewRestaurantCartItem = typeof restaurantCartItems.$inferInsert;
+
+/**
+ * Restaurant Reservations (Advance Table Bookings & Table Assignments)
+ */
+export const RESTAURANT_RESERVATION_STATUSES = [
+  "PENDING",
+  "CONFIRMED",
+  "SEATED",
+  "COMPLETED",
+  "CANCELLED",
+  "NO_SHOW",
+] as const;
+export type RestaurantReservationStatus = (typeof RESTAURANT_RESERVATION_STATUSES)[number];
+
+export const RESTAURANT_RESERVATION_SOURCES = [
+  "CUSTOMER_WEB",
+  "STAFF_POS",
+  "PHONE",
+] as const;
+export type RestaurantReservationSource = (typeof RESTAURANT_RESERVATION_SOURCES)[number];
+
+export const restaurantReservations = pgTable(
+  "restaurant_reservations",
+  {
+    reservationId: uuid("reservation_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    customerId: uuid("customer_id")
+      .references(() => customers.customerId),
+    customerName: varchar("customer_name", { length: 255 }).notNull(),
+    customerPhone: varchar("customer_phone", { length: 50 }).notNull(),
+    customerEmail: varchar("customer_email", { length: 255 }),
+    partySize: integer("party_size").notNull(),
+    reservationDate: varchar("reservation_date", { length: 10 }).notNull(), // YYYY-MM-DD
+    reservationTime: varchar("reservation_time", { length: 10 }).notNull(), // HH:MM
+    durationMinutes: integer("duration_minutes").notNull().default(90),
+    status: varchar("status", { length: 50 }).notNull().default("CONFIRMED"),
+    assignedTableId: uuid("assigned_table_id")
+      .references(() => restaurantTables.tableId, { onDelete: "set null" }),
+    sectionId: uuid("section_id")
+      .references(() => restaurantSections.sectionId, { onDelete: "set null" }),
+    notes: text("notes"),
+    source: varchar("source", { length: 50 }).notNull().default("CUSTOMER_WEB"),
+    seatedSessionId: uuid("seated_session_id")
+      .references(() => restaurantTableSessions.sessionId, { onDelete: "set null" }),
+    createdByUserId: uuid("created_by_user_id")
+      .references(() => users.userId, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_reservations_tenant_outlet_date").on(table.tenantId, table.outletId, table.reservationDate),
+    index("idx_restaurant_reservations_tenant_outlet_status").on(table.tenantId, table.outletId, table.status),
+    index("idx_restaurant_reservations_assigned_table").on(table.tenantId, table.assignedTableId, table.reservationDate),
+    index("idx_restaurant_reservations_customer_phone").on(table.tenantId, table.customerPhone),
+  ]
+);
+
+export type RestaurantReservation = typeof restaurantReservations.$inferSelect;
+export type NewRestaurantReservation = typeof restaurantReservations.$inferInsert;
+
+/**
+ * Restaurant Waitlist (Live Walk-In Dining Queue)
+ */
+export const RESTAURANT_WAITLIST_STATUSES = [
+  "WAITING",
+  "CALLED",
+  "SEATED",
+  "CANCELLED",
+  "EXPIRED",
+] as const;
+export type RestaurantWaitlistStatus = (typeof RESTAURANT_WAITLIST_STATUSES)[number];
+
+export const restaurantWaitlist = pgTable(
+  "restaurant_waitlist",
+  {
+    waitlistId: uuid("waitlist_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.organizationId),
+    outletId: uuid("outlet_id")
+      .notNull()
+      .references(() => outlets.outletId),
+    customerId: uuid("customer_id")
+      .references(() => customers.customerId),
+    customerName: varchar("customer_name", { length: 255 }).notNull(),
+    customerPhone: varchar("customer_phone", { length: 50 }).notNull(),
+    partySize: integer("party_size").notNull(),
+    preferredSectionId: uuid("preferred_section_id")
+      .references(() => restaurantSections.sectionId, { onDelete: "set null" }),
+    queuePosition: integer("queue_position").notNull(),
+    estimatedWaitMinutes: integer("estimated_wait_minutes").notNull().default(15),
+    status: varchar("status", { length: 50 }).notNull().default("WAITING"),
+    assignedTableId: uuid("assigned_table_id")
+      .references(() => restaurantTables.tableId, { onDelete: "set null" }),
+    seatedSessionId: uuid("seated_session_id")
+      .references(() => restaurantTableSessions.sessionId, { onDelete: "set null" }),
+    notes: text("notes"),
+    calledAt: timestamp("called_at", { withTimezone: true }),
+    seatedAt: timestamp("seated_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_restaurant_waitlist_tenant_outlet_queue").on(table.tenantId, table.outletId, table.status, table.queuePosition),
+    index("idx_restaurant_waitlist_tenant_outlet_created").on(table.tenantId, table.outletId, table.createdAt),
+    index("idx_restaurant_waitlist_customer_phone").on(table.tenantId, table.customerPhone),
+  ]
+);
+
+export type RestaurantWaitlistItem = typeof restaurantWaitlist.$inferSelect;
+export type NewRestaurantWaitlistItem = typeof restaurantWaitlist.$inferInsert;

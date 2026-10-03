@@ -148,6 +148,13 @@
       "when": 1790944000000,
       "tag": "0020_restaurant_r3_4_floor_plan_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790947000000,
+      "tag": "0021_restaurant_r3_5_reservations_waitlist",
+      "breakpoints": true
     }
   ]
 }
