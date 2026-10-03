@@ -320,11 +320,6 @@ Scale Foundation S6 read optimizations and analytics projections were verified a
    - Analytics projections are asynchronous; exact production lag under sustained load remains unproven.
 3. **Connection Pool Bounds**:
    - The local client pool constrained high-concurrency throughput. Sizing production connection budgets will require staging validation.
-4. **Environment Isolation (CRITICAL)**:
-   - **Development DB**: Local PostgreSQL or `asso_dev`
-   - **Preview/Staging DB**: `jtixaywlxkfgtgclgcka.supabase.co`
-   - **Production DB**: `jtixaywlxkfgtgclgcka.supabase.co`
-   - **Status**: Preview and Production currently point to the EXACT SAME database project. True environment isolation is NOT established. A dedicated, distinct non-production database must be provisioned to satisfy acceptance criteria.
 
 ---
 
