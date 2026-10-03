@@ -14,6 +14,7 @@ import {
   hotelGuests,
 } from "@/db/schema/hotel";
 import { orders, orderItems } from "@/db/schema/operations";
+import { businessContexts } from "@/db/schema/context";
 import { DEMO_TENANT_ID, ensureHotelSeedData } from "@/lib/hotel/seed";
 import {
   getOrCreateFolioForStay,
@@ -59,22 +60,67 @@ describe("Phase 7 Hotel Vertical — Slice 9 (Folio & Billing) Integration Suite
     // 1. Seed & ensure base hotel configuration
     const db = getDb();
 
-    // 2. Fetch room 101 and its room type
-    const allRooms = await db
+    // 2. Establish isolated test room and matching room type for Slice 9 folio billing
+    const dedicatedRoomNumber = "SL9-101";
+    let [dedicatedRoom] = await db
       .select()
       .from(hotelRooms)
-      .where(eq(hotelRooms.tenantId, DEMO_TENANT_ID));
-
-    testRoom = allRooms.find((r) => r.roomNumber === "101") || allRooms[0];
-    demoOutletId = testRoom.outletId;
-    staffUserId = "00000000-0000-0000-0000-000000000001";
-
-    const [rt] = await db
-      .select()
-      .from(hotelRoomTypes)
-      .where(eq(hotelRoomTypes.roomTypeId, testRoom.roomTypeId))
+      .where(and(eq(hotelRooms.tenantId, DEMO_TENANT_ID), eq(hotelRooms.roomNumber, dedicatedRoomNumber)))
       .limit(1);
-    testRoomType = rt;
+
+    if (!dedicatedRoom) {
+      const allRooms = await db
+        .select()
+        .from(hotelRooms)
+        .where(eq(hotelRooms.tenantId, DEMO_TENANT_ID));
+
+      const baseRoom = allRooms[0];
+      demoOutletId = baseRoom.outletId;
+
+      const [rt] = await db
+        .select()
+        .from(hotelRoomTypes)
+        .where(eq(hotelRoomTypes.roomTypeId, baseRoom.roomTypeId))
+        .limit(1);
+      testRoomType = rt;
+
+      const [newCtx] = await db
+        .insert(businessContexts)
+        .values({
+          tenantId: DEMO_TENANT_ID,
+          outletId: demoOutletId,
+          contextType: "ROOM",
+          identifier: dedicatedRoomNumber,
+          displayLabel: `Room ${dedicatedRoomNumber}`,
+          status: "AVAILABLE",
+          isActive: true,
+        })
+        .returning();
+
+      [dedicatedRoom] = await db
+        .insert(hotelRooms)
+        .values({
+          tenantId: DEMO_TENANT_ID,
+          outletId: demoOutletId,
+          roomTypeId: testRoomType.roomTypeId,
+          roomNumber: dedicatedRoomNumber,
+          floorNumber: "9",
+          contextId: newCtx.contextId,
+          operationalStatus: "AVAILABLE",
+          housekeepingStatus: "CLEAN",
+        })
+        .returning();
+    } else {
+      demoOutletId = dedicatedRoom.outletId;
+      const [rt] = await db
+        .select()
+        .from(hotelRoomTypes)
+        .where(eq(hotelRoomTypes.roomTypeId, dedicatedRoom.roomTypeId))
+        .limit(1);
+      testRoomType = rt;
+    }
+    testRoom = dedicatedRoom;
+    staffUserId = "00000000-0000-0000-0000-000000000001";
 
     // Clean up any stale active stay on test room from prior tests
     await db
@@ -179,7 +225,7 @@ describe("Phase 7 Hotel Vertical — Slice 9 (Folio & Billing) Integration Suite
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(json.data.stay.stayId).toBe(testStayId);
-      expect(json.data.stay.roomNumber).toBe("101");
+      expect(json.data.stay.roomNumber).toBe(testRoom.roomNumber);
       expect(json.data.status).toBe("OPEN");
       expect(json.data.entries).toEqual([]);
     });

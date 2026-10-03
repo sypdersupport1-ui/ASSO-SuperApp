@@ -26,7 +26,7 @@ import {
   restaurantTipDistributions,
 } from "@/db/schema/restaurant";
 import { businessContexts } from "@/db/schema/context";
-import { organizations, outlets } from "@/db/schema/core";
+import { organizations, outlets, users, staffProfiles } from "@/db/schema/core";
 import { domainOutboxEvents } from "@/db/schema/communication";
 import { eq, and } from "drizzle-orm";
 import { Decimal } from "@/lib/decimal";
@@ -112,6 +112,7 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
 
   let billIdA: string;
   let customGuestPortionId: string;
+  let staffProfileIdA: string;
 
   beforeAll(async () => {
     // 1. Configure entitlements
@@ -141,6 +142,26 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       const [existing] = await db.select().from(outlets).where(eq(outlets.tenantId, TENANT_A)).limit(1);
       outletIdA = existing.outletId;
     }
+
+    // Setup Staff Profile A for Direct Server Tip Allocation
+    const testUserId = "55555555-5555-5555-5555-555555555536";
+    await db.insert(users).values({
+      userId: testUserId,
+      fullName: "Head Server Arjun",
+      email: `arjun.server.${Date.now()}@restaurant-a.com`,
+      isActive: true,
+    }).onConflictDoNothing();
+
+    const [staffA] = await db.insert(staffProfiles).values({
+      tenantId: TENANT_A,
+      userId: testUserId,
+      outletId: outletIdA,
+      employeeCode: "EMP-R36-01",
+      department: "Service",
+      jobTitle: "Head Server",
+      isActive: true,
+    }).returning();
+    staffProfileIdA = staffA.staffId;
 
     // Business Context & Table A
     const [ctxA] = await db.insert(businessContexts).values({
@@ -532,6 +553,86 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       const json = await res.json();
       expect(json.error.code).toBe("VALIDATION_FAILED");
     });
+
+    it("preserves and deterministically apportions subtotal, tax, platform fees, and discounts with zero penny drift across 3 portions", async () => {
+      const db = getDb();
+      // Bill: subtotal=100.00, tax=10.00, platformFee=5.00, discount=7.00 -> total=108.00
+      const [feeBill] = await db.insert(bills).values({
+        tenantId: TENANT_A,
+        outletId: outletIdA,
+        billNumber: `BILL-FEE-${Date.now().toString().slice(-4)}`,
+        status: "OPEN",
+        subtotalAmount: "100.0000",
+        taxAmount: "10.0000",
+        platformFeeAmount: "5.0000",
+        discountAmount: "7.0000",
+        tipAmount: "0.0000",
+        totalAmount: "108.0000",
+        settledAmount: "0.0000",
+      }).returning();
+
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${feeBill.billId}/splits`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          splitType: "EQUAL",
+          portionsCount: 3,
+        }),
+      });
+
+      const res = await splitsPost(req, { params: Promise.resolve({ id: feeBill.billId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      const portions = json.data.activeSplit.portions;
+      expect(portions.length).toBe(3);
+
+      // Portions 1 & 2:
+      // Subtotal: 100 / 3 = 33.33
+      // Tax: 10 / 3 = 3.33
+      // Fee: 5 / 3 = 1.67
+      // Discount: 7 / 3 = 2.33
+      // Total: 33.33 + 3.33 + 1.67 - 2.33 = 36.00
+      expect(portions[0].allocatedAmount).toBe("33.33");
+      expect(portions[0].taxAmount).toBe("3.33");
+      expect(portions[0].platformFeeAmount).toBe("1.67");
+      expect(portions[0].discountAmount).toBe("2.33");
+      expect(portions[0].totalAmount).toBe("36.00");
+
+      expect(portions[1].allocatedAmount).toBe("33.33");
+      expect(portions[1].taxAmount).toBe("3.33");
+      expect(portions[1].platformFeeAmount).toBe("1.67");
+      expect(portions[1].discountAmount).toBe("2.33");
+      expect(portions[1].totalAmount).toBe("36.00");
+
+      // Portion 3 (absorbs remainder):
+      // Subtotal: 100 - 66.66 = 33.34
+      // Tax: 10 - 6.66 = 3.34
+      // Fee: 5 - 3.34 = 1.66
+      // Discount: 7 - 4.66 = 2.34
+      // Total: 108 - 72 = 36.00
+      expect(portions[2].allocatedAmount).toBe("33.34");
+      expect(portions[2].taxAmount).toBe("3.34");
+      expect(portions[2].platformFeeAmount).toBe("1.66");
+      expect(portions[2].discountAmount).toBe("2.34");
+      expect(portions[2].totalAmount).toBe("36.00");
+
+      // Exact sum assertions across all financial dimensions
+      const sumSubtotals = Decimal.sum(...portions.map((p: any) => p.allocatedAmount));
+      const sumTaxes = Decimal.sum(...portions.map((p: any) => p.taxAmount));
+      const sumFees = Decimal.sum(...portions.map((p: any) => p.platformFeeAmount));
+      const sumDiscounts = Decimal.sum(...portions.map((p: any) => p.discountAmount));
+      const sumTotals = Decimal.sum(...portions.map((p: any) => p.totalAmount));
+
+      expect(sumSubtotals.toFixed(2)).toBe("100.00");
+      expect(sumTaxes.toFixed(2)).toBe("10.00");
+      expect(sumFees.toFixed(2)).toBe("5.00");
+      expect(sumDiscounts.toFixed(2)).toBe("7.00");
+      expect(sumTotals.toFixed(2)).toBe("108.00");
+    });
   });
 
   // ==========================================================================
@@ -829,6 +930,200 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       expect(json.error.code).toBe("BUSINESS_RULE_VIOLATION");
       expect(json.error.message).toContain("already fully paid and settled");
     });
+
+    it("replays payment idempotently with cached response and zero duplicate transactions", async () => {
+      const db = getDb();
+      const [idempBill] = await db.insert(bills).values({
+        tenantId: TENANT_A,
+        outletId: outletIdA,
+        billNumber: `BILL-IDEMP-${Date.now().toString().slice(-4)}`,
+        status: "OPEN",
+        subtotalAmount: "100.0000",
+        taxAmount: "10.0000",
+        totalAmount: "110.0000",
+        settledAmount: "0.0000",
+      }).returning();
+
+      const payKey = `idemp-pay-${Date.now()}`;
+      const payload = {
+        amount: "50.00",
+        paymentMethod: "CASH",
+        notes: "Idempotent payment test",
+      };
+
+      const req1 = new NextRequest(`http://localhost/api/v1/restaurant/bills/${idempBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+          "idempotency-key": payKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const res1 = await paymentsPost(req1, { params: Promise.resolve({ id: idempBill.billId }) });
+      expect(res1.status).toBe(201);
+      const json1 = await res1.json();
+      expect(json1.success).toBe(true);
+      const paymentId = json1.data.payments[0].paymentId;
+
+      // Duplicate request with identical key
+      const req2 = new NextRequest(`http://localhost/api/v1/restaurant/bills/${idempBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+          "idempotency-key": payKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const res2 = await paymentsPost(req2, { params: Promise.resolve({ id: idempBill.billId }) });
+      expect(res2.status).toBe(201);
+      expect(res2.headers.get("x-idempotent-replay")).toBe("true");
+
+      // Verify exactly one payment row exists in DB
+      const dbPayments = await db
+        .select()
+        .from(paymentTransactions)
+        .where(eq(paymentTransactions.billId, idempBill.billId));
+      expect(dbPayments.length).toBe(1);
+      expect(dbPayments[0].paymentId).toBe(paymentId);
+    });
+
+    it("enforces post-split tip settlement rule: split portions remain immutable, tip forms bill-level balance, and final settlement reconciles exactly to zero", async () => {
+      const db = getDb();
+      // Fresh bill: $110.00
+      const [pstBill] = await db.insert(bills).values({
+        tenantId: TENANT_A,
+        outletId: outletIdA,
+        billNumber: `BILL-PST-${Date.now().toString().slice(-4)}`,
+        status: "OPEN",
+        subtotalAmount: "100.0000",
+        taxAmount: "10.0000",
+        totalAmount: "110.0000",
+        settledAmount: "0.0000",
+      }).returning();
+
+      // 1. Equal split 2 ways: $55.00 + $55.00
+      const splitReq = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/splits`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({ splitType: "EQUAL", portionsCount: 2 }),
+      });
+      const splitRes = await splitsPost(splitReq, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(splitRes.status).toBe(201);
+      const splitData = (await splitRes.json()).data;
+      const [p1, p2] = splitData.activeSplit.portions;
+      expect(p1.totalAmount).toBe("55.00");
+      expect(p2.totalAmount).toBe("55.00");
+
+      // 2. Pay Portion 1 ($55.00)
+      const pay1Req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          amount: "55.00",
+          paymentMethod: "CARD",
+          portionId: p1.portionId,
+        }),
+      });
+      const pay1Res = await paymentsPost(pay1Req, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(pay1Res.status).toBe(201);
+      const pay1Bill = (await pay1Res.json()).data;
+      expect(pay1Bill.status).toBe("PARTIALLY_PAID");
+      expect(pay1Bill.settledAmount).toBe("55.00");
+      expect(pay1Bill.remainingAmount).toBe("55.00");
+
+      // 3. Add Tip ($10.00) post-split
+      const tipReq = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({ tipAmount: "10.00" }),
+      });
+      const tipRes = await tipsPost(tipReq, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(tipRes.status).toBe(201);
+      const tipBill = (await tipRes.json()).data;
+      expect(tipBill.totalAmount).toBe("120.00");
+      expect(tipBill.remainingAmount).toBe("65.00");
+      // Split portions remain immutable
+      const recheckedP2 = tipBill.activeSplit.portions.find((p: any) => p.portionId === p2.portionId);
+      expect(recheckedP2.totalAmount).toBe("55.00");
+      expect(recheckedP2.remainingAmount).toBe("55.00");
+
+      // 4. Overpayment check: Attempting to pay $65.00 against Portion 2 must be rejected
+      const overPayReq = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          amount: "65.00",
+          paymentMethod: "CASH",
+          portionId: p2.portionId,
+        }),
+      });
+      const overPayRes = await paymentsPost(overPayReq, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(overPayRes.status).toBe(422);
+
+      // 5. Pay Portion 2 ($55.00)
+      const pay2Req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          amount: "55.00",
+          paymentMethod: "CASH",
+          portionId: p2.portionId,
+        }),
+      });
+      const pay2Res = await paymentsPost(pay2Req, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(pay2Res.status).toBe(201);
+      const pay2Bill = (await pay2Res.json()).data;
+      expect(pay2Bill.status).toBe("PARTIALLY_PAID");
+      expect(pay2Bill.settledAmount).toBe("110.00");
+      expect(pay2Bill.remainingAmount).toBe("10.00");
+
+      // 6. Settle remaining tip balance ($10.00) at bill level
+      const payTipReq = new NextRequest(`http://localhost/api/v1/restaurant/bills/${pstBill.billId}/payments`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${staffTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          amount: "10.00",
+          paymentMethod: "CASH",
+        }),
+      });
+      const payTipRes = await paymentsPost(payTipReq, { params: Promise.resolve({ id: pstBill.billId }) });
+      expect(payTipRes.status).toBe(201);
+      const finalBill = (await payTipRes.json()).data;
+      expect(finalBill.status).toBe("PAID");
+      expect(finalBill.isFullySettled).toBe(true);
+      expect(finalBill.settledAmount).toBe("120.00");
+      expect(finalBill.remainingAmount).toBe("0.00");
+    });
   });
 
   // ==========================================================================
@@ -857,7 +1152,7 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       tipBillId = newBill.billId;
     });
 
-    it("allocates tip to bill and updates total amount authoritatively", async () => {
+    it("allocates tip to bill and updates total amount authoritatively (STAFF_POOL mode)", async () => {
       // Tip: 150.00 -> Total should become 1050 + 150 = 1200.00
       const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
         method: "POST",
@@ -887,6 +1182,71 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       expect(bill.tipDistributions.length).toBe(2);
       expect(bill.tipDistributions[0].recipientName).toBe("Head Server Arjun");
       expect(bill.tipDistributions[0].amount).toBe("100.00");
+    });
+
+    it("allocates tip to bill via UNALLOCATED mode (no distributions array)", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({ tipAmount: "20.00" }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.data.tipAmount).toBe("20.00");
+      expect(json.data.tipDistributions).toEqual([]);
+    });
+
+    it("allocates tip to bill via DIRECT_SERVERS mode (validated staffId)", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "30.00",
+          distributions: [
+            { recipientName: "Arjun", amount: "30.00", staffId: staffProfileIdA }
+          ]
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.data.tipAmount).toBe("30.00");
+      expect(json.data.tipDistributions[0].staffId).toBe(staffProfileIdA);
+    });
+
+    it("allocates tip to bill via PERCENTAGE_BASED mode", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "100.00",
+          distributions: [
+            { recipientName: "Server Pool", amount: "60.00", percentage: "60.00" },
+            { recipientName: "Kitchen Pool", amount: "40.00", percentage: "40.00" }
+          ]
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.data.tipAmount).toBe("100.00");
+      expect(json.data.tipDistributions.length).toBe(2);
     });
 
     it("rejects tip distribution whose sum does not reconcile to the tip amount", async () => {

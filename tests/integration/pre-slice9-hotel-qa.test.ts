@@ -56,6 +56,7 @@ import {
   hotelGuests,
   hotelReservations,
   hotelRoomTypes,
+  hotelHousekeepingTasks,
 } from "@/db/schema/hotel";
 import { outlets } from "@/db/schema/core";
 import { catalogItems, orders, orderItems } from "@/db/schema/operations";
@@ -178,6 +179,9 @@ describe("ASSO — Pre-Slice-9 Hotel Master QA & Release-Gate Verification Suite
       .update(hotelRooms)
       .set({ operationalStatus: "AVAILABLE", housekeepingStatus: "CLEAN", isOccupied: false })
       .where(eq(hotelRooms.roomId, room202.roomId));
+
+    await db.delete(hotelHousekeepingTasks).where(eq(hotelHousekeepingTasks.roomId, room201.roomId));
+    await db.delete(hotelHousekeepingTasks).where(eq(hotelHousekeepingTasks.roomId, room202.roomId));
 
     const [item] = await db
       .select()

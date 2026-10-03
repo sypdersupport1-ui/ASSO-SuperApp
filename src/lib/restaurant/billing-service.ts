@@ -23,6 +23,7 @@ import {
   type RestaurantPortionStatus,
 } from "@/db/schema/restaurant";
 import { assertModuleEntitlement } from "@/lib/entitlements/checker";
+import { staffProfiles } from "@/db/schema/core";
 import {
   ValidationError,
   NotFoundError,
@@ -176,6 +177,12 @@ export interface DetailedBillResponseDto {
     amount: string;
     percentage?: string | null;
     notes?: string | null;
+  }>;
+  billItems?: Array<{
+    orderItemId: string;
+    itemName: string;
+    unitPrice: string;
+    quantity: number;
   }>;
 }
 
@@ -496,6 +503,31 @@ async function getBillDetailsTx(
     )
     .orderBy(desc(restaurantTipDistributions.createdAt));
 
+  // Bill order items (available for item-based splitting)
+  let billItems: Array<{ orderItemId: string; itemName: string; unitPrice: string; quantity: number }> = [];
+  let orderIdsForItems: string[] = [];
+  if (bill.tableSessionId) {
+    const sessionOrders = await dbOrTx
+      .select({ orderId: orders.orderId })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.tableSessionId, bill.tableSessionId), sql`${orders.status} != 'CANCELLED'`));
+    orderIdsForItems = sessionOrders.map((o: any) => o.orderId);
+  } else if (bill.orderId) {
+    orderIdsForItems = [bill.orderId];
+  }
+  if (orderIdsForItems.length > 0) {
+    const rawItems = await dbOrTx
+      .select()
+      .from(orderItems)
+      .where(and(eq(orderItems.tenantId, tenantId), inArray(orderItems.orderId, orderIdsForItems), sql`${orderItems.itemStatus} != 'CANCELLED'`));
+    billItems = rawItems.map((it: any) => ({
+      orderItemId: it.orderItemId,
+      itemName: it.itemName,
+      unitPrice: Decimal.from(it.unitPrice || "0").toFixed(2),
+      quantity: it.quantity,
+    }));
+  }
+
   const totalDec = Decimal.from(bill.totalAmount);
   const settledDec = Decimal.from(bill.settledAmount);
   const remainingDec = totalDec.minus(settledDec);
@@ -541,6 +573,7 @@ async function getBillDetailsTx(
       percentage: t.percentage ? Decimal.from(t.percentage).toFixed(4) : null,
       notes: t.notes,
     })),
+    billItems,
   };
 }
 
@@ -1294,17 +1327,56 @@ export async function allocateBillTip(
     // 2. Validate distributions if provided
     if (input.distributions && input.distributions.length > 0) {
       let sumDist = Decimal.zero();
+      let hasPercentages = true;
+      let sumPercentages = Decimal.zero();
+
       for (const d of input.distributions) {
         const amt = Decimal.from(d.amount);
         if (amt.lessThanOrEqualTo(Decimal.zero())) {
           throw new ValidationError("Tip distribution amount must be greater than zero.");
         }
         sumDist = sumDist.plus(amt);
+
+        if (d.staffId) {
+          const validStaffUuid = safeUuid(d.staffId);
+          if (!validStaffUuid) {
+            throw new ValidationError(`Invalid staffId UUID format: '${d.staffId}'.`);
+          }
+          const [staff] = await tx
+            .select()
+            .from(staffProfiles)
+            .where(
+              and(
+                eq(staffProfiles.tenantId, tenantId),
+                eq(staffProfiles.staffId, validStaffUuid)
+              )
+            )
+            .limit(1);
+          if (!staff) {
+            throw new ValidationError(`Staff recipient '${d.staffId}' not found within current tenant.`);
+          }
+        }
+
+        if (d.percentage !== undefined && d.percentage !== null) {
+          const pct = Decimal.from(d.percentage);
+          if (pct.lessThanOrEqualTo(Decimal.zero()) || pct.greaterThan(Decimal.from(100))) {
+            throw new ValidationError(`Tip distribution percentage must be between 0 and 100. Received: '${d.percentage}'.`);
+          }
+          sumPercentages = sumPercentages.plus(pct);
+        } else {
+          hasPercentages = false;
+        }
       }
 
       if (!sumDist.equals(tipAmount)) {
         throw new ValidationError(
           `Sum of tip distributions (${sumDist.toFixed(2)}) must reconcile exactly to bill tip amount (${tipAmount.toFixed(2)}).`
+        );
+      }
+
+      if (hasPercentages && !sumPercentages.round(2).equals(Decimal.from(100))) {
+        throw new ValidationError(
+          `Sum of tip distribution percentages (${sumPercentages.toFixed(2)}%) must equal 100%.`
         );
       }
     }

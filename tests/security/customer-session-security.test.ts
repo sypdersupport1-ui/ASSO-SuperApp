@@ -25,14 +25,6 @@ describe("Phase 7 Hotel Vertical — Slice 7 Customer Session & QR Security Suit
     await ensureHotelSeedData(TENANT_B_ID);
 
     const db = getDb();
-    const [property] = await db
-      .select()
-      .from(outlets)
-      .where(eq(outlets.tenantId, DEMO_TENANT_ID))
-      .limit(1);
-
-    demoOutletId = property.outletId;
-
     const [room] = await db
       .select()
       .from(hotelRooms)
@@ -40,6 +32,7 @@ describe("Phase 7 Hotel Vertical — Slice 7 Customer Session & QR Security Suit
       .limit(1);
 
     roomId = room.roomId;
+    demoOutletId = room.outletId;
 
     // Create Room QR and Customer session for Tenant A
     const qr = await generateOrGetRoomQr(DEMO_TENANT_ID, demoOutletId, roomId);

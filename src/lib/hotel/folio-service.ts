@@ -563,7 +563,8 @@ export async function postRoomServiceOrderCharge(params: {
           .where(
             and(
               eq(hotelStays.roomId, room.roomId),
-              eq(hotelStays.tenantId, tenantId)
+              eq(hotelStays.tenantId, tenantId),
+              eq(hotelStays.status, "ACTIVE")
             )
           )
           .orderBy(desc(hotelStays.checkInAt))

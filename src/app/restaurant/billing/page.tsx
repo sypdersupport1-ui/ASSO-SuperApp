@@ -65,6 +65,14 @@ interface BillPortion {
   paidAmount: string;
   remainingAmount: string;
   status: "UNPAID" | "PARTIALLY_PAID" | "PAID";
+  items?: Array<{
+    splitItemId: string;
+    orderItemId: string;
+    itemName: string;
+    unitPrice: string;
+    allocatedQuantity: number;
+    allocatedAmount: string;
+  }>;
 }
 
 interface BillPayment {
@@ -113,6 +121,12 @@ interface DetailedBill {
     percentage?: string | null;
     notes?: string | null;
   }>;
+  billItems?: Array<{
+    orderItemId: string;
+    itemName: string;
+    unitPrice: string;
+    quantity: number;
+  }>;
 }
 
 export default function RestaurantBillingPage() {
@@ -128,11 +142,15 @@ export default function RestaurantBillingPage() {
 
   // Modals state
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
-  const [splitType, setSplitType] = useState<"EQUAL" | "CUSTOM">("EQUAL");
+  const [splitType, setSplitType] = useState<"EQUAL" | "ITEM" | "CUSTOM">("EQUAL");
   const [equalCount, setEqualCount] = useState<number>(2);
   const [customPortions, setCustomPortions] = useState<Array<{ name: string; totalAmount: string }>>([
     { name: "Guest 1", totalAmount: "" },
     { name: "Guest 2", totalAmount: "" },
+  ]);
+  const [itemPortions, setItemPortions] = useState<Array<{ name: string; items: Record<string, number> }>>([
+    { name: "Guest 1", items: {} },
+    { name: "Guest 2", items: {} },
   ]);
   const [submittingSplit, setSubmittingSplit] = useState<boolean>(false);
 
@@ -214,6 +232,18 @@ export default function RestaurantBillingPage() {
         payload = {
           splitType: "EQUAL",
           portionsCount: equalCount,
+        };
+      } else if (splitType === "ITEM") {
+        payload = {
+          splitType: "ITEM",
+          portions: itemPortions
+            .map((p) => ({
+              name: p.name,
+              items: Object.entries(p.items)
+                .filter(([_, qty]) => qty > 0)
+                .map(([orderItemId, quantity]) => ({ orderItemId, quantity })),
+            }))
+            .filter((p) => p.items.length > 0),
         };
       } else {
         payload = {
@@ -648,6 +678,18 @@ export default function RestaurantBillingPage() {
                               Subtotal: ₹{p.allocatedAmount} • Tax: ₹{p.taxAmount}
                               {Number(p.tipAmount) > 0 && ` • Tip: ₹${p.tipAmount}`}
                             </div>
+                            {p.items && p.items.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {p.items.map((it) => (
+                                  <span
+                                    key={it.splitItemId}
+                                    className="bg-muted px-1.5 py-0.5 rounded text-[10px] text-foreground font-mono"
+                                  >
+                                    {it.allocatedQuantity}x {it.itemName} (₹{it.allocatedAmount})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div className="text-right">
@@ -749,6 +791,15 @@ export default function RestaurantBillingPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setSplitType("ITEM")}
+                className={`flex-1 py-1.5 rounded-md font-medium transition-all ${
+                  splitType === "ITEM" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                Item-Based Split
+              </button>
+              <button
+                type="button"
                 onClick={() => setSplitType("CUSTOM")}
                 className={`flex-1 py-1.5 rounded-md font-medium transition-all ${
                   splitType === "CUSTOM" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
@@ -776,6 +827,111 @@ export default function RestaurantBillingPage() {
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   * Any 1-cent or fractional remainder is deterministically absorbed by the last portion so the total reconciles 100% with zero drift.
+                </p>
+              </div>
+            ) : splitType === "ITEM" ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-foreground">Allocate Menu Items to Guests</label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setItemPortions([
+                        ...itemPortions,
+                        { name: `Guest ${itemPortions.length + 1}`, items: {} },
+                      ])
+                    }
+                    className="text-[11px] h-7"
+                  >
+                    <Plus className="h-3 w-3 mr-1" /> Add Guest
+                  </Button>
+                </div>
+
+                {!selectedBill?.billItems || selectedBill.billItems.length === 0 ? (
+                  <div className="p-3 rounded-lg border border-dashed text-xs text-muted-foreground text-center">
+                    No discrete order items linked to this bill. Please use Equal Split or Custom Amounts.
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                    {itemPortions.map((ip, gIdx) => (
+                      <div key={gIdx} className="p-2.5 rounded-lg border border-border space-y-2 bg-muted/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <Input
+                            placeholder={`Guest ${gIdx + 1}`}
+                            value={ip.name}
+                            onChange={(e) => {
+                              const updated = [...itemPortions];
+                              updated[gIdx].name = e.target.value;
+                              setItemPortions(updated);
+                            }}
+                            className="text-xs h-7 w-36 font-semibold"
+                          />
+                          <span className="text-[11px] text-muted-foreground">Guest #{gIdx + 1}</span>
+                        </div>
+
+                        <div className="space-y-1.5 pl-1">
+                          {selectedBill.billItems!.map((bItem) => {
+                            const curQty = ip.items[bItem.orderItemId] || 0;
+                            return (
+                              <div
+                                key={bItem.orderItemId}
+                                className="flex items-center justify-between text-xs py-1 border-b border-border/40 last:border-0"
+                              >
+                                <div className="truncate flex-1 pr-2">
+                                  <span className="font-medium text-foreground">{bItem.itemName}</span>
+                                  <span className="text-muted-foreground text-[10px] ml-1.5">
+                                    (₹{bItem.unitPrice}, total ordered: {bItem.quantity})
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 w-6 p-0 text-xs"
+                                    onClick={() => {
+                                      const updated = [...itemPortions];
+                                      const newQty = Math.max(0, curQty - 1);
+                                      updated[gIdx].items = {
+                                        ...updated[gIdx].items,
+                                        [bItem.orderItemId]: newQty,
+                                      };
+                                      setItemPortions(updated);
+                                    }}
+                                  >
+                                    -
+                                  </Button>
+                                  <span className="w-5 text-center font-mono font-bold text-xs">{curQty}</span>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 w-6 p-0 text-xs"
+                                    onClick={() => {
+                                      const updated = [...itemPortions];
+                                      const newQty = Math.min(bItem.quantity, curQty + 1);
+                                      updated[gIdx].items = {
+                                        ...updated[gIdx].items,
+                                        [bItem.orderItemId]: newQty,
+                                      };
+                                      setItemPortions(updated);
+                                    }}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  * Subtotal, tax, and fees are automatically calculated server-side according to exact decimal apportionment.
                 </p>
               </div>
             ) : (
