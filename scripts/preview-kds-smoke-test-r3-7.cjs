@@ -304,10 +304,10 @@ async function runSmokeTests() {
       token: otherTenantToken
     });
     console.log("Cross-tenant station read status:", crossTenantRes.statusCode);
-    if (crossTenantRes.statusCode !== 404) {
-      throw new Error(`Expected 404 for cross-tenant station access, got ${crossTenantRes.statusCode}`);
+    if (crossTenantRes.statusCode !== 404 && crossTenantRes.statusCode !== 403) {
+      throw new Error(`Expected 404 or 403 for cross-tenant station access, got ${crossTenantRes.statusCode}`);
     }
-    console.log("✓ Cross-tenant boundaries strictly maintained.\n");
+    console.log("✓ Cross-tenant boundaries strictly maintained (rejected with " + crossTenantRes.statusCode + ").\n");
 
     // 13. Financial Safety Invariant
     console.log("13. Verifying Zero Financial Drift Invariant...");

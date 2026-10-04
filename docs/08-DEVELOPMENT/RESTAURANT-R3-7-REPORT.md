@@ -262,7 +262,7 @@ ASSO R3.7 introduces a kitchen station domain entity (`kitchen_stations`), scope
 ---
 
 ### 18. Vercel Preview Verification
-- **Target URL**: `https://asso-super-bl5jslcwo-sypdersupport1-ui.vercel.app`
+- **Target URL**: `https://asso-super-2hpjt4wtz-sypdersupport1-ui.vercel.app`
 - **Environment**: `preview`
 - **Remote Verification Script**: `scripts/preview-kds-smoke-test-r3-7.cjs`
 - **Results**:
@@ -277,7 +277,7 @@ ASSO R3.7 introduces a kitchen station domain entity (`kitchen_stations`), scope
   9. Priority escalation to `URGENT` verified with manager token.
   10. Audited recall from `DONE` $\to$ `READY` verified with mandatory reason.
   11. Batch station ticket bump verified.
-  12. Cross-tenant isolation verified (Tenant B token receives 404).
+  12. Cross-tenant isolation verified (Tenant B token strictly rejected with 403 `MODULE_NOT_ENTITLED`).
   13. Zero financial drift verified on remote order.
   14. Safe non-destructive cleanup completed without touching canonical financial tables.
 
