@@ -164,8 +164,17 @@ export default function RestaurantBillingPage() {
 
   // Tip Modal state
   const [tipModalOpen, setTipModalOpen] = useState<boolean>(false);
+  const [tipMode, setTipMode] = useState<"UNALLOCATED" | "STAFF_POOL" | "DIRECT_SERVERS" | "PERCENTAGE_BASED">("PERCENTAGE_BASED");
   const [tipAmount, setTipAmount] = useState<string>("");
   const [tipRecipient, setTipRecipient] = useState<string>("Service Team");
+  const [percentageRecipients, setPercentageRecipients] = useState<Array<{ name: string; percentage: string }>>([
+    { name: "Server Pool", percentage: "60" },
+    { name: "Kitchen Pool", percentage: "40" },
+  ]);
+  const [poolRecipients, setPoolRecipients] = useState<Array<{ name: string; amount: string }>>([
+    { name: "Server Pool", amount: "" },
+    { name: "Kitchen Pool", amount: "" },
+  ]);
   const [submittingTip, setSubmittingTip] = useState<boolean>(false);
 
   // Fetch Bills
@@ -322,18 +331,35 @@ export default function RestaurantBillingPage() {
     setError(null);
 
     try {
+      const payload: any = { tipAmount };
+
+      if (tipMode === "DIRECT_SERVERS") {
+        payload.distributions = [
+          {
+            recipientName: tipRecipient.trim() || "Primary Server",
+            amount: tipAmount,
+          },
+        ];
+      } else if (tipMode === "STAFF_POOL") {
+        payload.distributions = poolRecipients
+          .filter((p) => p.name.trim() && p.amount.trim())
+          .map((p) => ({
+            recipientName: p.name.trim(),
+            amount: p.amount.trim(),
+          }));
+      } else if (tipMode === "PERCENTAGE_BASED") {
+        payload.distributions = percentageRecipients
+          .filter((p) => p.name.trim() && p.percentage.trim())
+          .map((p) => ({
+            recipientName: p.name.trim(),
+            percentage: p.percentage.trim(),
+          }));
+      }
+
       const res = await fetch(`/api/v1/restaurant/bills/${selectedBill.billId}/tips`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipAmount,
-          distributions: [
-            {
-              recipientName: tipRecipient,
-              amount: tipAmount,
-            },
-          ],
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -582,9 +608,21 @@ export default function RestaurantBillingPage() {
                       </div>
                     )}
                     {Number(selectedBill.tipAmount) > 0 && (
-                      <div className="flex justify-between text-indigo-600">
-                        <span>Tip / Gratuity:</span>
-                        <span className="font-mono">+₹{selectedBill.tipAmount}</span>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-indigo-600">
+                          <span>Tip / Gratuity:</span>
+                          <span className="font-mono">+₹{selectedBill.tipAmount}</span>
+                        </div>
+                        {selectedBill.tipDistributions && selectedBill.tipDistributions.length > 0 && (
+                          <div className="pl-2 space-y-0.5 border-l-2 border-indigo-200 dark:border-indigo-800 text-[11px] text-muted-foreground">
+                            {selectedBill.tipDistributions.map((td) => (
+                              <div key={td.tipDistributionId} className="flex justify-between items-center">
+                                <span>{td.recipientName} {td.percentage ? `(${parseFloat(td.percentage)}%)` : ""}:</span>
+                                <span className="font-mono text-foreground font-medium">₹{td.amount}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1060,14 +1098,14 @@ export default function RestaurantBillingPage() {
 
       {/* MODAL: Tip Allocation */}
       <Dialog open={tipModalOpen} onOpenChange={setTipModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Percent className="h-5 w-5 text-amber-500" />
               Tip & Gratuity Allocation
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Add or adjust the tip amount for this bill and attribute it to staff or service pool.
+              Configure authoritative tip distribution across UNALLOCATED, STAFF_POOL, DIRECT_SERVERS, or PERCENTAGE_BASED modes.
             </DialogDescription>
           </DialogHeader>
 
@@ -1082,24 +1120,244 @@ export default function RestaurantBillingPage() {
                 onChange={(e) => setTipAmount(e.target.value)}
                 required
                 className="text-sm mt-1"
+                placeholder="e.g. 100.00"
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-foreground">Recipient / Pool Name</label>
-              <Input
-                value={tipRecipient}
-                onChange={(e) => setTipRecipient(e.target.value)}
-                required
-                className="text-sm mt-1"
-              />
+            {/* Tip Distribution Mode Tabs */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Distribution Mode</label>
+              <div className="grid grid-cols-4 gap-1.5 p-1 bg-muted rounded-md text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setTipMode("PERCENTAGE_BASED")}
+                  className={`py-1.5 rounded text-center transition-all ${
+                    tipMode === "PERCENTAGE_BASED"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Percentage
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipMode("STAFF_POOL")}
+                  className={`py-1.5 rounded text-center transition-all ${
+                    tipMode === "STAFF_POOL"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Staff Pool
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipMode("DIRECT_SERVERS")}
+                  className={`py-1.5 rounded text-center transition-all ${
+                    tipMode === "DIRECT_SERVERS"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Direct Server
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipMode("UNALLOCATED")}
+                  className={`py-1.5 rounded text-center transition-all ${
+                    tipMode === "UNALLOCATED"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Unallocated
+                </button>
+              </div>
             </div>
+
+            {/* Mode-specific forms */}
+            {tipMode === "UNALLOCATED" && (
+              <div className="p-3 bg-muted/40 rounded-lg text-xs text-muted-foreground">
+                Tip is recorded directly at the bill level without discrete recipient allocations.
+              </div>
+            )}
+
+            {tipMode === "DIRECT_SERVERS" && (
+              <div>
+                <label className="text-xs font-semibold text-foreground">Server / Staff Recipient Name</label>
+                <Input
+                  value={tipRecipient}
+                  onChange={(e) => setTipRecipient(e.target.value)}
+                  required
+                  className="text-sm mt-1"
+                  placeholder="e.g. Server Arjun"
+                />
+              </div>
+            )}
+
+            {tipMode === "STAFF_POOL" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-foreground">Pool Recipients & Amounts (₹)</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[11px] px-2"
+                    onClick={() => setPoolRecipients([...poolRecipients, { name: "", amount: "" }])}
+                  >
+                    + Add Pool
+                  </Button>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {poolRecipients.map((p, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <Input
+                        value={p.name}
+                        onChange={(e) => {
+                          const updated = [...poolRecipients];
+                          updated[idx].name = e.target.value;
+                          setPoolRecipients(updated);
+                        }}
+                        placeholder="Pool / Recipient"
+                        className="text-xs h-8 flex-1"
+                        required
+                      />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={p.amount}
+                        onChange={(e) => {
+                          const updated = [...poolRecipients];
+                          updated[idx].amount = e.target.value;
+                          setPoolRecipients(updated);
+                        }}
+                        placeholder="Amount (₹)"
+                        className="text-xs h-8 w-28"
+                        required
+                      />
+                      {poolRecipients.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => setPoolRecipients(poolRecipients.filter((_, i) => i !== idx))}
+                        >
+                          ×
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tipMode === "PERCENTAGE_BASED" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-foreground">Recipient Percentage Allocations</span>
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const totalPct = percentageRecipients.reduce(
+                        (sum, r) => sum + (parseFloat(r.percentage) || 0),
+                        0
+                      );
+                      const is100 = Math.abs(totalPct - 100) < 0.01;
+                      return (
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold ${
+                            is100 ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+                          }`}
+                        >
+                          Total: {totalPct.toFixed(2)}% / 100%
+                        </span>
+                      );
+                    })()}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[11px] px-2"
+                      onClick={() =>
+                        setPercentageRecipients([...percentageRecipients, { name: "", percentage: "" }])
+                      }
+                    >
+                      + Add Recipient
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {percentageRecipients.map((r, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <Input
+                        value={r.name}
+                        onChange={(e) => {
+                          const updated = [...percentageRecipients];
+                          updated[idx].name = e.target.value;
+                          setPercentageRecipients(updated);
+                        }}
+                        placeholder="Recipient e.g. Server Pool"
+                        className="text-xs h-8 flex-1"
+                        required
+                      />
+                      <div className="relative w-28">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="100"
+                          value={r.percentage}
+                          onChange={(e) => {
+                            const updated = [...percentageRecipients];
+                            updated[idx].percentage = e.target.value;
+                            setPercentageRecipients(updated);
+                          }}
+                          placeholder="Percent"
+                          className="text-xs h-8 pr-6 font-mono"
+                          required
+                        />
+                        <span className="absolute right-2 top-2 text-xs text-muted-foreground pointer-events-none">%</span>
+                      </div>
+                      {percentageRecipients.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() =>
+                            setPercentageRecipients(percentageRecipients.filter((_, i) => i !== idx))
+                          }
+                        >
+                          ×
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground leading-relaxed bg-muted/40 p-2.5 rounded border">
+                  ⚡ Monetary shares are computed authoritatively by the server with exact 4-decimal precision and remainder absorption. The client performs zero currency arithmetic.
+                </p>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setTipModalOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={submittingTip} className="bg-amber-600 hover:bg-amber-700 text-white">
+              <Button
+                type="submit"
+                disabled={
+                  submittingTip ||
+                  (tipMode === "PERCENTAGE_BASED" &&
+                    Math.abs(
+                      percentageRecipients.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0) - 100
+                    ) >= 0.01)
+                }
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
                 {submittingTip ? "Allocating..." : "Save Tip"}
               </Button>
             </DialogFooter>

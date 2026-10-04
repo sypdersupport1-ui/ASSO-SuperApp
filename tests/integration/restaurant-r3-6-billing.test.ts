@@ -1249,6 +1249,121 @@ describe("ASSO Restaurant Vertical — Slice 3.6 Bill Splitting, Tip & Multi-Pay
       expect(json.data.tipDistributions.length).toBe(2);
     });
 
+    it("allocates tip via PERCENTAGE_BASED mode with client providing only percentages and server authoritatively computing monetary amounts", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "100.00",
+          distributions: [
+            { recipientName: "Server Pool", percentage: "60.00" },
+            { recipientName: "Kitchen Pool", percentage: "40.00" },
+          ],
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.tipAmount).toBe("100.00");
+      expect(json.data.tipDistributions.length).toBe(2);
+      // Verify exact authoritative amounts calculated server-side
+      const serverPool = json.data.tipDistributions.find((d: any) => d.recipientName === "Server Pool");
+      const kitchenPool = json.data.tipDistributions.find((d: any) => d.recipientName === "Kitchen Pool");
+      expect(serverPool).toBeDefined();
+      expect(serverPool.percentage).toBe("60.0000");
+      expect(serverPool.amount).toBe("60.00");
+      expect(kitchenPool).toBeDefined();
+      expect(kitchenPool.percentage).toBe("40.0000");
+      expect(kitchenPool.amount).toBe("40.00");
+    });
+
+    it("rejects PERCENTAGE_BASED tip distribution when percentages do not sum to 100%", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "100.00",
+          distributions: [
+            { recipientName: "Server Pool", percentage: "50.00" },
+            { recipientName: "Kitchen Pool", percentage: "35.00" }, // Sum = 85% != 100%
+          ],
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe("VALIDATION_FAILED");
+      expect(json.error.message).toContain("must equal 100%");
+    });
+
+    it("absorbs fractional cent remainder authoritatively into last recipient for 3-way odd percentage split", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${managerTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "100.00",
+          distributions: [
+            { recipientName: "Server 1", percentage: "33.33" },
+            { recipientName: "Server 2", percentage: "33.33" },
+            { recipientName: "Server 3", percentage: "33.34" },
+          ],
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.tipAmount).toBe("100.00");
+      expect(json.data.tipDistributions.length).toBe(3);
+
+      const d1 = json.data.tipDistributions.find((d: any) => d.recipientName === "Server 1");
+      const d2 = json.data.tipDistributions.find((d: any) => d.recipientName === "Server 2");
+      const d3 = json.data.tipDistributions.find((d: any) => d.recipientName === "Server 3");
+
+      expect(d1.amount).toBe("33.33");
+      expect(d2.amount).toBe("33.33");
+      expect(d3.amount).toBe("33.34");
+      // Total of exact allocated amounts: 33.33 + 33.33 + 33.34 = 100.00
+      const sum = Number(d1.amount) + Number(d2.amount) + Number(d3.amount);
+      expect(sum).toBe(100);
+    });
+
+    it("denies unauthenticated or unauthorized customer/guest from allocating tips (returns 403)", async () => {
+      const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${guestTokenA}`,
+          "content-type": "application/json",
+          "x-tenant-id": TENANT_A,
+        },
+        body: JSON.stringify({
+          tipAmount: "20.00",
+          distributions: [{ recipientName: "Direct Server", percentage: "100.00" }],
+        }),
+      });
+
+      const res = await tipsPost(req, { params: Promise.resolve({ id: tipBillId }) });
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error.code).toBe("PERMISSION_DENIED");
+    });
+
     it("rejects tip distribution whose sum does not reconcile to the tip amount", async () => {
       const req = new NextRequest(`http://localhost/api/v1/restaurant/bills/${tipBillId}/tips`, {
         method: "POST",

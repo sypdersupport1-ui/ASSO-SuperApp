@@ -99,7 +99,7 @@ export interface RecordPaymentInput {
 export interface TipDistributionItemInput {
   staffId?: string;
   recipientName: string;
-  amount: DecimalLike;
+  amount?: DecimalLike;
   percentage?: DecimalLike;
   notes?: string;
 }
@@ -1326,16 +1326,14 @@ export async function allocateBillTip(
 
     // 2. Validate distributions if provided
     if (input.distributions && input.distributions.length > 0) {
-      let sumDist = Decimal.zero();
+      let hasMissingAmounts = false;
       let hasPercentages = true;
       let sumPercentages = Decimal.zero();
 
       for (const d of input.distributions) {
-        const amt = Decimal.from(d.amount);
-        if (amt.lessThanOrEqualTo(Decimal.zero())) {
-          throw new ValidationError("Tip distribution amount must be greater than zero.");
+        if (d.amount === undefined || d.amount === null || d.amount === "") {
+          hasMissingAmounts = true;
         }
-        sumDist = sumDist.plus(amt);
 
         if (d.staffId) {
           const validStaffUuid = safeUuid(d.staffId);
@@ -1357,7 +1355,7 @@ export async function allocateBillTip(
           }
         }
 
-        if (d.percentage !== undefined && d.percentage !== null) {
+        if (d.percentage !== undefined && d.percentage !== null && d.percentage !== "") {
           const pct = Decimal.from(d.percentage);
           if (pct.lessThanOrEqualTo(Decimal.zero()) || pct.greaterThan(Decimal.from(100))) {
             throw new ValidationError(`Tip distribution percentage must be between 0 and 100. Received: '${d.percentage}'.`);
@@ -1368,15 +1366,44 @@ export async function allocateBillTip(
         }
       }
 
-      if (!sumDist.equals(tipAmount)) {
-        throw new ValidationError(
-          `Sum of tip distributions (${sumDist.toFixed(2)}) must reconcile exactly to bill tip amount (${tipAmount.toFixed(2)}).`
-        );
-      }
-
       if (hasPercentages && !sumPercentages.round(2).equals(Decimal.from(100))) {
         throw new ValidationError(
           `Sum of tip distribution percentages (${sumPercentages.toFixed(2)}%) must equal 100%.`
+        );
+      }
+
+      // If amounts are omitted, compute them authoritatively from percentages with strict remainder absorption
+      if (hasMissingAmounts) {
+        if (!hasPercentages) {
+          throw new ValidationError("Tip distributions without amounts must specify valid percentages summing to 100%.");
+        }
+        let allocatedSum = Decimal.zero();
+        for (let i = 0; i < input.distributions.length; i++) {
+          const d = input.distributions[i];
+          const pct = Decimal.from(d.percentage!);
+          if (i === input.distributions.length - 1) {
+            // Remainder absorption by last recipient
+            d.amount = tipAmount.minus(allocatedSum).toFixed(4);
+          } else {
+            const calculatedAmt = tipAmount.times(pct).dividedBy(100, 4);
+            d.amount = calculatedAmt.toFixed(4);
+            allocatedSum = allocatedSum.plus(calculatedAmt);
+          }
+        }
+      }
+
+      let sumDist = Decimal.zero();
+      for (const d of input.distributions) {
+        const amt = Decimal.from(d.amount!);
+        if (amt.lessThanOrEqualTo(Decimal.zero())) {
+          throw new ValidationError("Tip distribution amount must be greater than zero.");
+        }
+        sumDist = sumDist.plus(amt);
+      }
+
+      if (!sumDist.equals(tipAmount)) {
+        throw new ValidationError(
+          `Sum of tip distributions (${sumDist.toFixed(2)}) must reconcile exactly to bill tip amount (${tipAmount.toFixed(2)}).`
         );
       }
     }
@@ -1415,7 +1442,7 @@ export async function allocateBillTip(
           billId,
           staffId: safeUuid(d.staffId),
           recipientName: d.recipientName,
-          amount: Decimal.from(d.amount).toFixed(4),
+          amount: Decimal.from(d.amount!).toFixed(4),
           percentage: d.percentage ? Decimal.from(d.percentage).toFixed(4) : null,
           notes: d.notes || null,
           distributedByUserId: safeUuid(user?.sub),

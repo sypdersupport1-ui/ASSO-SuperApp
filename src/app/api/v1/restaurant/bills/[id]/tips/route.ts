@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 const tipDistributionItemSchema = z.object({
   staffId: z.string().uuid().optional(),
   recipientName: z.string().min(1).max(100),
-  amount: z.union([z.string(), z.number()]),
+  amount: z.union([z.string(), z.number()]).optional(),
   percentage: z.union([z.string(), z.number()]).optional(),
   notes: z.string().max(500).optional(),
 });

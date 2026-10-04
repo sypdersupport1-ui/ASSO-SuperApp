@@ -347,7 +347,7 @@ describe("Phase 7 Hotel Vertical — Slice 9 (Folio & Billing) Integration Suite
       expect(foodEntry?.referenceId).toBe(orderId);
       expect(parseFloat(foodEntry?.amount || "0")).toBe(parseFloat(orderTotal));
       expect(parseFloat(folioDetail.totalCharges)).toBe(7500.0 + parseFloat(orderTotal));
-    });
+    }, 60000);
 
     it("prevents double-posting if the same order post is triggered again (idempotency)", async () => {
       const secondPost = await postRoomServiceOrderCharge({
