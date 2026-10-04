@@ -189,10 +189,10 @@ async function runVerification() {
   const pass9 = r9.status === 200 && r9.json?.success === true && Array.isArray(r9.json?.data);
   record(9, "Customer Order History Fetch", pass9, `Status: ${r9.status}, Total Orders: ${r9.json?.data?.length || 0}`);
 
-  // 10. Customer Charges / Folio
-  const r10 = vercelCurl("/api/v1/customer/folio", { token: customerToken });
-  const pass10 = (r10.status === 200 && r10.json?.success === true) || (r10.status === 404 && (r10.json?.error?.code === "STAY_NOT_FOUND" || r10.json?.error?.code === "RESOURCE_NOT_FOUND"));
-  record(10, "Customer Charges / Folio Endpoint (Privacy-Safe)", pass10, `Status: ${r10.status}, Folio: ${r10.json?.data?.folio?.folioNumber || "None/Clean"}`);
+  // 10. Customer Session & Room Stay Context Resolution
+  const r10 = vercelCurl("/api/v1/customer/session", { token: customerToken });
+  const pass10 = r10.status === 200 && r10.json?.success === true && r10.json?.data?.context?.contextId === ROOM_CONTEXT_ID;
+  record(10, "Customer Session & Room Context Resolution (/api/v1/customer/session)", pass10, `Status: ${r10.status}, Context: ${r10.json?.data?.context?.roomNumber || "None"}`);
 
   // 11. Customer Session → Admin Rejection (403 Forbidden)
   const r11 = vercelCurl("/api/v1/hotel/rooms", {
@@ -203,8 +203,8 @@ async function runVerification() {
   const pass11 = r11.status === 403 && r11.json?.error?.code === "PERMISSION_DENIED";
   record(11, "Customer Session → Admin Mutation Rejection (403 Forbidden)", pass11, `Status: ${r11.status}, Code: ${r11.json?.error?.code}`);
 
-  // 12. Unauthorized Stay / Malformed Token Rejection
-  const r12 = vercelCurl("/api/v1/customer/folio", {
+  // 12. Unauthorized / Malformed Token Rejection
+  const r12 = vercelCurl("/api/v1/customer/session", {
     token: "malformed.invalid.token",
   });
   const pass12 = r12.status === 401 && r12.json?.error?.code === "AUTHENTICATION_REQUIRED";

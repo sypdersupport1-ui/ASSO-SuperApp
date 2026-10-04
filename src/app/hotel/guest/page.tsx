@@ -87,30 +87,6 @@ interface CustomerOrderItem {
   }>;
 }
 
-interface CustomerFolioData {
-  hasActiveStay: boolean;
-  stayId?: string;
-  stayNumber?: string;
-  roomNumber?: string;
-  guestName?: string;
-  checkInAt?: string | null;
-  expectedCheckOutAt?: string | null;
-  folio: {
-    folioNumber: string;
-    status: string;
-    totalCharges: string;
-    totalPayments: string;
-    balanceDue: string;
-    entries: Array<{
-      entryId: string;
-      entryType: string;
-      direction: "DEBIT" | "CREDIT";
-      amount: string;
-      description: string;
-      createdAt: string;
-    }>;
-  } | null;
-}
 
 const SERVICE_CATEGORIES = [
   {
@@ -190,8 +166,6 @@ function HotelGuestPortalContent() {
   // Data Collections
   const [requests, setRequests] = useState<ServiceRequestItem[]>([]);
   const [orders, setOrders] = useState<CustomerOrderItem[]>([]);
-  const [folioData, setFolioData] = useState<CustomerFolioData | null>(null);
-  const [loadingFolio, setLoadingFolio] = useState(false);
 
   // Request Submission Modal
   const [selectedCategory, setSelectedCategory] = useState<typeof SERVICE_CATEGORIES[0] | null>(null);
@@ -201,12 +175,9 @@ function HotelGuestPortalContent() {
   const [submitting, setSubmitting] = useState(false);
   const [formSuccess, setFormSuccess] = useState(false);
 
-  // Customer Identification Modal
+  // Guest Preferences Modal
   const [identifyModalOpen, setIdentifyModalOpen] = useState(false);
   const [custName, setCustName] = useState("");
-  const [custPhone, setCustPhone] = useState("");
-  const [custEmail, setCustEmail] = useState("");
-  const [identifying, setIdentifying] = useState(false);
   const [identifiedName, setIdentifiedName] = useState<string | null>(null);
 
   // 1. Resolve QR Token or validate cached session
@@ -232,6 +203,9 @@ function HotelGuestPortalContent() {
             setStay(json.data.stay);
             if (json.data.stay?.guestFirstName) {
               setIdentifiedName(json.data.stay.guestFirstName);
+            } else {
+              const pref = sessionStorage.getItem("asso_guest_preferred_name");
+              if (pref) setIdentifiedName(pref);
             }
             setLoading(false);
             return;
@@ -268,6 +242,9 @@ function HotelGuestPortalContent() {
       setStay(resolution.stay);
       if (resolution.stay?.guestFirstName) {
         setIdentifiedName(resolution.stay.guestFirstName);
+      } else {
+        const pref = sessionStorage.getItem("asso_guest_preferred_name");
+        if (pref) setIdentifiedName(pref);
       }
       sessionStorage.setItem("asso_guest_session_token", resolution.sessionToken);
     } catch {
@@ -314,35 +291,15 @@ function HotelGuestPortalContent() {
     }
   }, [sessionToken]);
 
-  // 4. Fetch Customer Folio / Bill
-  const fetchFolio = useCallback(async () => {
-    if (!sessionToken) return;
-    setLoadingFolio(true);
-    try {
-      const res = await fetch("/api/v1/customer/folio", {
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      });
-      const json = await res.json();
-      if (json.success) {
-        setFolioData(json.data);
-      }
-    } catch {
-      // background fetch silent error
-    } finally {
-      setLoadingFolio(false);
-    }
-  }, [sessionToken]);
-
   // Trigger data fetches on session ready
   useEffect(() => {
     if (sessionToken) {
       fetchRequests();
       fetchOrders();
-      fetchFolio();
     }
-  }, [sessionToken, fetchRequests, fetchOrders, fetchFolio]);
+  }, [sessionToken, fetchRequests, fetchOrders]);
 
-  // 5. Connect Realtime SSE Stream for Room-Scoped Updates
+  // 4. Connect Realtime SSE Stream for Room-Scoped Updates
   useEffect(() => {
     if (!sessionToken) return;
 
@@ -356,7 +313,6 @@ function HotelGuestPortalContent() {
 
       const handleOrderChange = () => {
         fetchOrders();
-        fetchFolio();
       };
 
       eventSource.addEventListener("service_request.created", handleRequestChange);
@@ -379,7 +335,7 @@ function HotelGuestPortalContent() {
         eventSource.close();
       }
     };
-  }, [sessionToken, fetchRequests, fetchOrders, fetchFolio]);
+  }, [sessionToken, fetchRequests, fetchOrders]);
 
   // 6. Submit Service Request
   const handleSubmitRequest = async (e: React.FormEvent) => {
@@ -428,44 +384,19 @@ function HotelGuestPortalContent() {
   };
 
   // 7. Handle Customer Identification (Name + Phone)
-  const handleIdentify = async (e: React.FormEvent) => {
+  // 6. Handle Guest Preferred Display Name (Client Session Preference)
+  const handleIdentify = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sessionToken) return;
-    if (!custName.trim() || !custPhone.trim()) {
-      toast.error("Please enter both your name and mobile number.");
+    if (!custName.trim()) {
+      toast.error("Please enter your preferred display name.");
       return;
     }
 
-    setIdentifying(true);
-    try {
-      const res = await fetch("/api/v1/customer/identify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify({
-          fullName: custName.trim(),
-          phone: custPhone.trim(),
-          email: custEmail.trim() || undefined,
-        }),
-      });
-
-      const json = await res.json();
-      if (json.success) {
-        setIdentifiedName(json.data.customer.fullName);
-        setSessionToken(json.data.sessionToken);
-        sessionStorage.setItem("asso_guest_session_token", json.data.sessionToken);
-        setIdentifyModalOpen(false);
-        toast.success(`Welcome, ${json.data.customer.fullName}! Profile linked to your stay.`);
-      } else {
-        toast.error(json.error?.message || "Unable to update profile.");
-      }
-    } catch {
-      toast.error("Network error while updating guest profile.");
-    } finally {
-      setIdentifying(false);
-    }
+    const preferred = custName.trim();
+    setIdentifiedName(preferred);
+    sessionStorage.setItem("asso_guest_preferred_name", preferred);
+    setIdentifyModalOpen(false);
+    toast.success(`Welcome, ${preferred}! Preferred name set for this session.`);
   };
 
   if (loading) {
@@ -667,7 +598,6 @@ function HotelGuestPortalContent() {
                 <button
                   onClick={() => {
                     setActiveTab("charges");
-                    fetchFolio();
                   }}
                   className="text-left bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl transition flex flex-col justify-between space-y-3 group shadow-md"
                 >
@@ -684,26 +614,24 @@ function HotelGuestPortalContent() {
               </div>
             </section>
 
-            {/* In-Room High-Speed Wi-Fi & Support Card */}
-            <section className="bg-slate-900/70 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-md">
+            {/* In-Room Wi-Fi & Support Card */}
+            <section className="bg-slate-900/70 border border-slate-800 rounded-3xl p-5 space-y-3 shadow-md">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center space-x-2.5 text-white font-bold text-sm">
                   <Wifi className="w-4 h-4 text-emerald-400" />
                   <span>Complimentary Room Wi-Fi</span>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  Connected
+                  Complimentary
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="space-y-0.5">
-                  <div className="text-slate-400">Network Name (SSID)</div>
-                  <div className="font-mono font-bold text-white">ASSO_GUEST_HIGH_SPEED</div>
-                </div>
-                <div className="space-y-0.5">
-                  <div className="text-slate-400">Access Key</div>
-                  <div className="font-mono font-bold text-white">Room{context.roomNumber}Stay</div>
-                </div>
+              <div className="text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                <p>
+                  High-speed wireless internet access is available throughout the hotel property.
+                </p>
+                <p className="text-slate-400 text-[11px]">
+                  Network connection details and access credentials are provided on your keycard wallet or available at the Front Desk.
+                </p>
               </div>
             </section>
 
@@ -711,25 +639,15 @@ function HotelGuestPortalContent() {
             <section className="bg-slate-900/70 border border-slate-800 rounded-3xl p-5 space-y-3 shadow-md">
               <div className="flex items-center space-x-2 text-white font-bold text-sm pb-2 border-b border-slate-800">
                 <Phone className="w-4 h-4 text-indigo-400" />
-                <span>In-Room Telephone Directory</span>
+                <span>In-Room Telephone & Support</span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="text-slate-300">Front Desk</span>
-                  <span className="font-mono font-bold text-indigo-400">Dial 0</span>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="text-slate-300">Room Service</span>
-                  <span className="font-mono font-bold text-amber-400">Dial 1</span>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="text-slate-300">Housekeeping</span>
-                  <span className="font-mono font-bold text-emerald-400">Dial 2</span>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="text-slate-300">Emergency</span>
-                  <span className="font-mono font-bold text-rose-400">Dial 9</span>
-                </div>
+              <div className="text-xs text-slate-300 space-y-2 leading-relaxed">
+                <p>
+                  For direct voice assistance, use the dedicated speed-dial buttons on your in-room telephone handset (Front Desk, Housekeeping, Dining).
+                </p>
+                <p className="text-slate-400 text-[11px]">
+                  You can also submit instant service requests and dining orders directly through this digital concierge.
+                </p>
               </div>
             </section>
           </div>
@@ -796,34 +714,24 @@ function HotelGuestPortalContent() {
                           month: "short",
                           year: "numeric",
                         })
-                      : "Standard Checkout (11:00 AM)"}
+                      : "Confirmed with Front Desk"}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Hotel Services & Policies Guide */}
+            {/* Hotel Services & Operational Guidance */}
             <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-5 space-y-3 text-xs">
               <h3 className="font-bold text-white text-sm pb-2 border-b border-slate-800">
-                Hotel Amenities & Timings
+                Hotel Amenities & Services
               </h3>
-              <div className="space-y-2.5 text-slate-300">
-                <div className="flex items-start justify-between">
-                  <span className="text-slate-400">In-Room Dining:</span>
-                  <span className="font-medium text-white">24 Hours Daily</span>
-                </div>
-                <div className="flex items-start justify-between">
-                  <span className="text-slate-400">Housekeeping Service:</span>
-                  <span className="font-medium text-white">08:00 AM – 08:00 PM</span>
-                </div>
-                <div className="flex items-start justify-between">
-                  <span className="text-slate-400">Standard Check-out:</span>
-                  <span className="font-medium text-white">11:00 AM</span>
-                </div>
-                <div className="flex items-start justify-between">
-                  <span className="text-slate-400">Front Desk & Concierge:</span>
-                  <span className="font-medium text-white">24/7 Assistance (Dial 0)</span>
-                </div>
+              <div className="space-y-2 text-slate-300 leading-relaxed">
+                <p>
+                  In-room dining and guest service requests can be submitted 24/7 directly through this digital portal.
+                </p>
+                <p className="text-slate-400 text-[11px]">
+                  Operational hours for dining venues, wellness facilities, and housekeeping schedules are managed property-wide. Please check with the Front Desk for current facility timings and special requests.
+                </p>
               </div>
             </div>
 
@@ -1141,139 +1049,112 @@ function HotelGuestPortalContent() {
         {/* ==================================================================== */}
         {/* TAB 5: MY CHARGES / FOLIO BILL                                       */}
         {/* ==================================================================== */}
+        {/* ==================================================================== */}
+        {/* TAB 5: MY CHARGES / ROOM ACCOUNT                                     */}
+        {/* ==================================================================== */}
         {activeTab === "charges" && (
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center justify-between px-1">
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
                   <Receipt className="w-4 h-4 text-purple-400" />
-                  Stay Charges & Bill
+                  Stay Charges & Account
                 </h2>
-                <p className="text-xs text-slate-400">Server-verified room account summary</p>
+                <p className="text-xs text-slate-400">Room account summary and placed charges</p>
               </div>
               <button
-                onClick={fetchFolio}
-                disabled={loadingFolio}
+                onClick={fetchOrders}
                 className="text-xs text-purple-400 hover:text-purple-300 flex items-center space-x-1"
               >
-                <RefreshCw className={`w-3 h-3 ${loadingFolio ? "animate-spin" : ""}`} />
+                <RefreshCw className="w-3 h-3" />
                 <span>Refresh</span>
               </button>
             </div>
 
-            {loadingFolio && !folioData ? (
-              <div className="p-12 text-center text-slate-400 space-y-3">
-                <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs">Fetching verified room billing records...</p>
-              </div>
-            ) : !folioData?.hasActiveStay || !folioData.folio ? (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center space-y-3">
-                <Receipt className="w-10 h-10 mx-auto text-slate-500" />
-                <div className="text-sm font-bold text-slate-200">No active stay billing record</div>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                  Room {context.roomNumber} does not have an active billing folio. Please check in with Front Desk.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Financial KPI Banner */}
-                <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-purple-500/20 rounded-3xl p-5 space-y-4 shadow-xl">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <div>
-                      <div className="text-[10px] font-mono text-purple-400 uppercase tracking-wider font-semibold">
-                        Folio #{folioData.folio.folioNumber}
-                      </div>
-                      <div className="text-sm font-bold text-white">Room {folioData.roomNumber} Account</div>
-                    </div>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      {folioData.folio.status}
-                    </span>
+            {/* Room Account Summary Banner */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-purple-500/20 rounded-3xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div>
+                  <div className="text-[10px] font-mono text-purple-400 uppercase tracking-wider font-semibold">
+                    Room Billing Account
                   </div>
+                  <div className="text-sm font-bold text-white">Room {context.roomNumber} ({context.propertyName})</div>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  {stay?.hasActiveStay ? "Active Stay" : "In Residence"}
+                </span>
+              </div>
 
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80">
-                      <div className="text-[10px] text-slate-400 uppercase">Charges</div>
-                      <div className="text-sm font-bold font-mono text-white mt-1">
-                        ₹{parseFloat(folioData.folio.totalCharges).toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80">
-                      <div className="text-[10px] text-slate-400 uppercase">Paid</div>
-                      <div className="text-sm font-bold font-mono text-emerald-400 mt-1">
-                        ₹{parseFloat(folioData.folio.totalPayments).toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="bg-purple-500/10 p-3 rounded-2xl border border-purple-500/30">
-                      <div className="text-[10px] text-purple-300 uppercase font-semibold">Balance Due</div>
-                      <div className="text-sm font-extrabold font-mono text-purple-300 mt-1">
-                        ₹{parseFloat(folioData.folio.balanceDue).toFixed(2)}
-                      </div>
-                    </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="space-y-1">
+                  <div className="text-slate-400">Registered Guest</div>
+                  <div className="font-bold text-white truncate">{displayName}</div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-slate-400">Dining Charges Placed</div>
+                  <div className="font-mono font-bold text-amber-400">
+                    {orders.length} order{orders.length === 1 ? "" : "s"}
                   </div>
                 </div>
-
-                {/* Itemized Line Items */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-4 space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-                    Itemized Charges & Credits ({folioData.folio.entries.length})
-                  </h3>
-
-                  {folioData.folio.entries.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
-                      No posted charges on room account yet.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-800/60">
-                      {folioData.folio.entries.map((entry) => {
-                        const isCredit = entry.direction === "CREDIT";
-                        const numAmt = parseFloat(entry.amount);
-                        return (
-                          <div key={entry.entryId} className="py-3 flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                    entry.entryType === "FOOD_CHARGE"
-                                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                      : entry.entryType === "ROOM_CHARGE"
-                                      ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                                      : entry.entryType === "PAYMENT"
-                                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                      : "bg-slate-800 text-slate-300"
-                                  }`}
-                                >
-                                  {entry.entryType.replace("_", " ")}
-                                </span>
-                                <span className="text-[10px] text-slate-400">
-                                  {new Date(entry.createdAt).toLocaleDateString([], {
-                                    month: "short",
-                                    day: "numeric",
-                                  })}
-                                </span>
-                              </div>
-                              <div className="text-xs text-white font-medium">{entry.description}</div>
-                            </div>
-
-                            <div
-                              className={`font-mono font-bold text-xs shrink-0 ${
-                                isCredit ? "text-emerald-400" : "text-white"
-                              }`}
-                            >
-                              {isCredit ? "-₹" : "+₹"}
-                              {Math.abs(numAmt).toFixed(2)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 text-[11px] text-slate-400 text-center">
-                  All room service and incidental charges are billed to your room account. Payments can be settled directly at the Front Desk upon check-out.
-                </div>
               </div>
-            )}
+            </div>
+
+            {/* Honest Operational Notice Regarding Digital Folio Statements */}
+            <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-5 space-y-3 shadow-md">
+              <div className="flex items-center space-x-2 text-white font-bold text-sm">
+                <Receipt className="w-4 h-4 text-indigo-400" />
+                <span>In-Room Folio Statement Notice</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Direct in-room digital folio review is currently pending integration with the customer billing engine. All room charges, nightly tariffs, and applicable taxes are consolidated on your master folio at Front Desk.
+              </p>
+              <div className="p-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 text-[11px] text-slate-400">
+                For a complete printed or digital itemized billing statement, or to settle account balances, please contact or visit the Front Desk.
+              </div>
+            </div>
+
+            {/* In-Room Dining Charges Placed in Session */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-4 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
+                Room Dining Charges ({orders.length})
+              </h3>
+
+              {orders.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-400">
+                  No dining charges posted during this session.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-800/60">
+                  {orders.map((ord) => (
+                    <div key={ord.orderId} className="py-3 flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            DINING #{ord.orderNumber}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(ord.createdAt).toLocaleDateString([], {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </span>
+                          <span className="text-[10px] text-indigo-300 font-mono">
+                            {ord.displayStatus}
+                          </span>
+                        </div>
+                        <div className="text-xs text-white">
+                          {ord.items.map((it) => `${it.quantity}x ${it.itemName}`).join(", ")}
+                        </div>
+                      </div>
+
+                      <div className="font-mono font-bold text-xs shrink-0 text-amber-400">
+                        ₹{ord.totalAmount}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -1344,10 +1225,7 @@ function HotelGuestPortalContent() {
 
           {/* 6. Charges */}
           <button
-            onClick={() => {
-              setActiveTab("charges");
-              fetchFolio();
-            }}
+            onClick={() => setActiveTab("charges")}
             className={`flex flex-col items-center py-1 px-2.5 rounded-xl transition ${
               activeTab === "charges" ? "text-purple-400 font-bold" : "text-slate-400 hover:text-slate-200"
             }`}
@@ -1516,7 +1394,7 @@ function HotelGuestPortalContent() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center space-x-2.5">
                 <User className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-base font-bold text-white">Guest Identification</h3>
+                <h3 className="text-base font-bold text-white">Guest Preferences</h3>
               </div>
               <button
                 onClick={() => setIdentifyModalOpen(false)}
@@ -1527,41 +1405,18 @@ function HotelGuestPortalContent() {
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Personalize your in-room experience. Your contact details are securely bound to your Room {context.roomNumber} session.
+              Official guest registration is maintained at the Front Desk. You may set a preferred greeting name for this in-room digital concierge session below.
             </p>
 
             <form onSubmit={handleIdentify} className="space-y-3.5">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Your Full Name</label>
+                <label className="text-xs font-bold text-slate-300">Preferred Name</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Alice Smith"
+                  placeholder="e.g. Alice"
                   value={custName}
                   onChange={(e) => setCustName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-white text-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Mobile Phone Number</label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="e.g. +91 9876543210"
-                  value={custPhone}
-                  onChange={(e) => setCustPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-white text-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Email Address (Optional)</label>
-                <input
-                  type="email"
-                  placeholder="e.g. alice@example.com"
-                  value={custEmail}
-                  onChange={(e) => setCustEmail(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-white text-sm"
                 />
               </div>
@@ -1576,17 +1431,10 @@ function HotelGuestPortalContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={identifying}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold transition shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5"
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5"
                 >
-                  {identifying ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Save Profile</span>
-                    </>
-                  )}
+                  <Check className="w-4 h-4" />
+                  <span>Save Preference</span>
                 </button>
               </div>
             </form>
