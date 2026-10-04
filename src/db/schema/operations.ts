@@ -38,12 +38,36 @@ export const catalogCategories = pgTable(
   ]
 );
 
+export const kitchenStations = pgTable(
+  "kitchen_stations",
+  {
+    stationId: uuid("station_id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
+    outletId: uuid("outlet_id").notNull().references(() => outlets.outletId),
+    code: varchar("code", { length: 50 }).notNull(), // 'HOT_KITCHEN', 'TANDOOR', 'GRILL', 'BEVERAGE', 'DESSERT', 'BAR'
+    name: varchar("name", { length: 100 }).notNull(), // Display name e.g. "Hot Kitchen"
+    description: text("description"),
+    displayOrder: integer("display_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uq_kitchen_stations_tenant_outlet_code").on(table.tenantId, table.outletId, table.code),
+    index("idx_kitchen_stations_tenant_outlet_order").on(table.tenantId, table.outletId, table.displayOrder),
+  ]
+);
+
+export type KitchenStation = typeof kitchenStations.$inferSelect;
+export type NewKitchenStation = typeof kitchenStations.$inferInsert;
+
 export const catalogItems = pgTable(
   "catalog_items",
   {
     itemId: uuid("item_id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull().references(() => organizations.organizationId),
     categoryId: uuid("category_id").notNull().references(() => catalogCategories.categoryId),
+    stationId: uuid("station_id").references(() => kitchenStations.stationId, { onDelete: "set null" }),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     sku: varchar("sku", { length: 100 }),
@@ -58,6 +82,7 @@ export const catalogItems = pgTable(
   (table) => [
     index("idx_catalog_items_category_avail").on(table.categoryId, table.isAvailable),
     index("idx_catalog_items_tenant_avail").on(table.tenantId, table.isAvailable),
+    index("idx_catalog_items_station").on(table.tenantId, table.stationId),
   ]
 );
 
@@ -146,7 +171,15 @@ export const kdsTasks = pgTable(
     tableSessionId: uuid("table_session_id").references(() => restaurantTableSessions.sessionId),
     orderSource: varchar("order_source", { length: 50 }).notNull(),
     stationRouting: varchar("station_routing", { length: 50 }).notNull().default("KITCHEN"),
+    stationId: uuid("station_id").references(() => kitchenStations.stationId, { onDelete: "set null" }),
     taskStatus: varchar("task_status", { length: 50 }).notNull().default("PENDING"),
+    priority: varchar("priority", { length: 20 }).notNull().default("NORMAL"), // 'NORMAL', 'PRIORITY', 'URGENT'
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    destinationLabel: varchar("destination_label", { length: 100 }),
+    specialNotes: text("special_notes"),
     idempotencyKey: varchar("idempotency_key", { length: 100 }), // To ensure one task per order_item or event
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -157,6 +190,8 @@ export const kdsTasks = pgTable(
     index("idx_kds_tasks_order").on(table.orderId),
     index("idx_kds_tasks_status").on(table.tenantId, table.taskStatus),
     index("idx_kds_tasks_station").on(table.tenantId, table.outletId, table.stationRouting),
+    index("idx_kds_tasks_station_priority").on(table.tenantId, table.outletId, table.stationRouting, table.priority),
+    index("idx_kds_tasks_timing").on(table.tenantId, table.taskStatus, table.createdAt),
   ]
 );
 

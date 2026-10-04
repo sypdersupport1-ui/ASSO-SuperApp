@@ -92,6 +92,15 @@ export const KDS_STATIONS = [
 
 export type KdsStation = (typeof KDS_STATIONS)[number] | (string & {});
 
+export const KDS_PRIORITIES = ["NORMAL", "PRIORITY", "URGENT"] as const;
+export type KdsPriority = (typeof KDS_PRIORITIES)[number];
+
+export const VALID_KDS_TASK_RECALL_TRANSITIONS: Partial<Record<KdsTaskStatus, KdsTaskStatus[]>> = {
+  DONE: ["READY"],
+  READY: ["PREPARING"],
+  CANCELLED: ["PENDING"],
+};
+
 /**
  * Validates whether a state transition from `currentStatus` to `nextStatus` is allowed.
  */
@@ -129,6 +138,27 @@ export function validateKdsTaskStatusTransition(
     throw new ValidationError(
       `Invalid KDS task status transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${
         allowed && allowed.length > 0 ? allowed.join(", ") : "none (terminal state)"
+      }.`
+    );
+  }
+}
+
+/**
+ * Validates whether an audited KDS task recall/reopen transition is allowed.
+ */
+export function validateKdsTaskRecallTransition(
+  currentStatus: KdsTaskStatus,
+  nextStatus: KdsTaskStatus
+): void {
+  if (currentStatus === nextStatus) {
+    return;
+  }
+
+  const allowed = VALID_KDS_TASK_RECALL_TRANSITIONS[currentStatus];
+  if (!allowed || !allowed.includes(nextStatus)) {
+    throw new ValidationError(
+      `Invalid KDS task recall transition from '${currentStatus}' to '${nextStatus}'. Allowed recall transitions: ${
+        allowed && allowed.length > 0 ? allowed.join(", ") : "none (task cannot be recalled from this state)"
       }.`
     );
   }

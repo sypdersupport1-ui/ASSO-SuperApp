@@ -12,6 +12,7 @@ import {
   MonitorPlay,
   CreditCard,
   Receipt,
+  CalendarDays,
   Users2,
   BarChart3,
   Package,
@@ -41,15 +42,16 @@ export function RestaurantNav({
   const activeNavItems = [
     { label: "Dashboard", href: "/restaurant", icon: LayoutDashboard },
     { label: "Tables & Floor", href: "/restaurant/tables", icon: Grid3X3 },
+    { label: "Kitchen KDS", href: "/restaurant/kds", icon: MonitorPlay },
+    { label: "Billing", href: "/restaurant/billing", icon: Receipt },
     { label: "Digital Menu", href: "/restaurant/menu", icon: BookOpen },
+    { label: "Reservations", href: "/restaurant/reservations", icon: CalendarDays },
     { label: "Settings", href: "/restaurant/settings", icon: Settings },
   ];
 
   const upcomingModules = [
     { label: "Orders", slice: "R3", icon: ShoppingBag },
-    { label: "Kitchen KDS", slice: "R4", icon: MonitorPlay },
     { label: "POS", slice: "R5", icon: CreditCard },
-    { label: "Billing", slice: "R6", icon: Receipt },
     { label: "Staff", slice: "R1 Cap", icon: Users2 },
     { label: "Analytics", slice: "R8", icon: BarChart3 },
     { label: "Inventory", slice: "Shared", icon: Package },
