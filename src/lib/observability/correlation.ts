@@ -65,41 +65,8 @@ export function getCorrelationId(): string {
 }
 
 // ─── ID generation & validation ──────────────────────────────────────────────
-
-/** Hex alphabet regex for correlation ID format validation */
-const VALID_ID_PATTERN = /^[a-zA-Z0-9_\-]{8,64}$/;
-
-/**
- * Generates a fresh 24-character lowercase hex correlation ID.
- * Uses crypto.randomBytes for adequate entropy.
- */
-export function generateCorrelationId(): string {
-  return crypto.randomBytes(12).toString("hex"); // 12 bytes → 24 hex chars
-}
-
-/**
- * Validates a caller-supplied correlation ID.
- * - Must be 8–64 printable alphanumeric/dash/underscore characters.
- * - Oversized or malformed IDs are replaced with a fresh ID.
- * - NEVER trusts the ID for authorization.
- *
- * @returns { id, reused } — reused=true when the caller's ID was accepted.
- */
-export function resolveCorrelationId(
-  incomingId: string | null | undefined
-): { id: string; reused: boolean } {
-  if (!incomingId) {
-    return { id: generateCorrelationId(), reused: false };
-  }
-
-  const trimmed = incomingId.trim();
-  if (VALID_ID_PATTERN.test(trimmed)) {
-    return { id: trimmed, reused: true };
-  }
-
-  // Malformed or oversized — replace silently (security: prevent log injection)
-  return { id: generateCorrelationId(), reused: false };
-}
+import { generateCorrelationId, resolveCorrelationId } from "./correlation-id";
+export { generateCorrelationId, resolveCorrelationId };
 
 // ─── Worker task correlation ──────────────────────────────────────────────────
 

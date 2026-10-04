@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { UpstashRedisRateLimiter } from "@/lib/rate-limit/redis-rate-limiter";
 import { DEFAULT_IP_CEILINGS } from "@/lib/rate-limit/policies";
 import { RateLimitCategory } from "@/lib/rate-limit/types";
-import { resolveCorrelationId } from "@/lib/observability/correlation";
+import { resolveCorrelationId } from "@/lib/observability/correlation-id";
 
 /**
  * ASSO EDGE MIDDLEWARE — SCALE FOUNDATION S3 + S5
