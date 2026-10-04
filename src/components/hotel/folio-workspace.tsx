@@ -70,6 +70,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [reopenModalOpen, setReopenModalOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState<"ALL" | "ROOM" | "FOOD" | "SERVICE_TAX" | "PAYMENT" | "ADJUSTMENT">("ALL");
 
   const loadFolio = useCallback(async () => {
     setLoading(true);
@@ -293,6 +294,25 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
   const isClosed = folio.status === "CLOSED";
   const numBalance = parseFloat(folio.balanceDue);
 
+  const categoryCounts = {
+    all: folio.entries.length,
+    room: folio.entries.filter((e) => e.entryType === "ROOM_CHARGE").length,
+    food: folio.entries.filter((e) => e.entryType === "FOOD_CHARGE").length,
+    serviceTax: folio.entries.filter((e) => e.entryType === "SERVICE_CHARGE" || e.entryType === "TAX").length,
+    payment: folio.entries.filter((e) => e.entryType === "PAYMENT").length,
+    adjustment: folio.entries.filter((e) => e.entryType === "ADJUSTMENT" || e.entryType === "REFUND" || e.entryType === "REVERSAL").length,
+  };
+
+  const filteredEntries = folio.entries.filter((entry) => {
+    if (selectedFilter === "ALL") return true;
+    if (selectedFilter === "ROOM") return entry.entryType === "ROOM_CHARGE";
+    if (selectedFilter === "FOOD") return entry.entryType === "FOOD_CHARGE";
+    if (selectedFilter === "SERVICE_TAX") return entry.entryType === "SERVICE_CHARGE" || entry.entryType === "TAX";
+    if (selectedFilter === "PAYMENT") return entry.entryType === "PAYMENT";
+    if (selectedFilter === "ADJUSTMENT") return entry.entryType === "ADJUSTMENT" || entry.entryType === "REFUND" || entry.entryType === "REVERSAL";
+    return true;
+  });
+
   return (
     <div className="space-y-6">
       {/* Folio Header Card */}
@@ -457,8 +477,8 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* Folio Ledger Entries Table */}
       <Card className="shadow-sm border-border">
-        <CardHeader className="pb-3 border-b border-border">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-4 border-b border-border space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <CardTitle className="text-lg text-foreground flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
@@ -469,6 +489,80 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
               </CardDescription>
             </div>
           </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("ALL")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                selectedFilter === "ALL"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              All ({categoryCounts.all})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("ROOM")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                selectedFilter === "ROOM"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-500/20"
+              }`}
+            >
+              <BedDouble className="w-3 h-3" />
+              Room ({categoryCounts.room})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("FOOD")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                selectedFilter === "FOOD"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+              }`}
+            >
+              <UtensilsCrossed className="w-3 h-3" />
+              F&B Dining ({categoryCounts.food})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("SERVICE_TAX")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                selectedFilter === "SERVICE_TAX"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20"
+              }`}
+            >
+              Services & Taxes ({categoryCounts.serviceTax})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("PAYMENT")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                selectedFilter === "PAYMENT"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
+              }`}
+            >
+              <CreditCard className="w-3 h-3" />
+              Payments ({categoryCounts.payment})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("ADJUSTMENT")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                selectedFilter === "ADJUSTMENT"
+                  ? "bg-cyan-600 text-white shadow-sm"
+                  : "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/20"
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              Adjustments ({categoryCounts.adjustment})
+            </button>
+          </div>
         </CardHeader>
 
         <CardContent className="p-0">
@@ -477,74 +571,215 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
               <Receipt className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
               No financial entries posted yet.
             </div>
+          ) : filteredEntries.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              <Receipt className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
+              No entries found in the selected category.
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/40">
-                    <th className="py-3 px-4">Date / Time</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Description</th>
-                    <th className="py-3 px-4">Direction</th>
-                    <th className="py-3 px-4 text-right">Amount (₹)</th>
-                    {!isClosed && <th className="py-3 px-4 text-center">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border font-sans">
-                  {folio.entries.map((entry) => {
-                    const isPayment = entry.entryType === "PAYMENT";
-                    const isFood = entry.entryType === "FOOD_CHARGE";
-                    const isRoom = entry.entryType === "ROOM_CHARGE";
-                    const isAdjustment = entry.entryType === "ADJUSTMENT" || entry.entryType === "REVERSAL";
-                    const isRefund = entry.entryType === "REFUND";
-                    const numAmt = parseFloat(entry.amount);
+            <>
+              {/* Desktop Table (hidden md:block) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/40">
+                      <th className="py-3 px-4">Date / Time</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Description</th>
+                      <th className="py-3 px-4">Direction</th>
+                      <th className="py-3 px-4 text-right">Amount (₹)</th>
+                      {!isClosed && <th className="py-3 px-4 text-center">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border font-sans">
+                    {filteredEntries.map((entry) => {
+                      const isPayment = entry.entryType === "PAYMENT";
+                      const isFood = entry.entryType === "FOOD_CHARGE";
+                      const isRoom = entry.entryType === "ROOM_CHARGE";
+                      const isAdjustment = entry.entryType === "ADJUSTMENT" || entry.entryType === "REVERSAL";
+                      const isRefund = entry.entryType === "REFUND";
+                      const numAmt = parseFloat(entry.amount);
 
-                    return (
-                      <tr
-                        key={entry.entryId}
-                        className="hover:bg-muted/30 transition-colors group"
-                      >
-                        <td className="py-3 px-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
+                      return (
+                        <tr
+                          key={entry.entryId}
+                          className="hover:bg-muted/30 transition-colors group"
+                        >
+                          <td className="py-3 px-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
+                            {new Date(entry.createdAt).toLocaleString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <Badge
+                              variant="outline"
+                              className={
+                                isPayment
+                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                                  : isFood
+                                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                                  : isRoom
+                                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                                  : isRefund
+                                  ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
+                                  : isAdjustment
+                                  ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30"
+                                  : "bg-muted text-muted-foreground border-border"
+                              }
+                            >
+                              {isFood && <UtensilsCrossed className="w-3 h-3 mr-1" />}
+                              {entry.entryType}
+                            </Badge>
+                          </td>
+
+                          <td className="py-3 px-4 text-foreground">
+                            <div className="font-medium text-xs md:text-sm">{entry.description}</div>
+                            {entry.reversesEntryId && (
+                              <div className="text-[11px] text-muted-foreground font-mono">
+                                Reverses: {entry.reversesEntryId.slice(0, 8)}...
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 whitespace-nowrap text-xs font-medium">
+                            {entry.direction === "CREDIT" ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <ArrowDownLeft className="w-3 h-3" />
+                                CREDIT
+                              </span>
+                            ) : (
+                              <span className="text-foreground flex items-center gap-1">
+                                <ArrowUpRight className="w-3 h-3" />
+                                DEBIT
+                              </span>
+                            )}
+                          </td>
+
+                          <td
+                            className={`py-3 px-4 text-right font-mono font-semibold whitespace-nowrap text-xs md:text-sm ${
+                              isPayment || numAmt < 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {numAmt < 0 ? "-" : "+"}₹
+                            {Math.abs(numAmt).toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </td>
+
+                          {!isClosed && (
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {isPayment ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
+                                  onClick={() => {
+                                    setRefundPaymentEntryId(entry.entryId);
+                                    setRefundAmount(Math.abs(numAmt).toFixed(2));
+                                    setRefundModalOpen(true);
+                                  }}
+                                >
+                                  <RotateCcw className="w-3 h-3 mr-1" />
+                                  Refund
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                                  onClick={() => {
+                                    setTargetEntryId(entry.entryId);
+                                    setAdjustAmount((-numAmt).toFixed(2));
+                                    setAdjustReason(`Correction for ${entry.entryType}`);
+                                    setAdjustmentModalOpen(true);
+                                  }}
+                                >
+                                  Adjust
+                                </Button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card List (block md:hidden) */}
+              <div className="block md:hidden divide-y divide-border">
+                {filteredEntries.map((entry) => {
+                  const isPayment = entry.entryType === "PAYMENT";
+                  const isFood = entry.entryType === "FOOD_CHARGE";
+                  const isRoom = entry.entryType === "ROOM_CHARGE";
+                  const isAdjustment = entry.entryType === "ADJUSTMENT" || entry.entryType === "REVERSAL";
+                  const isRefund = entry.entryType === "REFUND";
+                  const numAmt = parseFloat(entry.amount);
+
+                  return (
+                    <div key={entry.entryId} className="p-4 space-y-2 hover:bg-muted/20 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            isPayment
+                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                              : isFood
+                              ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                              : isRoom
+                              ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                              : isRefund
+                              ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
+                              : isAdjustment
+                              ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30"
+                              : "bg-muted text-muted-foreground border-border"
+                          }
+                        >
+                          {isFood && <UtensilsCrossed className="w-3 h-3 mr-1" />}
+                          {entry.entryType}
+                        </Badge>
+                        <span
+                          className={`font-mono font-semibold text-sm ${
+                            isPayment || numAmt < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {numAmt < 0 ? "-" : "+"}₹
+                          {Math.abs(numAmt).toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+
+                      <div className="text-sm font-medium text-foreground">
+                        {entry.description}
+                      </div>
+
+                      {entry.reversesEntryId && (
+                        <div className="text-[11px] text-muted-foreground font-mono">
+                          Reverses: {entry.reversesEntryId.slice(0, 8)}...
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
+                        <span className="font-mono">
                           {new Date(entry.createdAt).toLocaleString("en-IN", {
                             day: "2-digit",
                             month: "short",
                             hour: "2-digit",
                             minute: "2-digit",
                           })}
-                        </td>
-
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <Badge
-                            variant="outline"
-                            className={
-                              isPayment
-                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
-                                : isFood
-                                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
-                                : isRoom
-                                ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
-                                : isRefund
-                                ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
-                                : isAdjustment
-                                ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30"
-                                : "bg-muted text-muted-foreground border-border"
-                            }
-                          >
-                            {isFood && <UtensilsCrossed className="w-3 h-3 mr-1" />}
-                            {entry.entryType}
-                          </Badge>
-                        </td>
-
-                        <td className="py-3 px-4 text-foreground">
-                          <div className="font-medium text-xs md:text-sm">{entry.description}</div>
-                          {entry.reversesEntryId && (
-                            <div className="text-[11px] text-muted-foreground font-mono">
-                              Reverses: {entry.reversesEntryId.slice(0, 8)}...
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-4 whitespace-nowrap text-xs font-medium">
+                        </span>
+                        <span className="font-medium">
                           {entry.direction === "CREDIT" ? (
                             <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                               <ArrowDownLeft className="w-3 h-3" />
@@ -556,61 +791,47 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                               DEBIT
                             </span>
                           )}
-                        </td>
+                        </span>
+                      </div>
 
-                        <td
-                          className={`py-3 px-4 text-right font-mono font-semibold whitespace-nowrap text-xs md:text-sm ${
-                            isPayment || numAmt < 0
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-foreground"
-                          }`}
-                        >
-                          {numAmt < 0 ? "-" : "+"}₹
-                          {Math.abs(numAmt).toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </td>
-
-                        {!isClosed && (
-                          <td className="py-3 px-4 text-center whitespace-nowrap">
-                            {isPayment ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
-                                onClick={() => {
-                                  setRefundPaymentEntryId(entry.entryId);
-                                  setRefundAmount(Math.abs(numAmt).toFixed(2));
-                                  setRefundModalOpen(true);
-                                }}
-                              >
-                                <RotateCcw className="w-3 h-3 mr-1" />
-                                Refund
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => {
-                                  setTargetEntryId(entry.entryId);
-                                  setAdjustAmount((-numAmt).toFixed(2));
-                                  setAdjustReason(`Correction for ${entry.entryType}`);
-                                  setAdjustmentModalOpen(true);
-                                }}
-                              >
-                                Adjust
-                              </Button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                      {!isClosed && (
+                        <div className="flex items-center justify-end pt-2 border-t border-border/50 gap-2">
+                          {isPayment ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                              onClick={() => {
+                                setRefundPaymentEntryId(entry.entryId);
+                                setRefundAmount(Math.abs(numAmt).toFixed(2));
+                                setRefundModalOpen(true);
+                              }}
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" />
+                              Refund
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                setTargetEntryId(entry.entryId);
+                                setAdjustAmount((-numAmt).toFixed(2));
+                                setAdjustReason(`Correction for ${entry.entryType}`);
+                                setAdjustmentModalOpen(true);
+                              }}
+                            >
+                              Adjust
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

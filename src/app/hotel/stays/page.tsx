@@ -253,108 +253,202 @@ export default function HotelStaysPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    <tr>
-                      <th className="px-6 py-3">Stay Reference</th>
-                      <th className="px-6 py-3">Guest</th>
-                      <th className="px-6 py-3">Room</th>
-                      <th className="px-6 py-3">Check-In Time</th>
-                      <th className="px-6 py-3">Expected Departure</th>
-                      <th className="px-6 py-3">Status</th>
-                      <th className="px-6 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {stays.map((stay) => (
-                      <tr key={stay.stayId} className="hover:bg-muted/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-mono font-bold text-foreground">
+              <div className="space-y-0">
+                {/* Desktop Full Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-3">Stay Reference</th>
+                        <th className="px-6 py-3">Guest</th>
+                        <th className="px-6 py-3">Room</th>
+                        <th className="px-6 py-3">Check-In Time</th>
+                        <th className="px-6 py-3">Expected Departure</th>
+                        <th className="px-6 py-3">Status</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {stays.map((stay) => (
+                        <tr key={stay.stayId} className="hover:bg-muted/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono font-bold text-foreground">
+                              {stay.stayNumber}
+                            </span>
+                            <div className="text-[11px] text-muted-foreground font-mono">
+                              Res: {stay.reservationNumber}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1.5 font-medium text-foreground">
+                              <span>{stay.guestName}</span>
+                              {stay.vipStatus === "VIP" && (
+                                <Badge variant="default" className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 py-0 h-4">
+                                  <Star className="h-2.5 w-2.5 fill-amber-400 mr-0.5" />
+                                  VIP
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{stay.guestPhone}</div>
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                              <DoorOpen className="h-4 w-4" />
+                              <span>Room {stay.roomNumber}</span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {stay.roomTypeName}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-xs font-mono text-foreground">
+                            {new Date(stay.checkInAt).toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
+                            {new Date(stay.expectedCheckOutAt).toLocaleDateString()}
+                            {stay.actualCheckOutAt && (
+                              <div className="text-[10px] text-muted-foreground">
+                                Out: {new Date(stay.actualCheckOutAt).toLocaleTimeString()}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            {getStatusBadge(stay.status)}
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-1.5">
+                            <Link href={`/hotel/folio/${stay.stayId}`}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1 text-xs border-emerald-800/40 text-emerald-500 hover:bg-emerald-950/20"
+                              >
+                                <Receipt className="h-3.5 w-3.5" />
+                                Folio
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1 text-xs"
+                              onClick={() => {
+                                setSelectedStay(stay);
+                                setDetailModalOpen(true);
+                              }}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              Details
+                            </Button>
+                            {stay.status === "ACTIVE" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1 text-xs text-rose-600 border-rose-500/30 hover:bg-rose-500/10"
+                                onClick={() => {
+                                  setSelectedStay(stay);
+                                  setCheckoutNotes("");
+                                  setCheckoutModalOpen(true);
+                                }}
+                              >
+                                <LogOut className="h-3.5 w-3.5" />
+                                Check Out
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Structured Card List (HUI-2 Responsive) */}
+                <div className="block md:hidden divide-y divide-border">
+                  {stays.map((stay) => (
+                    <div key={stay.stayId} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-mono font-bold text-xs text-foreground">
                             {stay.stayNumber}
                           </span>
-                          <div className="text-[11px] text-muted-foreground font-mono">
+                          <p className="text-[10px] text-muted-foreground font-mono">
                             Res: {stay.reservationNumber}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-1.5 font-medium text-foreground">
+                          </p>
+                        </div>
+                        {getStatusBadge(stay.status)}
+                      </div>
+
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5 font-bold text-foreground text-sm">
                             <span>{stay.guestName}</span>
                             {stay.vipStatus === "VIP" && (
                               <Badge variant="default" className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 py-0 h-4">
-                                <Star className="h-2.5 w-2.5 fill-amber-400 mr-0.5" />
                                 VIP
                               </Badge>
                             )}
                           </div>
-                          <div className="text-xs text-muted-foreground">{stay.guestPhone}</div>
-                        </td>
-                        <td className="px-6 py-4 text-xs">
-                          <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                          <p className="text-xs text-muted-foreground">{stay.guestPhone || "No contact phone"}</p>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-sm">
                             <DoorOpen className="h-4 w-4" />
                             <span>Room {stay.roomNumber}</span>
                           </div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {stay.roomTypeName}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-xs font-mono text-foreground">
-                          {new Date(stay.checkInAt).toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
-                          {new Date(stay.expectedCheckOutAt).toLocaleDateString()}
-                          {stay.actualCheckOutAt && (
-                            <div className="text-[10px] text-muted-foreground">
-                              Out: {new Date(stay.actualCheckOutAt).toLocaleTimeString()}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          {getStatusBadge(stay.status)}
-                        </td>
-                        <td className="px-6 py-4 text-right space-x-1.5">
-                          <Link href={`/hotel/folio/${stay.stayId}`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1 text-xs border-emerald-800/40 text-emerald-500 hover:bg-emerald-950/20"
-                            >
-                              <Receipt className="h-3.5 w-3.5" />
-                              Folio
-                            </Button>
-                          </Link>
+                          <p className="text-[10px] text-muted-foreground">{stay.roomTypeName}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs p-2.5 rounded bg-muted/30 font-mono">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground font-sans uppercase font-semibold">Check-in</span>
+                          <p className="text-foreground">{new Date(stay.checkInAt).toLocaleDateString()}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground font-sans uppercase font-semibold">Expected Departure</span>
+                          <p className="text-foreground">{new Date(stay.expectedCheckOutAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <Link href={`/hotel/folio/${stay.stayId}`} className="w-full">
+                          <Button size="sm" variant="outline" className="w-full h-8 text-xs text-emerald-500 border-emerald-500/30 gap-1">
+                            <Receipt className="h-3 w-3" />
+                            Folio
+                          </Button>
+                        </Link>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="w-full h-8 text-xs"
+                          onClick={() => {
+                            setSelectedStay(stay);
+                            setDetailModalOpen(true);
+                          }}
+                        >
+                          <Eye className="h-3 w-3 mr-1" />
+                          Details
+                        </Button>
+                        {stay.status === "ACTIVE" ? (
                           <Button
-                            variant="ghost"
                             size="sm"
-                            className="h-8 gap-1 text-xs"
+                            variant="destructive"
+                            className="w-full h-8 text-xs font-semibold"
                             onClick={() => {
                               setSelectedStay(stay);
-                              setDetailModalOpen(true);
+                              setCheckoutNotes("");
+                              setCheckoutModalOpen(true);
                             }}
                           >
-                            <Eye className="h-3.5 w-3.5" />
-                            Details
+                            Check Out
                           </Button>
-                          {stay.status === "ACTIVE" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1 text-xs text-rose-600 border-rose-500/30 hover:bg-rose-500/10"
-                              onClick={() => {
-                                setSelectedStay(stay);
-                                setCheckoutNotes("");
-                                setCheckoutModalOpen(true);
-                              }}
-                            >
-                              <LogOut className="h-3.5 w-3.5" />
-                              Check Out
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled className="w-full h-8 text-xs">
+                            Departed
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

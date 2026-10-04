@@ -674,97 +674,178 @@ export default function HotelReservationsPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    <tr>
-                      <th className="px-6 py-3">Reservation</th>
-                      <th className="px-6 py-3">Guest</th>
-                      <th className="px-6 py-3">Room Type / Room</th>
-                      <th className="px-6 py-3">Dates</th>
-                      <th className="px-6 py-3">Guests</th>
-                      <th className="px-6 py-3">Status</th>
-                      <th className="px-6 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {reservations.map((res) => (
-                      <tr key={res.reservationId} className="hover:bg-muted/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-mono font-bold text-foreground">
-                            {res.reservationNumber}
-                          </span>
-                          <div className="text-[11px] text-muted-foreground font-mono">
-                            {res.createdAt ? new Date(res.createdAt).toLocaleDateString() : ""}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-foreground">{res.guestName}</div>
-                          <div className="text-xs text-muted-foreground">{res.guestPhone}</div>
-                        </td>
-                        <td className="px-6 py-4 text-xs">
-                          <div className="flex items-center gap-1.5 font-medium text-foreground">
-                            <BedDouble className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span>{res.roomTypeName}</span>
-                          </div>
-                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <DoorOpen className="h-3 w-3" />
-                            {res.assignedRoomNumber ? (
-                              <span className="font-semibold text-emerald-500">
-                                Room {res.assignedRoomNumber}
-                              </span>
-                            ) : (
-                              <span className="italic text-amber-500">Unassigned</span>
+              <div className="space-y-0">
+                {/* Desktop Full Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-3">Reservation</th>
+                        <th className="px-6 py-3">Guest</th>
+                        <th className="px-6 py-3">Room Type / Room</th>
+                        <th className="px-6 py-3">Dates</th>
+                        <th className="px-6 py-3">Guests</th>
+                        <th className="px-6 py-3">Status</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {reservations.map((res) => (
+                        <tr key={res.reservationId} className="hover:bg-muted/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono font-bold text-foreground">
+                              {res.reservationNumber}
+                            </span>
+                            <div className="text-[11px] text-muted-foreground font-mono">
+                              {res.createdAt ? new Date(res.createdAt).toLocaleDateString() : ""}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="font-medium text-foreground">{res.guestName}</div>
+                            <div className="text-xs text-muted-foreground">{res.guestPhone}</div>
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            <div className="flex items-center gap-1.5 font-medium text-foreground">
+                              <BedDouble className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>{res.roomTypeName}</span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <DoorOpen className="h-3 w-3" />
+                              {res.assignedRoomNumber ? (
+                                <span className="font-semibold text-emerald-500">
+                                  Room {res.assignedRoomNumber}
+                                </span>
+                              ) : (
+                                <span className="italic text-amber-500">Unassigned</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            <div className="font-mono font-medium text-foreground">{res.arrivalDate}</div>
+                            <div className="text-[11px] text-muted-foreground font-mono">
+                              to {res.departureDate}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-muted-foreground">
+                            {res.adultCount} Adult{res.adultCount > 1 ? "s" : ""}
+                            {res.childrenCount > 0 ? `, ${res.childrenCount} Child` : ""}
+                          </td>
+                          <td className="px-6 py-4">
+                            {getStatusBadge(res.status)}
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-1.5">
+                            {res.status === "CONFIRMED" && (
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => {
+                                  setCheckInRes(res);
+                                  setCheckInRoomId(res.assignedRoomId || "");
+                                  setCheckInNotes("");
+                                  setCheckInDialogOpen(true);
+                                }}
+                              >
+                                <KeyRound className="h-3.5 w-3.5" />
+                                Check In
+                              </Button>
                             )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-xs">
-                          <div className="font-mono font-medium text-foreground">{res.arrivalDate}</div>
-                          <div className="text-[11px] text-muted-foreground font-mono">
-                            to {res.departureDate}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-xs text-muted-foreground">
-                          {res.adultCount} Adult{res.adultCount > 1 ? "s" : ""}
-                          {res.childrenCount > 0 ? `, ${res.childrenCount} Child` : ""}
-                        </td>
-                        <td className="px-6 py-4">
-                          {getStatusBadge(res.status)}
-                        </td>
-                        <td className="px-6 py-4 text-right space-x-1.5">
-                          {res.status === "CONFIRMED" && (
                             <Button
+                              variant="ghost"
                               size="sm"
-                              className="h-8 gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                              className="h-8 gap-1.5 text-xs"
                               onClick={() => {
-                                setCheckInRes(res);
-                                setCheckInRoomId(res.assignedRoomId || "");
-                                setCheckInNotes("");
-                                setCheckInDialogOpen(true);
+                                setSelectedRes(res);
+                                setAssignRoomId(res.assignedRoomId || "");
+                                setDetailDialogOpen(true);
                               }}
                             >
-                              <KeyRound className="h-3.5 w-3.5" />
-                              Check In
+                              <Eye className="h-3.5 w-3.5" />
+                              Manage
                             </Button>
-                          )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Structured Card List (HUI-2 Responsive) */}
+                <div className="block md:hidden divide-y divide-border">
+                  {reservations.map((res) => (
+                    <div key={res.reservationId} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-mono font-bold text-xs text-foreground">
+                            {res.reservationNumber}
+                          </span>
+                          <p className="text-[10px] text-muted-foreground font-mono">
+                            {res.createdAt ? new Date(res.createdAt).toLocaleDateString() : ""}
+                          </p>
+                        </div>
+                        {getStatusBadge(res.status)}
+                      </div>
+
+                      <div>
+                        <p className="font-bold text-foreground text-sm">{res.guestName}</p>
+                        <p className="text-xs text-muted-foreground">{res.guestPhone || "No contact phone"}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs p-2.5 rounded bg-muted/30">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Room</span>
+                          <p className="font-medium text-foreground">{res.roomTypeName}</p>
+                          <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                            {res.assignedRoomNumber ? `Room ${res.assignedRoomNumber}` : "Unassigned"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Party</span>
+                          <p className="font-medium text-foreground">
+                            {res.adultCount} Adult{res.adultCount > 1 ? "s" : ""}
+                            {res.childrenCount > 0 ? `, ${res.childrenCount} Ch` : ""}
+                          </p>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Dates</span>
+                          <p className="font-medium font-mono text-[11px] text-foreground">
+                            {res.arrivalDate} → {res.departureDate}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        {res.status === "CONFIRMED" && (
                           <Button
-                            variant="ghost"
                             size="sm"
-                            className="h-8 gap-1.5 text-xs"
+                            className="flex-1 h-9 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
                             onClick={() => {
-                              setSelectedRes(res);
-                              setAssignRoomId(res.assignedRoomId || "");
-                              setDetailDialogOpen(true);
+                              setCheckInRes(res);
+                              setCheckInRoomId(res.assignedRoomId || "");
+                              setCheckInNotes("");
+                              setCheckInDialogOpen(true);
                             }}
                           >
-                            <Eye className="h-3.5 w-3.5" />
-                            Manage
+                            <KeyRound className="h-3.5 w-3.5" />
+                            Check In
                           </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={`${res.status === "CONFIRMED" ? "flex-1" : "w-full"} h-9 text-xs gap-1.5 font-semibold`}
+                          onClick={() => {
+                            setSelectedRes(res);
+                            setAssignRoomId(res.assignedRoomId || "");
+                            setDetailDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Manage Booking
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

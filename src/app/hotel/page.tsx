@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import {
   DoorOpen,
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Sparkles,
   Wrench,
   Percent,
@@ -23,7 +24,16 @@ import {
   ShieldCheck,
   Building,
   KeyRound,
+  UtensilsCrossed,
+  LogOut,
+  LogIn,
+  ConciergeBell,
+  Clock,
+  ExternalLink,
+  ChevronRight,
+  ShieldAlert,
 } from "lucide-react";
+import type { FrontOfficeSummary, FrontOfficeAttentionItem } from "@/lib/hotel/front-office-service";
 
 interface DashboardData {
   totalRooms: number;
@@ -52,30 +62,90 @@ interface DashboardData {
   }>;
 }
 
+interface MaintenanceSummaryData {
+  openCount: number;
+  inProgressCount: number;
+  outOfServiceRooms: number;
+}
+
+interface RoomServiceSummaryData {
+  activeOrdersCount: number;
+}
+
 export default function HotelDashboardPage() {
   const { toast } = useToast();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [frontOffice, setFrontOffice] = useState<FrontOfficeSummary | null>(null);
+  const [maintSummary, setMaintSummary] = useState<MaintenanceSummaryData | null>(null);
+  const [roomServiceSummary, setRoomServiceSummary] = useState<RoomServiceSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await hotelFetch("/api/v1/hotel/dashboard");
-      const json = await res.json();
-      if (json.success) {
-        setData(json.data);
+      const [dashRes, foRes, maintRes, rsRes] = await Promise.allSettled([
+        hotelFetch("/api/v1/hotel/dashboard"),
+        hotelFetch("/api/v1/hotel/front-office"),
+        hotelFetch("/api/v1/hotel/maintenance/summary"),
+        hotelFetch("/api/v1/hotel/room-service/orders?status=ACTIVE"),
+      ]);
+
+      if (dashRes.status === "fulfilled") {
+        const json = await dashRes.value.json();
+        if (json.success) {
+          setData(json.data);
+        } else {
+          setError(json.error?.message || "Failed to load hotel dashboard metrics.");
+        }
       } else {
-        setError(json.error?.message || "Failed to load hotel dashboard metrics.");
+        setError("Network connection to dashboard metrics failed.");
       }
-    } catch (err) {
+
+      if (foRes.status === "fulfilled") {
+        try {
+          const json = await foRes.value.json();
+          if (json.success) setFrontOffice(json.data);
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      if (maintRes.status === "fulfilled") {
+        try {
+          const json = await maintRes.value.json();
+          if (json.success && json.data) {
+            setMaintSummary({
+              openCount: json.data.openCount ?? 0,
+              inProgressCount: json.data.inProgressCount ?? 0,
+              outOfServiceRooms: json.data.outOfServiceRooms ?? 0,
+            });
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      if (rsRes.status === "fulfilled") {
+        try {
+          const json = await rsRes.value.json();
+          if (json.success && Array.isArray(json.data)) {
+            setRoomServiceSummary({
+              activeOrdersCount: json.data.length,
+            });
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+    } catch {
       setError("Network or server connection failed.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleSeed = async () => {
     setSeeding(true);
@@ -88,7 +158,7 @@ export default function HotelDashboardPage() {
       } else {
         toast.error("Seed failed: " + (json.error?.message || "Unknown error"));
       }
-    } catch (err) {
+    } catch {
       toast.error("Error triggering seed");
     } finally {
       setSeeding(false);
@@ -97,30 +167,44 @@ export default function HotelDashboardPage() {
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
+
+  // Operational metrics
+  const todayArrivals = frontOffice?.kpis.todayArrivalsCount ?? data?.todayCheckInsCount ?? 0;
+  const todayDepartures = frontOffice?.kpis.todayDeparturesCount ?? data?.todayCheckOutsCount ?? 0;
+  const activeStays = frontOffice?.kpis.activeStaysCount ?? data?.activeStaysCount ?? data?.occupiedRooms ?? 0;
+  const attentionItems = frontOffice?.attentionItems ?? [];
+  const dirtyRooms = data?.housekeepingBreakdown.dirty ?? frontOffice?.kpis.availableDirtyRoomsCount ?? 0;
+  const cleanRooms = data?.housekeepingBreakdown.clean ?? frontOffice?.kpis.availableCleanRoomsCount ?? 0;
+  const cleaningRooms = data?.housekeepingBreakdown.cleaning ?? 0;
+  const inspectedRooms = data?.housekeepingBreakdown.inspected ?? 0;
+  const maintenanceRooms = data?.outOfServiceRooms ?? maintSummary?.outOfServiceRooms ?? 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <HotelNav />
 
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Header Title Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* Command Center Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border pb-6">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                <ConciergeBell className="h-6 w-6" />
+              </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-                Hotel Operations Dashboard
+                Hotel Operations Command Center
               </h1>
               <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
-                Slice 9: Folio &amp; Billing
+                Operational UX
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              Live operational state calculated directly from native Supabase PostgreSQL.
+              Live operational awareness: Occupancy, arrivals/departures, turnover readiness, and guest service queues.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Button
               variant="outline"
               size="sm"
@@ -132,8 +216,15 @@ export default function HotelDashboardPage() {
               Refresh
             </Button>
 
-            <Link href="/hotel/rooms">
+            <Link href="/hotel/front-office">
               <Button size="sm" className="flex items-center gap-1.5">
+                <LogIn className="h-4 w-4" />
+                Front Desk
+              </Button>
+            </Link>
+
+            <Link href="/hotel/rooms">
+              <Button variant="secondary" size="sm" className="flex items-center gap-1.5">
                 <DoorOpen className="h-4 w-4" />
                 Room Rack
               </Button>
@@ -155,12 +246,19 @@ export default function HotelDashboardPage() {
           </Alert>
         )}
 
-        {/* Loading State */}
+        {/* Loading State Skeletons */}
         {loading && !data && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-32 rounded-lg bg-muted/60" />
-            ))}
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-28 rounded-xl bg-muted/60 animate-pulse" />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-44 rounded-xl bg-muted/50 animate-pulse" />
+              ))}
+            </div>
           </div>
         )}
 
@@ -172,12 +270,12 @@ export default function HotelDashboardPage() {
                 <Building className="h-7 w-7 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-bold">No Hotel Rooms Found</h3>
+                <h3 className="text-lg font-bold">No Hotel Rooms Registered</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto mt-1">
-                  This hotel property currently has no rooms registered. You can initialize safe demo fixtures or configure room types and rooms manually.
+                  This hotel property currently has no rooms configured. Initialize the safe demo fixtures or configure room types and rooms manually.
                 </p>
               </div>
-              <div className="flex justify-center gap-3 pt-2">
+              <div className="flex flex-wrap justify-center gap-3 pt-2">
                 <Button onClick={handleSeed} disabled={seeding}>
                   <Sparkles className="h-4 w-4 mr-2" />
                   {seeding ? "Seeding..." : "Initialize Demo Hotel Data"}
@@ -185,7 +283,7 @@ export default function HotelDashboardPage() {
                 <Link href="/hotel/room-types">
                   <Button variant="outline">
                     <Plus className="h-4 w-4 mr-2" />
-                    Create Room Type
+                    Configure Room Types
                   </Button>
                 </Link>
               </div>
@@ -193,211 +291,379 @@ export default function HotelDashboardPage() {
           </Card>
         )}
 
-        {/* Live Data Grid */}
+        {/* Live Operational Command Center Content */}
         {data && data.totalRooms > 0 && (
           <div className="space-y-8">
-            {/* Top KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Total Rooms */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription className="text-xs uppercase font-medium">Total Inventory</CardDescription>
-                  <CardTitle className="text-2xl sm:text-3xl font-black text-foreground flex items-center justify-between">
-                    <span>{data.totalRooms}</span>
-                    <DoorOpen className="h-5 w-5 text-muted-foreground/60" />
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">Configured hotel rooms</p>
-                </CardContent>
-              </Card>
-
-              {/* Available Rooms */}
-              <Card className="border-emerald-500/20 bg-emerald-500/5">
-                <CardHeader className="pb-2">
-                  <CardDescription className="text-xs uppercase font-medium text-emerald-700 dark:text-emerald-400">
-                    Ready & Available
+            {/* 1. OPERATIONAL ATTENTION BANNER (What needs my attention right now?) */}
+            {attentionItems.length > 0 && (
+              <Card className="border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                      <CardTitle className="text-base font-bold text-foreground">
+                        Operational Attention Required ({attentionItems.length})
+                      </CardTitle>
+                    </div>
+                    <Badge variant="warning" className="text-xs">Action Items</Badge>
+                  </div>
+                  <CardDescription className="text-xs text-muted-foreground">
+                    Items requiring immediate staff action: arrivals pending room allocation, dirty vacant rooms, or overdue departures.
                   </CardDescription>
-                  <CardTitle className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                    <span>{data.availableRooms}</span>
-                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">Clean & inspect ready</p>
+                <CardContent className="pt-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {attentionItems.slice(0, 6).map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-3 rounded-lg border border-border bg-card flex flex-col justify-between gap-2 shadow-sm"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-xs text-foreground">{item.title}</span>
+                            <Badge
+                              variant={item.severity === "critical" ? "destructive" : "warning"}
+                              className="text-[10px] uppercase font-mono px-1.5 py-0"
+                            >
+                              {item.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>
+                        </div>
+                        <div className="pt-1 flex items-center justify-end">
+                          <Link href={item.actionHref || "/hotel/front-office"}>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs font-medium text-primary hover:text-primary gap-1">
+                              {item.actionLabel}
+                              <ArrowRight className="h-3 w-3" />
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
+            )}
 
-              {/* Occupied Rooms */}
-              <Card className="border-blue-500/20 bg-blue-500/5">
-                <CardHeader className="pb-2">
-                  <CardDescription className="text-xs uppercase font-medium text-blue-700 dark:text-blue-400">
-                    Occupied
-                  </CardDescription>
-                  <CardTitle className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400 flex items-center justify-between">
-                    <span>{data.occupiedRooms}</span>
-                    <BedDouble className="h-5 w-5 text-blue-500" />
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">Active in-house guests</p>
-                </CardContent>
-              </Card>
+            {/* 2. OPERATIONAL PULSE KPIS */}
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Active In-House Stays */}
+              <Link href="/hotel/stays" className="group">
+                <Card className="h-full border-border hover:border-primary/50 transition-colors">
+                  <CardHeader className="pb-2">
+                    <CardDescription className="text-xs uppercase font-medium flex items-center justify-between">
+                      <span>Active Stays</span>
+                      <KeyRound className="h-4 w-4 text-primary" />
+                    </CardDescription>
+                    <CardTitle className="text-2xl sm:text-3xl font-black text-foreground group-hover:text-primary transition-colors">
+                      {activeStays}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-muted-foreground flex items-center justify-between">
+                      <span>In-house guests</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              {/* Reserved Rooms */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription className="text-xs uppercase font-medium">Reserved</CardDescription>
-                  <CardTitle className="text-2xl sm:text-3xl font-black text-amber-600 dark:text-amber-400 flex items-center justify-between">
-                    <span>{data.reservedRooms}</span>
-                    <Badge variant="warning" className="text-[10px] px-1.5">Hold</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">Upcoming arrival holds</p>
-                </CardContent>
-              </Card>
+              {/* Today's Arrivals */}
+              <Link href="/hotel/front-office" className="group">
+                <Card className="h-full border-blue-500/20 bg-blue-500/5 hover:border-blue-500/40 transition-colors">
+                  <CardHeader className="pb-2">
+                    <CardDescription className="text-xs uppercase font-medium text-blue-700 dark:text-blue-400 flex items-center justify-between">
+                      <span>Today Arrivals</span>
+                      <LogIn className="h-4 w-4 text-blue-500" />
+                    </CardDescription>
+                    <CardTitle className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400">
+                      {todayArrivals}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-muted-foreground flex items-center justify-between">
+                      <span>Check-ins pending</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-blue-500 group-hover:translate-x-0.5 transition-transform" />
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              {/* Today's Departures */}
+              <Link href="/hotel/front-office" className="group">
+                <Card className="h-full border-border hover:border-primary/50 transition-colors">
+                  <CardHeader className="pb-2">
+                    <CardDescription className="text-xs uppercase font-medium flex items-center justify-between">
+                      <span>Today Departures</span>
+                      <LogOut className="h-4 w-4 text-muted-foreground" />
+                    </CardDescription>
+                    <CardTitle className="text-2xl sm:text-3xl font-black text-foreground">
+                      {todayDepartures}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-muted-foreground flex items-center justify-between">
+                      <span>Scheduled checkouts</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              {/* Ready & Available */}
+              <Link href="/hotel/rooms" className="group">
+                <Card className="h-full border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40 transition-colors">
+                  <CardHeader className="pb-2">
+                    <CardDescription className="text-xs uppercase font-medium text-emerald-700 dark:text-emerald-400 flex items-center justify-between">
+                      <span>Ready / Available</span>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    </CardDescription>
+                    <CardTitle className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                      {cleanRooms}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-muted-foreground flex items-center justify-between">
+                      <span>Clean & vacant</span>
+                      <span className="font-mono text-[11px] font-semibold">of {data.totalRooms}</span>
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Occupancy Rate */}
-              <Card className="col-span-2 lg:col-span-1">
+              <Card className="col-span-2 lg:col-span-1 border-border">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-xs uppercase font-medium">Occupancy Rate</CardDescription>
-                  <CardTitle className="text-2xl sm:text-3xl font-black text-foreground flex items-center justify-between">
-                    <span>{data.occupancyRatePct}%</span>
-                    <Percent className="h-5 w-5 text-muted-foreground/60" />
+                  <CardDescription className="text-xs uppercase font-medium flex items-center justify-between">
+                    <span>Occupancy Rate</span>
+                    <Percent className="h-4 w-4 text-muted-foreground/60" />
+                  </CardDescription>
+                  <CardTitle className="text-2xl sm:text-3xl font-black text-foreground">
+                    {data.occupancyRatePct}%
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-0">
                   <div className="w-full bg-muted rounded-full h-2 mt-1">
                     <div
                       className="bg-primary h-2 rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(data.occupancyRatePct, 100)}%` }}
                     />
                   </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {data.occupiedRooms} occupied / {data.totalRooms} total
+                  </p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Front Office Stays Lifecycle Grid (Slice 3) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="border-primary/20 bg-primary/5">
+            {/* 3. DEPARTMENTAL OPERATIONAL QUEUES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Front Desk Queue */}
+              <Card className="border-border">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardDescription className="text-xs uppercase font-semibold text-primary">
-                      Active In-House Stays
-                    </CardDescription>
-                    <KeyRound className="h-4 w-4 text-primary" />
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <ConciergeBell className="h-4 w-4 text-primary" />
+                      Front Desk
+                    </CardTitle>
+                    <Badge variant="outline" className="text-[10px]">Slice 4</Badge>
                   </div>
-                  <CardTitle className="text-2xl font-black text-foreground">
-                    {data.activeStaysCount ?? 0}
-                  </CardTitle>
+                  <CardDescription className="text-xs">Guest arrivals & departures</CardDescription>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between pt-0">
-                  <p className="text-xs text-muted-foreground">Currently occupying hotel rooms</p>
-                  <Link href="/hotel/stays">
-                    <Button variant="ghost" size="sm" className="text-xs h-7 text-primary hover:text-primary">
-                      View Ledger <ArrowRight className="h-3 w-3 ml-1" />
-                    </Button>
-                  </Link>
+                <CardContent className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Today Arrivals:</span>
+                    <span className="font-semibold text-foreground">{todayArrivals}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Today Departures:</span>
+                    <span className="font-semibold text-foreground">{todayDepartures}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Active Stays:</span>
+                    <span className="font-semibold text-foreground">{activeStays}</span>
+                  </div>
+                  <div className="pt-2">
+                    <Link href="/hotel/front-office">
+                      <Button size="sm" variant="outline" className="w-full text-xs h-8 justify-between">
+                        <span>Open Front Desk</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              {/* Housekeeping Turnover Queue */}
+              <Card className="border-border">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardDescription className="text-xs uppercase font-semibold text-muted-foreground">
-                      Today&apos;s Check-Ins
-                    </CardDescription>
-                    <Badge variant="outline" className="text-[10px]">Arrivals</Badge>
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      Housekeeping
+                    </CardTitle>
+                    <Badge
+                      variant={dirtyRooms > 0 ? "warning" : "success"}
+                      className="text-[10px]"
+                    >
+                      {dirtyRooms > 0 ? `${dirtyRooms} Dirty` : "Clean"}
+                    </Badge>
                   </div>
-                  <CardTitle className="text-2xl font-black text-foreground">
-                    {data.todayCheckInsCount ?? 0}
-                  </CardTitle>
+                  <CardDescription className="text-xs">Room cleaning & readiness</CardDescription>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between pt-0">
-                  <p className="text-xs text-muted-foreground">Reservations arriving today</p>
-                  <Link href="/hotel/reservations">
-                    <Button variant="ghost" size="sm" className="text-xs h-7">
-                      Check-In <ArrowRight className="h-3 w-3 ml-1" />
-                    </Button>
-                  </Link>
+                <CardContent className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Dirty / Turnover:</span>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">{dirtyRooms}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">In Cleaning:</span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">{cleaningRooms}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Inspected / Ready:</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">{inspectedRooms}</span>
+                  </div>
+                  <div className="pt-2">
+                    <Link href="/hotel/housekeeping">
+                      <Button size="sm" variant="outline" className="w-full text-xs h-8 justify-between">
+                        <span>Housekeeping Console</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              {/* Maintenance & Engineering */}
+              <Card className="border-border">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardDescription className="text-xs uppercase font-semibold text-muted-foreground">
-                      Today&apos;s Check-Outs
-                    </CardDescription>
-                    <Badge variant="outline" className="text-[10px]">Departures</Badge>
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <Wrench className="h-4 w-4 text-rose-500" />
+                      Maintenance
+                    </CardTitle>
+                    <Badge
+                      variant={maintenanceRooms > 0 ? "destructive" : "outline"}
+                      className="text-[10px]"
+                    >
+                      {maintenanceRooms > 0 ? `${maintenanceRooms} OOO` : "Normal"}
+                    </Badge>
                   </div>
-                  <CardTitle className="text-2xl font-black text-foreground">
-                    {data.todayCheckOutsCount ?? 0}
-                  </CardTitle>
+                  <CardDescription className="text-xs">Engineering & repairs</CardDescription>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between pt-0">
-                  <p className="text-xs text-muted-foreground">Stays scheduled to depart</p>
-                  <Link href="/hotel/stays">
-                    <Button variant="ghost" size="sm" className="text-xs h-7">
-                      Departures <ArrowRight className="h-3 w-3 ml-1" />
-                    </Button>
-                  </Link>
+                <CardContent className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Out of Service Rooms:</span>
+                    <span className="font-semibold text-rose-600 dark:text-rose-400">{maintenanceRooms}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Open Work Requests:</span>
+                    <span className="font-semibold text-foreground">{maintSummary?.openCount ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Active Work In-Progress:</span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">{maintSummary?.inProgressCount ?? 0}</span>
+                  </div>
+                  <div className="pt-2">
+                    <Link href="/hotel/maintenance">
+                      <Button size="sm" variant="outline" className="w-full text-xs h-8 justify-between">
+                        <span>Maintenance Queue</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* In-Room Dining & Room Service */}
+              <Card className="border-border">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <UtensilsCrossed className="h-4 w-4 text-primary" />
+                      Room Service
+                    </CardTitle>
+                    <Badge variant="outline" className="text-[10px]">F&amp;B Console</Badge>
+                  </div>
+                  <CardDescription className="text-xs">In-room dining & fulfillment</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Active Room Orders:</span>
+                    <span className="font-semibold text-primary">{roomServiceSummary?.activeOrdersCount ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground">Kitchen Routing:</span>
+                    <span className="font-semibold text-foreground">KDS Enabled</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Folio Auto-Posting:</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Active</span>
+                  </div>
+                  <div className="pt-2">
+                    <Link href="/hotel/room-service">
+                      <Button size="sm" variant="outline" className="w-full text-xs h-8 justify-between">
+                        <span>Room Service Console</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Middle Section: Housekeeping & Room Types */}
+            {/* 4. ROOM TYPE INVENTORY & RATES */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Housekeeping Operational Status */}
-              <Card className="lg:col-span-1">
+              {/* Housekeeping Breakdown Card */}
+              <Card className="lg:col-span-1 border-border">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-primary" />
-                    Housekeeping Status
+                    Turnover State Distribution
                   </CardTitle>
                   <CardDescription>
                     Real-time room cleanliness and maintenance states
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40">
-                    <span className="text-sm font-medium text-emerald-900 dark:text-emerald-300">Clean & Ready</span>
-                    <Badge variant="success" className="font-bold">{data.housekeepingBreakdown.clean}</Badge>
+                <CardContent className="space-y-2.5">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Clean & Ready for Sale</span>
+                    <Badge variant="success" className="font-bold">{cleanRooms}</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
-                    <span className="text-sm font-medium text-amber-900 dark:text-amber-300">Dirty / To Clean</span>
-                    <Badge variant="warning" className="font-bold">{data.housekeepingBreakdown.dirty}</Badge>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Dirty / Turnover Required</span>
+                    <Badge variant="warning" className="font-bold">{dirtyRooms}</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/40">
-                    <span className="text-sm font-medium text-blue-900 dark:text-blue-300">In Cleaning</span>
-                    <Badge variant="info" className="font-bold">{data.housekeepingBreakdown.cleaning}</Badge>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">Cleaning In-Progress</span>
+                    <Badge variant="info" className="font-bold">{cleaningRooms}</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/40">
-                    <span className="text-sm font-medium text-purple-900 dark:text-purple-300">Inspected / VIP Ready</span>
-                    <Badge className="font-bold bg-purple-600 hover:bg-purple-700">{data.housekeepingBreakdown.inspected}</Badge>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Inspected / VIP Ready</span>
+                    <Badge className="font-bold bg-purple-600 hover:bg-purple-700">{inspectedRooms}</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40">
-                    <span className="text-sm font-medium text-rose-900 dark:text-rose-300">Maintenance / Out of Order</span>
-                    <Badge variant="destructive" className="font-bold">{data.housekeepingBreakdown.maintenance}</Badge>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20">
+                    <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">Out of Service / Engineering</span>
+                    <Badge variant="destructive" className="font-bold">{maintenanceRooms}</Badge>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Room Types Breakdown */}
-              <Card className="lg:col-span-2">
+              <Card className="lg:col-span-2 border-border">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base flex items-center gap-2">
                       <BedDouble className="h-4 w-4 text-primary" />
-                      Inventory by Room Type
+                      Inventory &amp; Rates by Room Type
                     </CardTitle>
                     <CardDescription>
-                      Availability and baseline rate per category
+                      Availability and baseline rate per configured category
                     </CardDescription>
                   </div>
                   <Link href="/hotel/room-types">
@@ -444,7 +710,7 @@ export default function HotelDashboardPage() {
               </Card>
             </div>
 
-            {/* Architecture Invariants Card */}
+            {/* Quick Operational Launchpad */}
             <Card className="bg-muted/20 border-border">
               <CardContent className="pt-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -454,28 +720,36 @@ export default function HotelDashboardPage() {
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-foreground">
-                        Phase 7 Domain Boundaries Enforced
+                        Operational Quick Launchpad
                       </h4>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Each Hotel Room is physically mapped to an ASSO <code className="bg-muted px-1 rounded text-primary">business_context</code>. Tenant isolation is guaranteed via PostgreSQL RLS. Operational and Housekeeping states are strictly segregated.
+                        Rapid staff navigation across front office, stays, guest directory, room rack, and billing.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link href="/hotel/guests">
-                      <Button variant="outline" size="sm">
-                        Guest Profiles
+                    <Link href="/hotel/front-office">
+                      <Button size="sm" className="gap-1.5">
+                        <LogIn className="h-3.5 w-3.5" />
+                        Front Desk Check-in
+                      </Button>
+                    </Link>
+                    <Link href="/hotel/rooms">
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <DoorOpen className="h-3.5 w-3.5" />
+                        Room Rack
                       </Button>
                     </Link>
                     <Link href="/hotel/reservations">
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <Plus className="h-3.5 w-3.5" />
                         Reservations
                       </Button>
                     </Link>
                     <Link href="/hotel/stays">
-                      <Button size="sm">
-                        <KeyRound className="h-3.5 w-3.5 mr-1" />
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <KeyRound className="h-3.5 w-3.5" />
                         Stays Ledger
                       </Button>
                     </Link>

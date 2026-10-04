@@ -585,187 +585,313 @@ export default function MaintenancePage() {
               )}
             </div>
 
-            {/* Requests Table */}
-            <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-muted/50 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">Location / Room</th>
-                    <th className="px-4 py-3">Category & Title</th>
-                    <th className="px-4 py-3">Priority</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Assigned Staff</th>
-                    <th className="px-4 py-3">Created</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredRequests.length === 0 ? (
+            <div className="space-y-0">
+              {/* Desktop Full Table */}
+              <div className="hidden md:block overflow-x-auto rounded-lg border border-border bg-card">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border bg-muted/50 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                        No maintenance requests match the current filters.
-                      </td>
+                      <th className="px-4 py-3">Location / Room</th>
+                      <th className="px-4 py-3">Category &amp; Title</th>
+                      <th className="px-4 py-3">Priority</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Assigned Staff</th>
+                      <th className="px-4 py-3">Created</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
-                  ) : (
-                    filteredRequests.map((req) => (
-                      <tr key={req.requestId} className="hover:bg-muted/40 transition-colors">
-                        {/* Location */}
-                        <td className="px-4 py-3.5 whitespace-nowrap">
-                          {req.room ? (
-                            <div>
-                              <div className="font-semibold text-foreground flex items-center gap-1.5">
-                                <DoorOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                                Room {req.room.roomNumber}
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredRequests.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                          No maintenance requests match the current filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRequests.map((req) => (
+                        <tr key={req.requestId} className="hover:bg-muted/40 transition-colors">
+                          {/* Location */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {req.room ? (
+                              <div>
+                                <div className="font-semibold text-foreground flex items-center gap-1.5">
+                                  <DoorOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                                  Room {req.room.roomNumber}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {req.room.roomTypeName} • Fl {req.room.floorNumber || 1}
+                                </div>
+                                {req.room.operationalStatus !== "AVAILABLE" && (
+                                  <Badge variant="outline" className="mt-1 text-[10px] bg-rose-500/10 text-rose-400 border-rose-500/30">
+                                    {req.room.operationalStatus}
+                                  </Badge>
+                                )}
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                {req.room.roomTypeName} • Fl {req.room.floorNumber || 1}
+                            ) : (
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <Building className="h-3.5 w-3.5" />
+                                <span className="font-medium text-xs">Public Area</span>
                               </div>
-                              {req.room.operationalStatus !== "AVAILABLE" && (
-                                <Badge variant="outline" className="mt-1 text-[10px] bg-rose-500/10 text-rose-400 border-rose-500/30">
-                                  {req.room.operationalStatus}
-                                </Badge>
+                            )}
+                          </td>
+
+                          {/* Category & Title */}
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-2">
+                              {getCategoryIcon(req.category)}
+                              <span className="font-medium text-foreground">{req.title}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                              {req.description}
+                            </div>
+                          </td>
+
+                          {/* Priority */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <Badge
+                              className={`text-xs font-semibold ${
+                                req.priority === "URGENT"
+                                  ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                  : req.priority === "HIGH"
+                                  ? "bg-orange-500/20 text-orange-400 border-orange-500/40"
+                                  : req.priority === "NORMAL"
+                                  ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
+                                  : "bg-slate-500/20 text-slate-400 border-slate-500/40"
+                              }`}
+                            >
+                              {req.priority}
+                            </Badge>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <Badge
+                              className={`text-xs font-semibold ${
+                                req.status === "OPEN"
+                                  ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                                  : req.status === "ASSIGNED"
+                                  ? "bg-sky-500/20 text-sky-400 border-sky-500/40"
+                                  : req.status === "IN_PROGRESS"
+                                  ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
+                                  : req.status === "RESOLVED"
+                                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                                  : req.status === "CLOSED"
+                                  ? "bg-zinc-500/20 text-zinc-400 border-zinc-500/40"
+                                  : "bg-rose-500/20 text-rose-400 border-rose-500/40"
+                              }`}
+                            >
+                              {req.status}
+                            </Badge>
+                          </td>
+
+                          {/* Assigned Staff */}
+                          <td className="px-4 py-3.5 whitespace-nowrap text-xs">
+                            {req.assignedStaffName ? (
+                              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                                <UserCheck className="h-3.5 w-3.5 text-primary" />
+                                {req.assignedStaffName}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground italic">Unassigned</span>
+                            )}
+                          </td>
+
+                          {/* Created Time */}
+                          <td className="px-4 py-3.5 whitespace-nowrap text-xs text-muted-foreground">
+                            {new Date(req.createdAt).toLocaleDateString([], {
+                              month: "short",
+                              day: "numeric",
+                            })}{" "}
+                            •{" "}
+                            {new Date(req.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-3.5 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedRequest(req);
+                                  setDetailDialogOpen(true);
+                                }}
+                                className="h-8 text-xs"
+                              >
+                                Detail
+                              </Button>
+
+                              {req.status === "OPEN" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleStartWork(req.requestId)}
+                                  disabled={actionLoading}
+                                  className="h-8 text-xs bg-blue-600 hover:bg-blue-500 text-white"
+                                >
+                                  Start Work
+                                </Button>
+                              )}
+
+                              {req.status === "IN_PROGRESS" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setResolveDialogOpen(true);
+                                  }}
+                                  disabled={actionLoading}
+                                  className="h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                                >
+                                  Resolve
+                                </Button>
+                              )}
+
+                              {req.status === "RESOLVED" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCloseRequest(req.requestId)}
+                                  disabled={actionLoading}
+                                  className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  Close
+                                </Button>
                               )}
                             </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Structured Card List (HUI-2 Responsive) */}
+              <div className="block md:hidden divide-y divide-border rounded-lg border border-border bg-card">
+                {filteredRequests.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-xs">
+                    No maintenance requests match the current filters.
+                  </div>
+                ) : (
+                  filteredRequests.map((req) => (
+                    <div key={req.requestId} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-bold text-sm text-foreground">
+                          {req.room ? (
+                            <>
+                              <DoorOpen className="h-4 w-4 text-primary" />
+                              <span>Room {req.room.roomNumber}</span>
+                            </>
                           ) : (
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Building className="h-3.5 w-3.5" />
-                              <span className="font-medium text-xs">Public Area</span>
-                            </div>
+                            <>
+                              <Building className="h-4 w-4 text-muted-foreground" />
+                              <span>Public Area</span>
+                            </>
                           )}
-                        </td>
-
-                        {/* Category & Title */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-2">
-                            {getCategoryIcon(req.category)}
-                            <span className="font-medium text-foreground">{req.title}</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                            {req.description}
-                          </div>
-                        </td>
-
-                        {/* Priority */}
-                        <td className="px-4 py-3.5 whitespace-nowrap">
+                        </div>
+                        <div className="flex items-center gap-1.5">
                           <Badge
-                            className={`text-xs font-semibold ${
+                            className={`text-[9px] font-semibold px-1 py-0 ${
                               req.priority === "URGENT"
-                                ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                ? "bg-red-500/20 text-red-400"
                                 : req.priority === "HIGH"
-                                ? "bg-orange-500/20 text-orange-400 border-orange-500/40"
-                                : req.priority === "NORMAL"
-                                ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
-                                : "bg-slate-500/20 text-slate-400 border-slate-500/40"
+                                ? "bg-orange-500/20 text-orange-400"
+                                : "bg-blue-500/20 text-blue-400"
                             }`}
                           >
                             {req.priority}
                           </Badge>
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-4 py-3.5 whitespace-nowrap">
                           <Badge
-                            className={`text-xs font-semibold ${
+                            className={`text-[9px] font-semibold px-1 py-0 ${
                               req.status === "OPEN"
-                                ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
-                                : req.status === "ASSIGNED"
-                                ? "bg-sky-500/20 text-sky-400 border-sky-500/40"
+                                ? "bg-amber-500/20 text-amber-400"
                                 : req.status === "IN_PROGRESS"
-                                ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
+                                ? "bg-blue-500/20 text-blue-400"
                                 : req.status === "RESOLVED"
-                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                                : req.status === "CLOSED"
-                                ? "bg-zinc-500/20 text-zinc-400 border-zinc-500/40"
-                                : "bg-rose-500/20 text-rose-400 border-rose-500/40"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-zinc-500/20 text-zinc-400"
                             }`}
                           >
                             {req.status}
                           </Badge>
-                        </td>
+                        </div>
+                      </div>
 
-                        {/* Assigned Staff */}
-                        <td className="px-4 py-3.5 whitespace-nowrap text-xs">
-                          {req.assignedStaffName ? (
-                            <div className="flex items-center gap-1.5 font-medium text-foreground">
-                              <UserCheck className="h-3.5 w-3.5 text-primary" />
-                              {req.assignedStaffName}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground italic">Unassigned</span>
-                          )}
-                        </td>
+                      <div>
+                        <div className="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                          {getCategoryIcon(req.category)}
+                          <span>{req.title}</span>
+                        </div>
+                        {req.description && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                            {req.description}
+                          </p>
+                        )}
+                      </div>
 
-                        {/* Created Time */}
-                        <td className="px-4 py-3.5 whitespace-nowrap text-xs text-muted-foreground">
-                          {new Date(req.createdAt).toLocaleDateString([], {
-                            month: "short",
-                            day: "numeric",
-                          })}{" "}
-                          •{" "}
-                          {new Date(req.createdAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </td>
+                      <div className="flex items-center justify-between text-[11px] p-2 rounded bg-muted/30">
+                        <span className="text-muted-foreground">
+                          Staff: {req.assignedStaffName || "Unassigned"}
+                        </span>
+                        <span className="text-muted-foreground font-mono">
+                          {new Date(req.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
 
-                        {/* Actions */}
-                        <td className="px-4 py-3.5 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedRequest(req);
-                                setDetailDialogOpen(true);
-                              }}
-                              className="h-8 text-xs"
-                            >
-                              Detail
-                            </Button>
-
-                            {req.status === "OPEN" && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleStartWork(req.requestId)}
-                                disabled={actionLoading}
-                                className="h-8 text-xs bg-blue-600 hover:bg-blue-500 text-white"
-                              >
-                                Start Work
-                              </Button>
-                            )}
-
-                            {req.status === "IN_PROGRESS" && (
-                              <Button
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setResolveDialogOpen(true);
-                                }}
-                                disabled={actionLoading}
-                                className="h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
-                              >
-                                Resolve
-                              </Button>
-                            )}
-
-                            {req.status === "RESOLVED" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleCloseRequest(req.requestId)}
-                                disabled={actionLoading}
-                                className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                Close
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedRequest(req);
+                            setDetailDialogOpen(true);
+                          }}
+                          className="flex-1 h-8 text-xs"
+                        >
+                          Details
+                        </Button>
+                        {req.status === "OPEN" && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleStartWork(req.requestId)}
+                            disabled={actionLoading}
+                            className="flex-1 h-8 text-xs bg-blue-600 hover:bg-blue-500 text-white"
+                          >
+                            Start Work
+                          </Button>
+                        )}
+                        {req.status === "IN_PROGRESS" && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setSelectedRequest(req);
+                              setResolveDialogOpen(true);
+                            }}
+                            disabled={actionLoading}
+                            className="flex-1 h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                          >
+                            Resolve
+                          </Button>
+                        )}
+                        {req.status === "RESOLVED" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCloseRequest(req.requestId)}
+                            disabled={actionLoading}
+                            className="flex-1 h-8 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            Close
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </TabsContent>
 

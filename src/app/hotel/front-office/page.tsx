@@ -39,6 +39,12 @@ import {
   ChevronRight,
   Building,
   Receipt,
+  UserPlus,
+  ArrowLeft,
+  Check,
+  Star,
+  Phone,
+  Mail,
 } from "lucide-react";
 import type {
   FrontOfficeSummary,
@@ -54,6 +60,17 @@ interface RoomOption {
   operationalStatus: string;
   housekeepingStatus: string;
   roomTypeId: string;
+  roomTypeName?: string;
+  baseRate?: string;
+  floorNumber?: string | null;
+}
+
+interface ExistingGuestOption {
+  guestId: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  vipStatus: string;
 }
 
 export default function FrontOfficePage() {
@@ -81,6 +98,43 @@ export default function FrontOfficePage() {
   // Detail modal state
   const [selectedInHouse, setSelectedInHouse] = useState<FrontOfficeInHouseStay | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+
+  // Walk-in Check-in Wizard State
+  const [walkInModalOpen, setWalkInModalOpen] = useState(false);
+  const [walkInStep, setWalkInStep] = useState<1 | 2 | 3 | 4>(1);
+  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
+
+  // Walk-in Step 1: Guest State
+  const [walkInGuestMode, setWalkInGuestMode] = useState<"new" | "existing">("new");
+  const [walkInGuestSearch, setWalkInGuestSearch] = useState("");
+  const [walkInGuestSearchResults, setWalkInGuestSearchResults] = useState<ExistingGuestOption[]>([]);
+  const [walkInSelectedGuest, setWalkInSelectedGuest] = useState<ExistingGuestOption | null>(null);
+  const [walkInGuestSearching, setWalkInGuestSearching] = useState(false);
+
+  // New Guest Fields
+  const [walkInFullName, setWalkInFullName] = useState("");
+  const [walkInPhone, setWalkInPhone] = useState("");
+  const [walkInEmail, setWalkInEmail] = useState("");
+  const [walkInIdProofType, setWalkInIdProofType] = useState("AADHAAR");
+  const [walkInIdProofNumber, setWalkInIdProofNumber] = useState("");
+  const [walkInNationality, setWalkInNationality] = useState("INDIAN");
+  const [walkInVipStatus, setWalkInVipStatus] = useState<"STANDARD" | "VIP" | "VVIP">("STANDARD");
+
+  // Walk-in Step 2: Dates & Details
+  const getTodayStr = () => new Date().toISOString().split("T")[0];
+  const getTomorrowStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  };
+  const [walkInArrivalDate, setWalkInArrivalDate] = useState(getTodayStr());
+  const [walkInDepartureDate, setWalkInDepartureDate] = useState(getTomorrowStr());
+  const [walkInAdultCount, setWalkInAdultCount] = useState(1);
+  const [walkInChildrenCount, setWalkInChildrenCount] = useState(0);
+  const [walkInSpecialRequests, setWalkInSpecialRequests] = useState("");
+
+  // Walk-in Step 3: Room Selection
+  const [walkInSelectedRoom, setWalkInSelectedRoom] = useState<RoomOption | null>(null);
 
   // Fetch Front Office summary
   const fetchSummary = useCallback(async (searchTerm?: string) => {
@@ -119,6 +173,9 @@ export default function FrontOfficePage() {
             operationalStatus: r.operationalStatus,
             housekeepingStatus: r.housekeepingStatus,
             roomTypeId: r.roomTypeId,
+            roomTypeName: r.roomTypeName,
+            baseRate: r.baseRate,
+            floorNumber: r.floorNumber,
           }));
         setAvailableRooms(rooms);
       }
@@ -130,6 +187,20 @@ export default function FrontOfficePage() {
   useEffect(() => {
     fetchSummary(search);
   }, [fetchSummary, search]);
+
+  // Deep-link check for ?action=walkin or ?tab=...
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("action") === "walkin") {
+        openWalkInModal();
+      }
+      const tabParam = params.get("tab");
+      if (tabParam && ["arrivals", "departures", "inHouse", "readiness"].includes(tabParam)) {
+        setActiveTab(tabParam);
+      }
+    }
+  }, []);
 
   // Realtime SSE listener for seamless operational board updates
   useEffect(() => {
@@ -229,34 +300,213 @@ export default function FrontOfficePage() {
     }
   };
 
+  // ==========================================
+  // WALK-IN CHECK-IN ORCHESTRATION (HUI-2)
+  // ==========================================
+  const openWalkInModal = () => {
+    setWalkInStep(1);
+    setWalkInGuestMode("new");
+    setWalkInGuestSearch("");
+    setWalkInGuestSearchResults([]);
+    setWalkInSelectedGuest(null);
+    setWalkInFullName("");
+    setWalkInPhone("");
+    setWalkInEmail("");
+    setWalkInIdProofType("AADHAAR");
+    setWalkInIdProofNumber("");
+    setWalkInNationality("INDIAN");
+    setWalkInVipStatus("STANDARD");
+    setWalkInArrivalDate(getTodayStr());
+    setWalkInDepartureDate(getTomorrowStr());
+    setWalkInAdultCount(1);
+    setWalkInChildrenCount(0);
+    setWalkInSpecialRequests("");
+    setWalkInSelectedRoom(null);
+    fetchRoomOptions();
+    setWalkInModalOpen(true);
+  };
+
+  const handleSearchExistingGuests = async (term: string) => {
+    setWalkInGuestSearch(term);
+    if (!term || term.trim().length < 2) {
+      setWalkInGuestSearchResults([]);
+      return;
+    }
+    setWalkInGuestSearching(true);
+    try {
+      const res = await hotelFetch(`/api/v1/hotel/guests?search=${encodeURIComponent(term.trim())}&limit=5`);
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setWalkInGuestSearchResults(
+          json.data.map((g: ExistingGuestOption) => ({
+            guestId: g.guestId,
+            fullName: g.fullName,
+            phone: g.phone,
+            email: g.email,
+            vipStatus: g.vipStatus,
+          }))
+        );
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setWalkInGuestSearching(false);
+    }
+  };
+
+  const handleWalkInNextStep = () => {
+    if (walkInStep === 1) {
+      if (walkInGuestMode === "new") {
+        if (!walkInFullName.trim() || walkInFullName.trim().length < 2) {
+          toast.warning("Please enter guest full name (at least 2 characters).");
+          return;
+        }
+        if (!walkInPhone.trim() || walkInPhone.trim().length < 5) {
+          toast.warning("Please enter a valid guest phone number.");
+          return;
+        }
+      } else {
+        if (!walkInSelectedGuest) {
+          toast.warning("Please select an existing guest profile or switch to New Guest.");
+          return;
+        }
+      }
+      setWalkInStep(2);
+    } else if (walkInStep === 2) {
+      if (!walkInArrivalDate || !walkInDepartureDate) {
+        toast.warning("Please specify both arrival and departure dates.");
+        return;
+      }
+      if (new Date(walkInArrivalDate) >= new Date(walkInDepartureDate)) {
+        toast.warning("Departure date must be after arrival date.");
+        return;
+      }
+      if (walkInAdultCount < 1) {
+        toast.warning("At least 1 adult occupant is required.");
+        return;
+      }
+      setWalkInStep(3);
+    } else if (walkInStep === 3) {
+      if (!walkInSelectedRoom) {
+        toast.warning("Please select an available physical room for this walk-in.");
+        return;
+      }
+      setWalkInStep(4);
+    }
+  };
+
+  const handleCompleteWalkInCheckIn = async () => {
+    if (!walkInSelectedRoom) return;
+    setWalkInSubmitting(true);
+    try {
+      let finalGuestId: string;
+
+      // 1. Resolve or Create Guest
+      if (walkInGuestMode === "existing" && walkInSelectedGuest) {
+        finalGuestId = walkInSelectedGuest.guestId;
+      } else {
+        const guestRes = await hotelFetch("/api/v1/hotel/guests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fullName: walkInFullName.trim(),
+            phone: walkInPhone.trim(),
+            email: walkInEmail.trim() || undefined,
+            idProofType: walkInIdProofType,
+            idProofNumberMasked: walkInIdProofNumber.trim() || undefined,
+            nationality: walkInNationality.trim() || "INDIAN",
+            vipStatus: walkInVipStatus,
+            notes: "Walk-in Guest registered via Front Desk",
+          }),
+        });
+        const guestJson = await guestRes.json();
+        if (!guestJson.success) {
+          throw new Error(guestJson.error?.message || "Failed to create guest record.");
+        }
+        finalGuestId = guestJson.data.guestId;
+      }
+
+      // 2. Create Confirmed Reservation
+      const resRes = await hotelFetch("/api/v1/hotel/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestId: finalGuestId,
+          roomTypeId: walkInSelectedRoom.roomTypeId,
+          assignedRoomId: walkInSelectedRoom.roomId,
+          arrivalDate: walkInArrivalDate,
+          departureDate: walkInDepartureDate,
+          adultCount: Number(walkInAdultCount),
+          childrenCount: Number(walkInChildrenCount),
+          specialRequests: walkInSpecialRequests.trim() || "Walk-in registration",
+          status: "CONFIRMED",
+        }),
+      });
+      const resJson = await resRes.json();
+      if (!resJson.success) {
+        throw new Error(resJson.error?.message || "Failed to create booking for walk-in.");
+      }
+      const reservationId = resJson.data.reservationId;
+
+      // 3. Immediate Check-In to Room
+      const checkInRes = await hotelFetch(`/api/v1/hotel/reservations/${reservationId}/check-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: walkInSelectedRoom.roomId,
+          notes: "Walk-in check-in completed via Front Desk Console",
+        }),
+      });
+      const checkInJson = await checkInRes.json();
+      if (!checkInJson.success) {
+        throw new Error(checkInJson.error?.message || "Failed to execute check-in for walk-in.");
+      }
+
+      // 4. Success feedback and view update
+      const guestDisplayName = walkInGuestMode === "existing" ? walkInSelectedGuest?.fullName : walkInFullName;
+      toast.success(`Walk-in guest ${guestDisplayName} successfully checked into Room ${walkInSelectedRoom.roomNumber}!`);
+      setWalkInModalOpen(false);
+      await fetchSummary(search);
+      setActiveTab("inHouse");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error executing walk-in check-in.");
+    } finally {
+      setWalkInSubmitting(false);
+    }
+  };
+
+  const cleanAvailableRooms = availableRooms.filter(
+    (r) => r.operationalStatus === "AVAILABLE" && (r.housekeepingStatus === "CLEAN" || r.housekeepingStatus === "INSPECTED")
+  );
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <HotelNav />
 
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Workspace Title & Console Context */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-primary text-primary-foreground">
-                <ConciergeBell className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
+        {/* Workspace Title & Operational Actions */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border pb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <ConciergeBell className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
                   Front Desk Operations
-                  <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
-                    Slice 4 Workspace
-                  </Badge>
                 </h1>
-                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-                  Authoritative daily operations workspace for Arrivals, Departures, In-House Guests, and Room Readiness.
-                </p>
+                <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
+                  Slice 4 Workspace
+                </Badge>
               </div>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                Authoritative daily workspace for Arrivals, Departures, In-House Guests, and Walk-in Check-in.
+              </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-60">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search guest, room, stay #..."
@@ -276,6 +526,16 @@ export default function FrontOfficePage() {
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
+
+            {/* Streamlined Walk-in Check-in Button */}
+            <Button
+              size="sm"
+              onClick={openWalkInModal}
+              className="flex items-center gap-1.5 h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span>Walk-in Check-in</span>
+            </Button>
           </div>
         </div>
 
@@ -291,7 +551,9 @@ export default function FrontOfficePage() {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
             {/* Arrivals */}
             <Card
-              className="cursor-pointer hover:border-primary transition-all"
+              className={`cursor-pointer transition-all hover:border-primary ${
+                activeTab === "arrivals" ? "ring-2 ring-primary/30 border-primary" : ""
+              }`}
               onClick={() => setActiveTab("arrivals")}
             >
               <CardHeader className="pb-1.5 pt-4 px-4">
@@ -312,7 +574,9 @@ export default function FrontOfficePage() {
 
             {/* Departures */}
             <Card
-              className="cursor-pointer hover:border-primary transition-all"
+              className={`cursor-pointer transition-all hover:border-primary ${
+                activeTab === "departures" ? "ring-2 ring-primary/30 border-primary" : ""
+              }`}
               onClick={() => setActiveTab("departures")}
             >
               <CardHeader className="pb-1.5 pt-4 px-4">
@@ -333,7 +597,9 @@ export default function FrontOfficePage() {
 
             {/* In-House Stays */}
             <Card
-              className="cursor-pointer hover:border-primary transition-all"
+              className={`cursor-pointer transition-all hover:border-primary ${
+                activeTab === "inHouse" ? "ring-2 ring-primary/30 border-primary" : ""
+              }`}
               onClick={() => setActiveTab("inHouse")}
             >
               <CardHeader className="pb-1.5 pt-4 px-4">
@@ -356,7 +622,9 @@ export default function FrontOfficePage() {
 
             {/* Ready & Available Rooms */}
             <Card
-              className="cursor-pointer hover:border-primary transition-all"
+              className={`cursor-pointer transition-all hover:border-primary ${
+                activeTab === "readiness" ? "ring-2 ring-primary/30 border-primary" : ""
+              }`}
               onClick={() => setActiveTab("readiness")}
             >
               <CardHeader className="pb-1.5 pt-4 px-4">
@@ -473,18 +741,24 @@ export default function FrontOfficePage() {
 
             {/* TAB 1: Today's Arrivals */}
             <TabsContent value="arrivals" className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <h3 className="text-base font-bold text-foreground">Today&apos;s Expected Arrivals</h3>
                   <p className="text-xs text-muted-foreground">
                     Confirmed reservations scheduled to check in today or awaiting arrival.
                   </p>
                 </div>
-                <Link href="/hotel/reservations">
-                  <Button variant="outline" size="sm" className="text-xs h-8">
-                    View All Reservations <ExternalLink className="h-3 w-3 ml-1" />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={openWalkInModal} className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Walk-in Check-in
                   </Button>
-                </Link>
+                  <Link href="/hotel/reservations">
+                    <Button variant="outline" size="sm" className="text-xs h-8">
+                      View All Bookings <ExternalLink className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
               </div>
 
               {data.arrivals.length === 0 ? (
@@ -492,101 +766,175 @@ export default function FrontOfficePage() {
                   <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2 opacity-60" />
                   <p className="text-sm font-semibold text-foreground">No pending arrivals for today</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    All expected guests have either checked in or no more reservations are scheduled today.
+                    All scheduled guests have checked in, or no more arrivals are due today.
                   </p>
                 </Card>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Res #</th>
-                          <th className="px-4 py-3 font-semibold">Guest Name</th>
-                          <th className="px-4 py-3 font-semibold">Room Type</th>
-                          <th className="px-4 py-3 font-semibold">Assigned Room</th>
-                          <th className="px-4 py-3 font-semibold">Arrival / Departure</th>
-                          <th className="px-4 py-3 font-semibold">Guests</th>
-                          <th className="px-4 py-3 font-semibold text-right">Front Desk Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {data.arrivals.map((arr) => {
-                          const hasRoom = !!arr.assignedRoomId;
-                          const roomReady =
-                            arr.assignedRoomOperationalStatus === "AVAILABLE" &&
-                            (arr.assignedRoomHousekeepingStatus === "CLEAN" ||
-                              arr.assignedRoomHousekeepingStatus === "INSPECTED");
+                <div className="space-y-3">
+                  {/* Desktop Full Table View */}
+                  <div className="hidden md:block rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Res #</th>
+                            <th className="px-4 py-3 font-semibold">Guest Name</th>
+                            <th className="px-4 py-3 font-semibold">Room Type</th>
+                            <th className="px-4 py-3 font-semibold">Assigned Room</th>
+                            <th className="px-4 py-3 font-semibold">Arrival / Departure</th>
+                            <th className="px-4 py-3 font-semibold">Guests</th>
+                            <th className="px-4 py-3 font-semibold text-right">Front Desk Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {data.arrivals.map((arr) => {
+                            const hasRoom = !!arr.assignedRoomId;
+                            const roomReady =
+                              arr.assignedRoomOperationalStatus === "AVAILABLE" &&
+                              (arr.assignedRoomHousekeepingStatus === "CLEAN" ||
+                                arr.assignedRoomHousekeepingStatus === "INSPECTED");
 
-                          return (
-                            <tr key={arr.reservationId} className="hover:bg-muted/30 transition-colors">
-                              <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">
-                                {arr.reservationNumber}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-semibold text-foreground">{arr.guestName}</span>
-                                  {arr.vipStatus && arr.vipStatus !== "STANDARD" && (
-                                    <Badge variant="warning" className="text-[9px] px-1 py-0">
-                                      {arr.vipStatus}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <span className="text-[11px] text-muted-foreground">{arr.guestPhone}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <p className="font-medium text-foreground text-xs">{arr.roomTypeName}</p>
-                                <span className="text-[10px] text-muted-foreground font-mono">{arr.roomTypeCode}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                {hasRoom ? (
+                            return (
+                              <tr key={arr.reservationId} className="hover:bg-muted/30 transition-colors">
+                                <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">
+                                  {arr.reservationNumber}
+                                </td>
+                                <td className="px-4 py-3">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-mono font-bold text-xs">
-                                      Room {arr.assignedRoomNumber}
-                                    </span>
-                                    {roomReady ? (
-                                      <Badge variant="success" className="text-[9px] px-1 py-0">
-                                        Ready
-                                      </Badge>
-                                    ) : (
+                                    <span className="font-semibold text-foreground">{arr.guestName}</span>
+                                    {arr.vipStatus && arr.vipStatus !== "STANDARD" && (
                                       <Badge variant="warning" className="text-[9px] px-1 py-0">
-                                        {arr.assignedRoomHousekeepingStatus || "Not Ready"}
+                                        {arr.vipStatus}
                                       </Badge>
                                     )}
                                   </div>
-                                ) : (
-                                  <Badge variant="destructive" className="text-[10px] font-mono">
-                                    Unassigned
-                                  </Badge>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-xs">
-                                <p className="text-foreground">
-                                  {new Date(arr.arrivalDate).toLocaleDateString()}
-                                </p>
-                                <span className="text-[11px] text-muted-foreground">
-                                  until {new Date(arr.departureDate).toLocaleDateString()}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                  <span className="text-[11px] text-muted-foreground">{arr.guestPhone}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-medium text-foreground text-xs">{arr.roomTypeName}</p>
+                                  <span className="text-[10px] text-muted-foreground font-mono">{arr.roomTypeCode}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {hasRoom ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-xs">
+                                        Room {arr.assignedRoomNumber}
+                                      </span>
+                                      {roomReady ? (
+                                        <Badge variant="success" className="text-[9px] px-1 py-0">
+                                          Ready
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="warning" className="text-[9px] px-1 py-0">
+                                          {arr.assignedRoomHousekeepingStatus || "Not Ready"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Badge variant="destructive" className="text-[10px] font-mono">
+                                      Unassigned
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-xs">
+                                  <p className="text-foreground">
+                                    {new Date(arr.arrivalDate).toLocaleDateString()}
+                                  </p>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    until {new Date(arr.departureDate).toLocaleDateString()}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground">
+                                  {arr.adultCount} Adult{arr.adultCount > 1 ? "s" : ""}
+                                  {arr.childrenCount > 0 ? `, ${arr.childrenCount} Ch` : ""}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <Button
+                                    size="sm"
+                                    className="h-8 text-xs gap-1 font-semibold"
+                                    onClick={() => openCheckIn(arr)}
+                                  >
+                                    <KeyRound className="h-3.5 w-3.5" />
+                                    Check In
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Mobile Structured Card View (HUI-2 Responsive) */}
+                  <div className="block md:hidden space-y-3">
+                    {data.arrivals.map((arr) => {
+                      const hasRoom = !!arr.assignedRoomId;
+                      const roomReady =
+                        arr.assignedRoomOperationalStatus === "AVAILABLE" &&
+                        (arr.assignedRoomHousekeepingStatus === "CLEAN" ||
+                          arr.assignedRoomHousekeepingStatus === "INSPECTED");
+
+                      return (
+                        <Card key={arr.reservationId} className="border-border p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-xs text-foreground">
+                              {arr.reservationNumber}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {arr.vipStatus && arr.vipStatus !== "STANDARD" && (
+                                <Badge variant="warning" className="text-[9px] px-1 py-0">
+                                  {arr.vipStatus}
+                                </Badge>
+                              )}
+                              {hasRoom ? (
+                                <Badge variant={roomReady ? "success" : "warning"} className="text-[9px] px-1 py-0">
+                                  Room {arr.assignedRoomNumber} ({roomReady ? "Ready" : arr.assignedRoomHousekeepingStatus})
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive" className="text-[9px] px-1 py-0">
+                                  Unassigned
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="font-bold text-foreground text-sm">{arr.guestName}</p>
+                            <p className="text-xs text-muted-foreground">{arr.guestPhone || "No phone"}</p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs p-2.5 rounded bg-muted/30">
+                            <div>
+                              <span className="text-[11px] text-muted-foreground">Room Type</span>
+                              <p className="font-medium text-foreground">{arr.roomTypeName}</p>
+                            </div>
+                            <div>
+                              <span className="text-[11px] text-muted-foreground">Party</span>
+                              <p className="font-medium text-foreground">
                                 {arr.adultCount} Adult{arr.adultCount > 1 ? "s" : ""}
                                 {arr.childrenCount > 0 ? `, ${arr.childrenCount} Ch` : ""}
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs gap-1 font-semibold"
-                                  onClick={() => openCheckIn(arr)}
-                                >
-                                  <KeyRound className="h-3.5 w-3.5" />
-                                  Check In
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              </p>
+                            </div>
+                            <div className="col-span-2">
+                              <span className="text-[11px] text-muted-foreground">Stay Dates</span>
+                              <p className="font-medium text-foreground font-mono text-[11px]">
+                                {new Date(arr.arrivalDate).toLocaleDateString()} → {new Date(arr.departureDate).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            className="w-full h-9 text-xs font-semibold gap-1.5"
+                            onClick={() => openCheckIn(arr)}
+                          >
+                            <KeyRound className="h-4 w-4" />
+                            Check In Guest
+                          </Button>
+                        </Card>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -617,88 +965,158 @@ export default function FrontOfficePage() {
                   </p>
                 </Card>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Stay #</th>
-                          <th className="px-4 py-3 font-semibold">Room</th>
-                          <th className="px-4 py-3 font-semibold">Guest</th>
-                          <th className="px-4 py-3 font-semibold">Check-In Time</th>
-                          <th className="px-4 py-3 font-semibold">Expected Departure</th>
-                          <th className="px-4 py-3 font-semibold">Status</th>
-                          <th className="px-4 py-3 font-semibold text-right">Front Desk Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {data.departures.map((dep) => (
-                          <tr key={dep.stayId} className="hover:bg-muted/30 transition-colors">
-                            <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">
-                              {dep.stayNumber}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className="font-mono font-black text-sm text-foreground">
-                                Room {dep.roomNumber}
-                              </span>
-                              <p className="text-[10px] text-muted-foreground">{dep.roomTypeName}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-semibold text-foreground">{dep.guestName}</span>
-                                {dep.vipStatus && dep.vipStatus !== "STANDARD" && (
-                                  <Badge variant="warning" className="text-[9px] px-1 py-0">
-                                    {dep.vipStatus}
+                <div className="space-y-3">
+                  {/* Desktop Full Table View */}
+                  <div className="hidden md:block rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Stay #</th>
+                            <th className="px-4 py-3 font-semibold">Room</th>
+                            <th className="px-4 py-3 font-semibold">Guest</th>
+                            <th className="px-4 py-3 font-semibold">Check-In Time</th>
+                            <th className="px-4 py-3 font-semibold">Expected Departure</th>
+                            <th className="px-4 py-3 font-semibold">Status</th>
+                            <th className="px-4 py-3 font-semibold text-right">Front Desk Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {data.departures.map((dep) => (
+                            <tr key={dep.stayId} className="hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">
+                                {dep.stayNumber}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-mono font-black text-sm text-foreground">
+                                  Room {dep.roomNumber}
+                                </span>
+                                <p className="text-[10px] text-muted-foreground">{dep.roomTypeName}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-foreground">{dep.guestName}</span>
+                                  {dep.vipStatus && dep.vipStatus !== "STANDARD" && (
+                                    <Badge variant="warning" className="text-[9px] px-1 py-0">
+                                      {dep.vipStatus}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">{dep.guestPhone}</span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
+                                {new Date(dep.checkInAt).toLocaleDateString()} {new Date(dep.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="px-4 py-3 text-xs font-mono">
+                                <span className={dep.isOverdue ? "text-rose-600 font-bold dark:text-rose-400" : "text-foreground"}>
+                                  {new Date(dep.expectedCheckOutAt).toLocaleDateString()} {new Date(dep.expectedCheckOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {dep.isOverdue && (
+                                  <Badge variant="destructive" className="ml-1.5 text-[9px] py-0 px-1">
+                                    Overdue
                                   </Badge>
                                 )}
-                              </div>
-                              <span className="text-[11px] text-muted-foreground">{dep.guestPhone}</span>
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
-                              {new Date(dep.checkInAt).toLocaleDateString()} {new Date(dep.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="px-4 py-3 text-xs font-mono">
-                              <span className={dep.isOverdue ? "text-rose-600 font-bold dark:text-rose-400" : "text-foreground"}>
-                                {new Date(dep.expectedCheckOutAt).toLocaleDateString()} {new Date(dep.expectedCheckOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              {dep.isOverdue && (
-                                <Badge variant="destructive" className="ml-1.5 text-[9px] py-0 px-1">
-                                  Overdue
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant="info" className="font-bold text-[10px]">
+                                  IN-HOUSE
                                 </Badge>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <Badge variant="info" className="font-bold text-[10px]">
-                                IN-HOUSE
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Link href={`/hotel/folio/${dep.stayId}`}>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Link href={`/hotel/folio/${dep.stayId}`}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
+                                    >
+                                      <Receipt className="h-3.5 w-3.5" />
+                                      Folio
+                                    </Button>
+                                  </Link>
                                   <Button
                                     size="sm"
-                                    variant="outline"
-                                    className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
+                                    variant="destructive"
+                                    className="h-8 text-xs gap-1 font-semibold"
+                                    onClick={() => openCheckout(dep)}
                                   >
-                                    <Receipt className="h-3.5 w-3.5" />
-                                    Folio
+                                    <LogOut className="h-3.5 w-3.5" />
+                                    Check Out
                                   </Button>
-                                </Link>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  className="h-8 text-xs gap-1 font-semibold"
-                                  onClick={() => openCheckout(dep)}
-                                >
-                                  <LogOut className="h-3.5 w-3.5" />
-                                  Check Out
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Mobile Structured Card View (HUI-2 Responsive) */}
+                  <div className="block md:hidden space-y-3">
+                    {data.departures.map((dep) => (
+                      <Card key={dep.stayId} className="border-border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-xs text-foreground">
+                            {dep.stayNumber}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {dep.isOverdue && (
+                              <Badge variant="destructive" className="text-[9px] px-1 py-0">
+                                Overdue Checkout
+                              </Badge>
+                            )}
+                            <Badge variant="info" className="text-[9px] px-1 py-0 font-bold">
+                              IN-HOUSE
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-bold text-foreground text-sm">{dep.guestName}</p>
+                            <p className="text-xs text-muted-foreground">{dep.guestPhone || "No phone"}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-black text-sm text-foreground">
+                              Room {dep.roomNumber}
+                            </span>
+                            <p className="text-[10px] text-muted-foreground">{dep.roomTypeName}</p>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded bg-muted/30 text-xs space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Expected Checkout:</span>
+                            <span className={`font-mono font-medium ${dep.isOverdue ? "text-rose-600 font-bold" : "text-foreground"}`}>
+                              {new Date(dep.expectedCheckOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date(dep.expectedCheckOutAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <Link href={`/hotel/folio/${dep.stayId}`} className="w-full">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-9 text-xs gap-1 text-emerald-500 border-emerald-500/30"
+                            >
+                              <Receipt className="h-3.5 w-3.5" />
+                              View Folio
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="w-full h-9 text-xs font-semibold gap-1"
+                            onClick={() => openCheckout(dep)}
+                          >
+                            <LogOut className="h-3.5 w-3.5" />
+                            Check Out
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
                   </div>
                 </div>
               )}
@@ -729,93 +1147,165 @@ export default function FrontOfficePage() {
                   </p>
                 </Card>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Room</th>
-                          <th className="px-4 py-3 font-semibold">Guest</th>
-                          <th className="px-4 py-3 font-semibold">Stay Number</th>
-                          <th className="px-4 py-3 font-semibold">Checked In</th>
-                          <th className="px-4 py-3 font-semibold">Expected Departure</th>
-                          <th className="px-4 py-3 font-semibold">Party</th>
-                          <th className="px-4 py-3 font-semibold text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {data.inHouse.map((stay) => (
-                          <tr key={stay.stayId} className="hover:bg-muted/30 transition-colors">
-                            <td className="px-4 py-3 font-mono font-bold text-foreground">
-                              <div className="flex items-center gap-1.5">
-                                <DoorOpen className="h-4 w-4 text-primary" />
-                                <span>Room {stay.roomNumber}</span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground font-sans font-normal">
-                                {stay.roomTypeName}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-semibold text-foreground">{stay.guestName}</span>
-                                {stay.vipStatus && stay.vipStatus !== "STANDARD" && (
-                                  <Badge variant="warning" className="text-[9px] px-1 py-0">
-                                    {stay.vipStatus}
-                                  </Badge>
-                                )}
-                              </div>
-                              <span className="text-[11px] text-muted-foreground">{stay.guestPhone}</span>
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                              {stay.stayNumber}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
-                              {new Date(stay.checkInAt).toLocaleDateString()} {new Date(stay.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="px-4 py-3 text-xs font-mono text-foreground">
-                              {new Date(stay.expectedCheckOutAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {stay.adultCount} Adult{stay.adultCount > 1 ? "s" : ""}
-                              {stay.childrenCount > 0 ? `, ${stay.childrenCount} Ch` : ""}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Link href={`/hotel/folio/${stay.stayId}`}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
-                                  >
-                                    <Receipt className="h-3.5 w-3.5" />
-                                    Folio
-                                  </Button>
-                                </Link>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 text-xs"
-                                  onClick={() => {
-                                    setSelectedInHouse(stay);
-                                    setDetailModalOpen(true);
-                                  }}
-                                >
-                                  Details
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                                  onClick={() => openCheckout(stay)}
-                                >
-                                  Check Out
-                                </Button>
-                              </div>
-                            </td>
+                <div className="space-y-3">
+                  {/* Desktop Full Table View */}
+                  <div className="hidden md:block rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-[11px] text-muted-foreground uppercase bg-muted/40 border-b border-border">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Room</th>
+                            <th className="px-4 py-3 font-semibold">Guest</th>
+                            <th className="px-4 py-3 font-semibold">Stay Number</th>
+                            <th className="px-4 py-3 font-semibold">Checked In</th>
+                            <th className="px-4 py-3 font-semibold">Expected Departure</th>
+                            <th className="px-4 py-3 font-semibold">Party</th>
+                            <th className="px-4 py-3 font-semibold text-right">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {data.inHouse.map((stay) => (
+                            <tr key={stay.stayId} className="hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3 font-mono font-bold text-foreground">
+                                <div className="flex items-center gap-1.5">
+                                  <DoorOpen className="h-4 w-4 text-primary" />
+                                  <span>Room {stay.roomNumber}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground font-sans font-normal">
+                                  {stay.roomTypeName}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-foreground">{stay.guestName}</span>
+                                  {stay.vipStatus && stay.vipStatus !== "STANDARD" && (
+                                    <Badge variant="warning" className="text-[9px] px-1 py-0">
+                                      {stay.vipStatus}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">{stay.guestPhone}</span>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                                {stay.stayNumber}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
+                                {new Date(stay.checkInAt).toLocaleDateString()} {new Date(stay.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="px-4 py-3 text-xs font-mono text-foreground">
+                                {new Date(stay.expectedCheckOutAt).toLocaleDateString()}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {stay.adultCount} Adult{stay.adultCount > 1 ? "s" : ""}
+                                {stay.childrenCount > 0 ? `, ${stay.childrenCount} Ch` : ""}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Link href={`/hotel/folio/${stay.stayId}`}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs gap-1 border-emerald-800/40 text-emerald-400 hover:bg-emerald-950/30"
+                                    >
+                                      <Receipt className="h-3.5 w-3.5" />
+                                      Folio
+                                    </Button>
+                                  </Link>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => {
+                                      setSelectedInHouse(stay);
+                                      setDetailModalOpen(true);
+                                    }}
+                                  >
+                                    Details
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                                    onClick={() => openCheckout(stay)}
+                                  >
+                                    Check Out
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Mobile Structured Card View (HUI-2 Responsive) */}
+                  <div className="block md:hidden space-y-3">
+                    {data.inHouse.map((stay) => (
+                      <Card key={stay.stayId} className="border-border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 font-bold text-foreground">
+                            <DoorOpen className="h-4 w-4 text-primary" />
+                            <span>Room {stay.roomNumber}</span>
+                            <span className="text-xs text-muted-foreground font-normal">({stay.roomTypeName})</span>
+                          </div>
+                          <Badge variant="info" className="text-[9px] px-1 py-0 font-bold">
+                            IN-HOUSE
+                          </Badge>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-foreground text-sm">{stay.guestName}</span>
+                            {stay.vipStatus && stay.vipStatus !== "STANDARD" && (
+                              <Badge variant="warning" className="text-[9px] px-1 py-0">
+                                {stay.vipStatus}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{stay.guestPhone || "No contact phone"}</p>
+                        </div>
+
+                        <div className="p-2.5 rounded bg-muted/30 text-xs space-y-1 font-mono">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground font-sans">Stay #:</span>
+                            <span className="text-foreground">{stay.stayNumber}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground font-sans">Expected Checkout:</span>
+                            <span className="text-foreground">{new Date(stay.expectedCheckOutAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          <Link href={`/hotel/folio/${stay.stayId}`} className="w-full">
+                            <Button size="sm" variant="outline" className="w-full h-8 text-xs text-emerald-500 border-emerald-500/30 gap-1">
+                              <Receipt className="h-3 w-3" />
+                              Folio
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="w-full h-8 text-xs"
+                            onClick={() => {
+                              setSelectedInHouse(stay);
+                              setDetailModalOpen(true);
+                            }}
+                          >
+                            Details
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="w-full h-8 text-xs font-semibold"
+                            onClick={() => openCheckout(stay)}
+                          >
+                            Check Out
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
                   </div>
                 </div>
               )}
@@ -917,7 +1407,465 @@ export default function FrontOfficePage() {
           </Tabs>
         )}
 
-        {/* Check-In Modal (Authoritative Slice 3 check-in workflow) */}
+        {/* ======================================================== */}
+        {/* STREAMLINED WALK-IN CHECK-IN MODAL (HUI-2 REQUIREMENT)  */}
+        {/* ======================================================== */}
+        <Dialog open={walkInModalOpen} onOpenChange={setWalkInModalOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <UserPlus className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-base font-bold text-foreground">
+                      Streamlined Walk-in Check-in
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Step {walkInStep} of 4: {
+                        walkInStep === 1 ? "Guest Identification" :
+                        walkInStep === 2 ? "Stay Dates & Occupancy" :
+                        walkInStep === 3 ? "Select Available Room" :
+                        "Confirm & Instant Check-in"
+                      }
+                    </DialogDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 font-mono text-xs font-bold text-muted-foreground">
+                  {[1, 2, 3, 4].map((step) => (
+                    <div
+                      key={step}
+                      className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${
+                        walkInStep === step
+                          ? "bg-primary text-primary-foreground font-black"
+                          : walkInStep > step
+                          ? "bg-emerald-500/20 text-emerald-600"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {walkInStep > step ? "✓" : step}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="py-3 text-xs space-y-4">
+              {/* STEP 1: GUEST SELECTION / REGISTRATION */}
+              {walkInStep === 1 && (
+                <div className="space-y-4">
+                  <div className="flex rounded-lg bg-muted p-1 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setWalkInGuestMode("new")}
+                      className={`flex-1 py-1.5 rounded-md font-semibold transition-all ${
+                        walkInGuestMode === "new" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      New Walk-in Guest
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWalkInGuestMode("existing")}
+                      className={`flex-1 py-1.5 rounded-md font-semibold transition-all ${
+                        walkInGuestMode === "existing" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Existing Guest Lookup
+                    </button>
+                  </div>
+
+                  {walkInGuestMode === "new" ? (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label className="font-semibold text-foreground">Guest Full Name *</label>
+                        <Input
+                          placeholder="e.g. Vikram Malhotra"
+                          value={walkInFullName}
+                          onChange={(e) => setWalkInFullName(e.target.value)}
+                          className="h-9 text-xs"
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">Phone Number *</label>
+                          <Input
+                            placeholder="+91 98765 43210"
+                            value={walkInPhone}
+                            onChange={(e) => setWalkInPhone(e.target.value)}
+                            className="h-9 text-xs"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">Email (Optional)</label>
+                          <Input
+                            type="email"
+                            placeholder="guest@example.com"
+                            value={walkInEmail}
+                            onChange={(e) => setWalkInEmail(e.target.value)}
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">ID Proof Type</label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            value={walkInIdProofType}
+                            onChange={(e) => setWalkInIdProofType(e.target.value)}
+                          >
+                            <option value="AADHAAR">Aadhaar</option>
+                            <option value="PASSPORT">Passport</option>
+                            <option value="DRIVING_LICENSE">Driving License</option>
+                            <option value="VOTER_ID">Voter ID</option>
+                            <option value="OTHER">Other</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">Masked ID Number</label>
+                          <Input
+                            placeholder="XXXX-XXXX-9876"
+                            value={walkInIdProofNumber}
+                            onChange={(e) => setWalkInIdProofNumber(e.target.value)}
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">Nationality</label>
+                          <Input
+                            placeholder="INDIAN"
+                            value={walkInNationality}
+                            onChange={(e) => setWalkInNationality(e.target.value)}
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="font-semibold text-foreground">VIP Tier</label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            value={walkInVipStatus}
+                            onChange={(e) => setWalkInVipStatus(e.target.value as "STANDARD" | "VIP" | "VVIP")}
+                          >
+                            <option value="STANDARD">Standard</option>
+                            <option value="VIP">VIP</option>
+                            <option value="VVIP">VVIP</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Type guest name or phone..."
+                          value={walkInGuestSearch}
+                          onChange={(e) => handleSearchExistingGuests(e.target.value)}
+                          className="pl-8 h-9 text-xs bg-card"
+                        />
+                      </div>
+
+                      {walkInGuestSearching && (
+                        <p className="text-xs text-muted-foreground py-2 text-center">Searching guest directory...</p>
+                      )}
+
+                      {walkInGuestSearchResults.length > 0 && (
+                        <div className="border border-border rounded-lg divide-y divide-border overflow-hidden max-h-48 overflow-y-auto">
+                          {walkInGuestSearchResults.map((g) => (
+                            <div
+                              key={g.guestId}
+                              onClick={() => setWalkInSelectedGuest(g)}
+                              className={`p-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                                walkInSelectedGuest?.guestId === g.guestId
+                                  ? "bg-primary/10 border-l-4 border-l-primary"
+                                  : "hover:bg-muted/50"
+                              }`}
+                            >
+                              <div>
+                                <p className="font-semibold text-foreground">{g.fullName}</p>
+                                <p className="text-[11px] text-muted-foreground">{g.phone} {g.email ? `• ${g.email}` : ""}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {g.vipStatus !== "STANDARD" && (
+                                  <Badge variant="warning" className="text-[9px] px-1 py-0">{g.vipStatus}</Badge>
+                                )}
+                                {walkInSelectedGuest?.guestId === g.guestId && (
+                                  <Badge variant="success" className="text-[9px] px-1 py-0">Selected</Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {walkInSelectedGuest && (
+                        <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-emerald-800 dark:text-emerald-300">Selected Guest:</span>
+                            <Badge variant="outline" className="text-[10px]">{walkInSelectedGuest.vipStatus}</Badge>
+                          </div>
+                          <p className="font-semibold text-foreground">{walkInSelectedGuest.fullName}</p>
+                          <p className="text-muted-foreground">{walkInSelectedGuest.phone} • {walkInSelectedGuest.email || "No email"}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 2: STAY DATES & OCCUPANCY */}
+              {walkInStep === 2 && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-foreground">Arrival Date *</label>
+                      <Input
+                        type="date"
+                        value={walkInArrivalDate}
+                        onChange={(e) => setWalkInArrivalDate(e.target.value)}
+                        className="h-9 text-xs"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-foreground">Departure Date *</label>
+                      <Input
+                        type="date"
+                        value={walkInDepartureDate}
+                        onChange={(e) => setWalkInDepartureDate(e.target.value)}
+                        className="h-9 text-xs"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-foreground">Adults *</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={walkInAdultCount}
+                        onChange={(e) => setWalkInAdultCount(Number(e.target.value))}
+                        className="h-9 text-xs"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-foreground">Children</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={walkInChildrenCount}
+                        onChange={(e) => setWalkInChildrenCount(Number(e.target.value))}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Special Requests / Staff Notes</label>
+                    <Input
+                      placeholder="e.g. Quiet floor, corporate walk-in, early arrival"
+                      value={walkInSpecialRequests}
+                      onChange={(e) => setWalkInSpecialRequests(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: ROOM SELECTION */}
+              {walkInStep === 3 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground">
+                      Available Clean Rooms ({cleanAvailableRooms.length})
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">Select one room for instant allocation</span>
+                  </div>
+
+                  {cleanAvailableRooms.length === 0 ? (
+                    <div className="p-6 text-center border border-dashed rounded-lg text-muted-foreground space-y-2">
+                      <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto" />
+                      <p className="font-semibold text-foreground">No Clean &amp; Available Rooms Found</p>
+                      <p className="text-xs">
+                        All rooms are either occupied, dirty awaiting turnover, or out of service.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
+                      {cleanAvailableRooms.map((room) => {
+                        const isSelected = walkInSelectedRoom?.roomId === room.roomId;
+                        return (
+                          <div
+                            key={room.roomId}
+                            onClick={() => setWalkInSelectedRoom(room)}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
+                              isSelected
+                                ? "border-emerald-600 bg-emerald-500/10 ring-2 ring-emerald-500/30"
+                                : "border-border bg-card hover:border-primary/50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                                <DoorOpen className="h-4 w-4 text-emerald-500" />
+                                Room {room.roomNumber}
+                              </span>
+                              <Badge variant="success" className="text-[9px] px-1 py-0">
+                                Clean &amp; Ready
+                              </Badge>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {room.roomTypeName || "Standard Category"} • Floor {room.floorNumber || "1"}
+                            </div>
+                            {room.baseRate && (
+                              <div className="text-xs font-semibold text-foreground pt-1 border-t border-border/40 flex justify-between">
+                                <span className="text-muted-foreground font-normal">Base Rate:</span>
+                                <span>₹{Number(room.baseRate).toLocaleString("en-IN")}/night</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 4: CONFIRMATION & SUMMARY */}
+              {walkInStep === 4 && (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2.5">
+                    <h4 className="font-bold text-sm text-foreground border-b border-border/60 pb-1.5 flex items-center gap-2">
+                      <Check className="h-4 w-4 text-emerald-500" />
+                      Walk-in Check-in Summary
+                    </h4>
+
+                    <div className="grid grid-cols-2 gap-2.5 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Guest:</span>
+                        <p className="font-bold text-foreground">
+                          {walkInGuestMode === "existing" ? walkInSelectedGuest?.fullName : walkInFullName}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {walkInGuestMode === "existing" ? walkInSelectedGuest?.phone : walkInPhone}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Allocated Room:</span>
+                        <p className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <DoorOpen className="h-3.5 w-3.5" />
+                          Room {walkInSelectedRoom?.roomNumber}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">{walkInSelectedRoom?.roomTypeName}</p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Arrival:</span>
+                        <p className="font-medium text-foreground">{walkInArrivalDate}</p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Departure:</span>
+                        <p className="font-medium text-foreground">{walkInDepartureDate}</p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Occupants:</span>
+                        <p className="font-medium text-foreground">
+                          {walkInAdultCount} Adult{walkInAdultCount > 1 ? "s" : ""}
+                          {walkInChildrenCount > 0 ? `, ${walkInChildrenCount} Ch` : ""}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Rate:</span>
+                        <p className="font-semibold text-foreground">
+                          {walkInSelectedRoom?.baseRate ? `₹${Number(walkInSelectedRoom.baseRate).toLocaleString("en-IN")}/night` : "Standard Rate"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {walkInSpecialRequests && (
+                      <div className="pt-2 border-t border-border/60 text-xs">
+                        <span className="text-muted-foreground">Requests / Notes:</span>
+                        <p className="text-foreground italic">{walkInSpecialRequests}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-800 dark:text-emerald-300">
+                    Clicking &ldquo;Complete Walk-in Check-in&rdquo; will create the guest profile, register the booking, spawn an active Hotel Stay, and release keys to the guest.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="flex flex-row justify-between items-center sm:justify-between w-full pt-2 border-t border-border">
+              {walkInStep > 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWalkInStep((prev) => (prev - 1) as 1 | 2 | 3 | 4)}
+                  disabled={walkInSubmitting}
+                  className="gap-1 text-xs"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWalkInModalOpen(false)}
+                  disabled={walkInSubmitting}
+                  className="text-xs"
+                >
+                  Cancel
+                </Button>
+              )}
+
+              {walkInStep < 4 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleWalkInNextStep}
+                  className="gap-1 text-xs"
+                >
+                  Continue
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleCompleteWalkInCheckIn}
+                  disabled={walkInSubmitting || !walkInSelectedRoom}
+                  className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                >
+                  {walkInSubmitting ? "Processing Check-in..." : "Complete Walk-in Check-in"}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Existing Check-In Modal (For scheduled arrivals) */}
         <Dialog open={checkInModalOpen} onOpenChange={setCheckInModalOpen}>
           <DialogContent className="max-w-md">
             <form onSubmit={handleCheckInSubmit}>
@@ -1014,7 +1962,7 @@ export default function FrontOfficePage() {
           </DialogContent>
         </Dialog>
 
-        {/* Check-Out Modal (Authoritative Slice 3 checkout workflow) */}
+        {/* Check-Out Modal */}
         <Dialog open={checkoutModalOpen} onOpenChange={setCheckoutModalOpen}>
           <DialogContent className="max-w-md">
             <form onSubmit={handleCheckoutSubmit}>

@@ -393,85 +393,150 @@ export default function HotelGuestsPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    <tr>
-                      <th className="px-6 py-3">Guest</th>
-                      <th className="px-6 py-3">Contact</th>
-                      <th className="px-6 py-3">ID Proof</th>
-                      <th className="px-6 py-3">Nationality</th>
-                      <th className="px-6 py-3">Tier</th>
-                      <th className="px-6 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {guests.map((g) => (
-                      <tr key={g.guestId} className="hover:bg-muted/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-foreground">{g.fullName}</div>
-                          <div className="text-[11px] text-muted-foreground font-mono">
-                            ID: {g.guestId.slice(0, 8)}...
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-xs space-y-0.5">
-                          <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <Phone className="h-3 w-3" />
-                            <span>{g.phone}</span>
-                          </div>
-                          {g.email && (
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Mail className="h-3 w-3" />
-                              <span>{g.email}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-xs">
-                          {g.idProofType ? (
-                            <div className="space-y-0.5">
-                              <Badge variant="outline" className="text-[10px] uppercase font-mono">
-                                {g.idProofType}
-                              </Badge>
-                              {g.idProofNumberMasked && (
-                                <div className="text-[11px] font-mono text-muted-foreground">
-                                  {g.idProofNumberMasked}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-muted-foreground">
-                          {g.nationality || "INDIAN"}
-                        </td>
-                        <td className="px-6 py-4">
-                          {g.vipStatus === "VIP" || g.vipStatus === "VVIP" ? (
-                            <Badge variant="default" className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 w-fit">
-                              <Star className="h-3 w-3 fill-amber-400" />
-                              {g.vipStatus}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px]">
-                              STANDARD
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1.5 text-xs"
-                            onClick={() => openGuestDetail(g.guestId)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            Details
-                          </Button>
-                        </td>
+              <div className="space-y-0">
+                {/* Desktop Full Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-3">Guest</th>
+                        <th className="px-6 py-3">Contact</th>
+                        <th className="px-6 py-3">ID Proof</th>
+                        <th className="px-6 py-3">Nationality</th>
+                        <th className="px-6 py-3">Tier</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {guests.map((g) => (
+                        <tr key={g.guestId} className="hover:bg-muted/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="font-medium text-foreground">{g.fullName}</div>
+                            <div className="text-[11px] text-muted-foreground font-mono">
+                              ID: {g.guestId.slice(0, 8)}...
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-xs space-y-0.5">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Phone className="h-3 w-3" />
+                              <span>{g.phone}</span>
+                            </div>
+                            {g.email && (
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                <span>{g.email}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            {g.idProofType ? (
+                              <div className="space-y-0.5">
+                                <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                                  {g.idProofType}
+                                </Badge>
+                                {g.idProofNumberMasked && (
+                                  <div className="text-[11px] font-mono text-muted-foreground">
+                                    {g.idProofNumberMasked}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-muted-foreground">
+                            {g.nationality || "INDIAN"}
+                          </td>
+                          <td className="px-6 py-4">
+                            {g.vipStatus === "VIP" || g.vipStatus === "VVIP" ? (
+                              <Badge variant="default" className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 w-fit">
+                                <Star className="h-3 w-3 fill-amber-400" />
+                                {g.vipStatus}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">
+                                STANDARD
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1.5 text-xs"
+                              onClick={() => openGuestDetail(g.guestId)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              Details
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Structured Card List (HUI-2 Responsive) */}
+                <div className="block md:hidden divide-y divide-border">
+                  {guests.map((g) => (
+                    <div key={g.guestId} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-foreground text-sm">{g.fullName}</p>
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            ID: {g.guestId.slice(0, 8)}...
+                          </span>
+                        </div>
+                        {g.vipStatus === "VIP" || g.vipStatus === "VVIP" ? (
+                          <Badge variant="default" className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                            <Star className="h-2.5 w-2.5 fill-amber-400" />
+                            {g.vipStatus}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            STANDARD
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Phone className="h-3.5 w-3.5 text-primary" />
+                          <span className="text-foreground font-medium">{g.phone}</span>
+                        </div>
+                        {g.email && (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Mail className="h-3.5 w-3.5 text-primary" />
+                            <span>{g.email}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded bg-muted/30 text-xs">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">ID Proof</span>
+                          <p className="font-medium text-foreground">
+                            {g.idProofType ? `${g.idProofType} (${g.idProofNumberMasked || "Masked"})` : "Not provided"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Nationality</span>
+                          <p className="font-medium text-foreground">{g.nationality || "INDIAN"}</p>
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-9 text-xs gap-1.5 font-semibold"
+                        onClick={() => openGuestDetail(g.guestId)}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        View Stays &amp; Bookings
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>
