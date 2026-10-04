@@ -151,7 +151,7 @@ async function runRemoteFinancialSmokeTest() {
   });
 
   const syntheticOrderId = crypto.randomUUID();
-  const orderNumber = `SYNTH-${Date.now().toString().slice(-6)}`;
+  const orderNumber = `SYNTH-SMOKE-${Date.now().toString().slice(-6)}`;
   await sql`
     INSERT INTO orders (
       order_id, tenant_id, outlet_id, context_id, order_number, order_source, dining_context,
@@ -171,6 +171,7 @@ async function runRemoteFinancialSmokeTest() {
     const billRes = executeRemoteVercelCurl("POST", "/api/v1/restaurant/bills", managerToken, {
       outletId: ctx.outlet_id,
       orderIds: [syntheticOrderId],
+      notes: "REMOTE_PREVIEW_SMOKE_TEST: Append-only financial verification record",
     });
     console.log(`   HTTP Status: ${billRes.status}`);
     if (billRes.status !== 201 || !billRes.data?.data?.billId) {
@@ -355,26 +356,47 @@ async function runRemoteFinancialSmokeTest() {
     console.log(`   ✓ Found ${outboxEvents.length} outbox events recorded for this bill:`);
     outboxEvents.forEach((ev: any) => console.log(`     - ${ev.event_type} (Status: ${ev.status})`));
 
-  } finally {
-    // Step 12: Safe cleanup of synthetic disposable test records
-    console.log("\n12. Performing safe cleanup of synthetic test records...");
-    if (generatedBillId) {
-      await sql`DELETE FROM restaurant_tip_distributions WHERE bill_id = ${generatedBillId}`;
-      await sql`DELETE FROM payment_transactions WHERE bill_id = ${generatedBillId}`;
-      await sql`DELETE FROM restaurant_bill_split_portions WHERE split_id IN (SELECT split_id FROM restaurant_bill_splits WHERE bill_id = ${generatedBillId})`;
-      await sql`DELETE FROM restaurant_bill_splits WHERE bill_id = ${generatedBillId}`;
-      await sql`DELETE FROM bills WHERE bill_id = ${generatedBillId}`;
-      await sql`DELETE FROM domain_outbox_events WHERE aggregate_id = ${generatedBillId}`;
-      console.log(`   ✓ Cleaned up synthetic bill ${generatedBillId} and associated records.`);
-    }
-    await sql`DELETE FROM orders WHERE order_id = ${syntheticOrderId}`;
-    console.log(`   ✓ Cleaned up synthetic order ${syntheticOrderId}.`);
+    // Step 12: Append-Only Financial Ledger & Audit Trail Verification
+    console.log("\n12. Verifying append-only financial integrity (zero destructive deletion)...");
+    const [persistedBill] = await sql`
+      SELECT bill_id, status, total_amount, settled_amount
+      FROM bills
+      WHERE bill_id = ${generatedBillId}
+    `;
+    const persistedPayments = await sql`
+      SELECT payment_id, amount, status
+      FROM payment_transactions
+      WHERE bill_id = ${generatedBillId}
+    `;
+    const persistedTips = await sql`
+      SELECT tip_distribution_id, amount
+      FROM restaurant_tip_distributions
+      WHERE bill_id = ${generatedBillId}
+    `;
+    const persistedSplits = await sql`
+      SELECT split_id
+      FROM restaurant_bill_splits
+      WHERE bill_id = ${generatedBillId}
+    `;
 
+    if (!persistedBill || persistedPayments.length < 2 || persistedTips.length < 2 || persistedSplits.length < 1) {
+      throw new Error("Financial records missing; append-only invariant compromised.");
+    }
+
+    console.log("   ✓ Verified canonical financial records remain intact and auditable in append-only storage:");
+    console.log(`     - Bill: ${persistedBill.bill_id} (Status: ${persistedBill.status}, Total: ₹${persistedBill.total_amount}, Settled: ₹${persistedBill.settled_amount})`);
+    console.log(`     - Payments: ${persistedPayments.length} recorded transactions`);
+    console.log(`     - Tip Distributions: ${persistedTips.length} recorded allocations`);
+    console.log(`     - Bill Splits: ${persistedSplits.length} recorded split structure`);
+    console.log(`     - Outbox Events: ${outboxEvents.length} recorded domain events`);
+    console.log("   ✓ Non-destructive policy enforced: zero SQL DELETE operations executed on financial ledgers.");
+  } finally {
     await sql.end();
   }
 
   console.log("\n=================================================================");
-  console.log("  ALL 11 REMOTE FINANCIAL MUTATION SMOKE CHECKS PASSED (100%)    ");
+  console.log("  ALL 12/12 REMOTE VERIFICATION CHECKS PASSED (100%)             ");
+  console.log("  (11 Financial Mutation Checks + 1 Append-Only Audit Integrity) ");
   console.log("=================================================================");
 }
 

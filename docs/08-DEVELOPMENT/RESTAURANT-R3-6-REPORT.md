@@ -22,7 +22,7 @@
   - Security audit: **42/42 tests passing**; Native PostgreSQL RLS: **11/11 tests passing**.
   - TypeScript typecheck: **0 errors**; Production build: **Successful**.
   - Scale Foundation S6 load regression: **20/20 benchmarks passing** (0% errors, 0 timeouts).
-  - Remote Vercel Preview live financial mutation verification: **11/11 checks passed** on active preview deployment.
+  - Remote Vercel Preview live financial mutation & audit trail verification: **12/12 checks passed** on active preview deployment.
 
 ---
 
@@ -168,7 +168,7 @@ The POS UI (`src/app/restaurant/billing/page.tsx`) provides complete support for
 | TypeScript Typecheck | `npm run typecheck` | **0 errors** | `0` |
 | Production Build | `npm run build` | **Successful** (28/28 routes) | `0` |
 | Scale S6 Load Regression | `npm run test:load` | **20/20 passed** (0% errors, 0 timeouts) | `0` |
-| Remote Preview Smoke Test | `node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-preview-financial-mutation.ts` | **11/11 checks passed** (100%) | `0` |
+| Remote Preview Smoke Test | `node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-preview-financial-mutation.ts` | **12/12 checks passed** (100%) | `0` |
 
 ---
 
@@ -179,19 +179,22 @@ The POS UI (`src/app/restaurant/billing/page.tsx`) provides complete support for
 - **Remote Smoke Test Execution Summary**:
   - Command: `node --env-file=.env.local node_modules/.bin/vite-node scripts/verify-preview-financial-mutation.ts`
   - Target: `https://asso-super-2obqh1rt5-sypdersupport1-ui.vercel.app`
-  - Executed 11 financial mutation checks against isolated synthetic non-PII records:
-    1. Disposable test bill created: `ad9d60b6-9ecb-465d-acf2-b49e3112f527` (₹105.00)
-    2. 2-portion Equal Split created: 2 portions of ₹52.50
-    3. Idempotent replay verified: Cached response returned, 0 duplicate splits
-    4. Safe CASH payment recorded on Portion 1: Status `PARTIALLY_PAID`, settled ₹52.50, remaining ₹52.50
-    5. Invalid overpayment rejected: HTTP 422 `BUSINESS_RULE_VIOLATION`
-    6. Tip allocated via `PERCENTAGE_BASED` mode: Server Pool 60% (₹12.00), Kitchen Pool 40% (₹8.00), bill total updated to ₹125.00
-    7. Invalid tip percentage sum rejected: 90.00% != 100% $\rightarrow$ HTTP 400 `VALIDATION_FAILED`
-    8. Portion 2 settled: Remaining balance ₹20.00
-    9. Final settlement of tip balance: Status `PAID`, remaining ₹0.00, `isFullySettled = true`
-    10. Transactional outbox verified: 3 events recorded (`RESTAURANT_BILL_GENERATED`, `RESTAURANT_TIP_ALLOCATED`, `RESTAURANT_BILL_SETTLED`)
-    11. Synthetic test records safely cleaned up: Bill, payments, split portions, and order deleted.
-  - Result: 100% passed (Exit code: 0).
+  - Total Checks: **12/12 passed (100%)**
+    - **11 Live Financial Mutation & Invariant Checks**:
+      1. Disposable test bill created: `2d46df30-9ec8-4903-832c-7b0bca2d8a43` (₹105.00, notes: `REMOTE_PREVIEW_SMOKE_TEST: Append-only financial verification record`)
+      2. 2-portion Equal Split created: 2 portions of ₹52.50
+      3. Idempotent replay verified: Cached response returned, 0 duplicate splits
+      4. Safe CASH payment recorded on Portion 1: Status `PARTIALLY_PAID`, settled ₹52.50, remaining ₹52.50
+      5. Invalid overpayment rejected: HTTP 422 `BUSINESS_RULE_VIOLATION`
+      6. Tip allocated via `PERCENTAGE_BASED` mode: Server Pool 60% (₹12.00), Kitchen Pool 40% (₹8.00), bill total updated to ₹125.00
+      7. Invalid tip percentage sum rejected: 90.00% != 100% $\rightarrow$ HTTP 400 `VALIDATION_FAILED`
+      8. Portion 2 settled: Remaining balance ₹20.00
+      9. Final settlement of tip balance: Status `PAID`, remaining ₹0.00, `isFullySettled = true`
+      10. Transactional outbox verified: 3 events recorded (`RESTAURANT_BILL_GENERATED`, `RESTAURANT_TIP_ALLOCATED`, `RESTAURANT_BILL_SETTLED`)
+      11. Transient mock staff profile cleaned up without touching any financial records.
+    - **1 Append-Only Financial Ledger & Audit Trail Verification Check (Step 12)**:
+      12. **Non-destructive Append-Only Retention**: Verifies that canonical financial tables (`bills`, `payment_transactions`, `restaurant_tip_distributions`, `restaurant_bill_splits`, and `domain_outbox_events`) remain permanently intact in the database for auditability. **Zero SQL DELETE operations were executed on financial ledgers**. The synthetic bill (`2d46df30-9ec8-4903-832c-7b0bca2d8a43`) remains in status `PAID` with full immutable transaction history.
+  - Result: **12/12 checks passed (100%, Exit code: 0)**.
 
 ---
 
