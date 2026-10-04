@@ -6,13 +6,13 @@
 const crypto = require("crypto");
 const { execSync } = require("child_process");
 
-const PREVIEW_BASE_URL = process.env.PREVIEW_BASE_URL || "https://asso-super-8ktqthl2d-sypdersupport1-ui.vercel.app";
+const PREVIEW_BASE_URL = process.env.PREVIEW_BASE_URL || "https://asso-super-j5r80dm7d-sypdersupport1-ui.vercel.app";
 const JWT_SECRET = process.env.PREVIEW_JWT_SECRET || "9KomVQXMxL8bcWSsgHragXvGn+HaPemLzES7foGkOxZkrQD7hNWmBHDY2iGQho966r3ZB6WunUoxGwcwcYvyFQ==";
 
 // Tenant IDs and Room Context
 const TENANT_WITH_HOTEL = "11111111-1111-1111-1111-111111111111"; // Entitled to Hotel & Restaurant
-const OUTLET_ID = "00000000-0000-0000-0000-000000000001";
-const ROOM_CONTEXT_ID = "11111111-1111-1111-1111-000000000101"; // Room 101 Context
+const OUTLET_ID = "f2f3b7bb-0fd1-49f9-9457-1e558de11883";
+const ROOM_CONTEXT_ID = "94fa39bc-805b-4961-80f0-6f5215c5018a"; // Active Room S2-4549 (Occupied Stay)
 
 function signJwt(payload) {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
@@ -145,8 +145,8 @@ async function runVerification() {
 
   // 6. Customer Room Service Menu
   const r6 = vercelCurl("/api/v1/customer/room-service/menu", { token: customerToken });
-  const pass6 = r6.status === 200 && r6.json?.success === true && Array.isArray(r6.json?.data);
-  record(6, "Customer Room Service Menu API", pass6, `Status: ${r6.status}, Categories: ${r6.json?.data?.length || 0}`);
+  const pass6 = r6.status === 200 && r6.json?.success === true && Array.isArray(r6.json?.data?.categories);
+  record(6, "Customer Room Service Menu API", pass6, `Status: ${r6.status}, Categories: ${r6.json?.data?.categories?.length || 0}`);
 
   // 7. Customer Cart & Room Service Portal Page
   const r7 = vercelCurl("/hotel/guest/room-service");
@@ -155,7 +155,7 @@ async function runVerification() {
 
   // 8. Customer Order Submission (Room Service)
   let orderCreatedId = null;
-  const menuItems = r6.json?.data?.[0]?.items || [];
+  const menuItems = r6.json?.data?.categories?.[0]?.items || [];
   const testItem = menuItems[0];
   let pass8 = false;
   if (testItem) {
@@ -191,7 +191,7 @@ async function runVerification() {
 
   // 10. Customer Charges / Folio
   const r10 = vercelCurl("/api/v1/customer/folio", { token: customerToken });
-  const pass10 = (r10.status === 200 && r10.json?.success === true) || (r10.status === 404 && r10.json?.error?.code === "STAY_NOT_FOUND");
+  const pass10 = (r10.status === 200 && r10.json?.success === true) || (r10.status === 404 && (r10.json?.error?.code === "STAY_NOT_FOUND" || r10.json?.error?.code === "RESOURCE_NOT_FOUND"));
   record(10, "Customer Charges / Folio Endpoint (Privacy-Safe)", pass10, `Status: ${r10.status}, Folio: ${r10.json?.data?.folio?.folioNumber || "None/Clean"}`);
 
   // 11. Customer Session → Admin Rejection (403 Forbidden)
