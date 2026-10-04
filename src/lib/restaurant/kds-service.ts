@@ -12,6 +12,7 @@ import {
   type KitchenStation,
   type NewKitchenStation,
 } from "@/db/schema/operations";
+import { users } from "@/db/schema/core";
 import { restaurantTables } from "@/db/schema/restaurant";
 import { businessContexts } from "@/db/schema/context";
 import { logger } from "@/lib/logger";
@@ -26,6 +27,22 @@ import {
   type KdsTaskStatus,
 } from "@/lib/ordering/order-state-machines";
 import { ValidationError, NotFoundError, BusinessRuleError } from "@/lib/api/errors";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolveStaffUserId(tx: any, staffId?: string): Promise<string | null> {
+  if (!staffId || !UUID_REGEX.test(staffId)) return null;
+  try {
+    const existing = await tx
+      .select({ userId: users.userId })
+      .from(users)
+      .where(eq(users.userId, staffId))
+      .limit(1);
+    return existing.length > 0 ? existing[0].userId : null;
+  } catch {
+    return null;
+  }
+}
 
 // ============================================================================
 // 1. KITCHEN STATION MANAGEMENT (CRUD)
@@ -538,12 +555,14 @@ export async function updateKdsTaskStatus(
 
       await tx.update(kdsTasks).set(timestampUpdates).where(eq(kdsTasks.taskId, taskId));
 
+      const changedByUserId = await resolveStaffUserId(tx, staffId);
+
       await tx.insert(kdsTaskHistory).values({
         tenantId,
         taskId,
         fromStatus: task.taskStatus,
         toStatus: targetStatus,
-        changedByUserId: staffId,
+        changedByUserId,
         reason: "Manual KDS task update",
       });
 
@@ -637,12 +656,14 @@ export async function updateKdsTaskPriority(
       .set({ priority, updatedAt: new Date() })
       .where(eq(kdsTasks.taskId, taskId));
 
+    const changedByUserId = await resolveStaffUserId(tx, staffId);
+
     await tx.insert(kdsTaskHistory).values({
       tenantId,
       taskId,
       fromStatus: task.taskStatus,
       toStatus: task.taskStatus,
-      changedByUserId: staffId,
+      changedByUserId,
       reason: `Priority updated from ${task.priority} to ${priority}: ${reason || "Expedited"}`,
     });
 
@@ -722,12 +743,14 @@ export async function recallKdsTask(
 
     await tx.update(kdsTasks).set(updates).where(eq(kdsTasks.taskId, taskId));
 
+    const changedByUserId = await resolveStaffUserId(tx, staffId);
+
     await tx.insert(kdsTaskHistory).values({
       tenantId,
       taskId,
       fromStatus: task.taskStatus,
       toStatus: targetStatus,
-      changedByUserId: staffId,
+      changedByUserId,
       reason: `Audited recall to ${targetStatus}: ${reason.trim()}`,
     });
 
@@ -823,13 +846,15 @@ export async function bumpStationTicket(
       .set(updates)
       .where(and(eq(kdsTasks.tenantId, tenantId), inArray(kdsTasks.taskId, taskIds)));
 
+    const changedByUserId = await resolveStaffUserId(tx, staffId);
+
     for (const t of matchingTasks) {
       await tx.insert(kdsTaskHistory).values({
         tenantId,
         taskId: t.taskId,
         fromStatus,
         toStatus,
-        changedByUserId: staffId,
+        changedByUserId,
         reason: `Batch bump from station ${stationRouting}`,
       });
     }

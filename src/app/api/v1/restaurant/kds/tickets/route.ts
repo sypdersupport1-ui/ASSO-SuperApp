@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const stationRouting = req.nextUrl.searchParams.get("stationRouting") || undefined;
+    const stationRouting = req.nextUrl.searchParams.get("stationRouting") || req.nextUrl.searchParams.get("stationCode") || undefined;
     const activeOnly = req.nextUrl.searchParams.get("activeOnly") !== "false";
 
     const tickets = await listKdsTickets(tenantId, outletId, stationRouting, activeOnly);

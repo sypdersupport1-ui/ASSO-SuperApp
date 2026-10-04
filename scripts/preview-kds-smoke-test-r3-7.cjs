@@ -1,17 +1,20 @@
 const crypto = require("crypto");
 const { execSync } = require("child_process");
 
-const PREVIEW_BASE_URL = process.env.PREVIEW_BASE_URL || "https://asso-super-bl5jslcwo-sypdersupport1-ui.vercel.app";
+const PREVIEW_BASE_URL = process.env.PREVIEW_BASE_URL || "https://asso-super-j2g3xqu2d-sypdersupport1-ui.vercel.app";
 const JWT_SECRET = process.env.PREVIEW_JWT_SECRET || "9KomVQXMxL8bcWSsgHragXvGn+HaPemLzES7foGkOxZkrQD7hNWmBHDY2iGQho966r3ZB6WunUoxGwcwcYvyFQ==";
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_TENANT_ID = "22222222-2222-2222-2222-222222222236";
 const OUTLET_ID = "bbba867b-b7a8-495b-a5c6-2bf333c86445";
 
-function createJwt(roles = ["RESTAURANT_MANAGER"], permissions = ["restaurant.*", "catalog.manage", "restaurant.kds.manage"], tenant = TENANT_ID, sessionType = "STAFF") {
+const MANAGER_USER_ID = "ee906b32-6ba7-478f-aa5e-7a27ab9cd957";
+const STAFF_USER_ID = "de906b32-6ba7-478f-aa5e-7a27ab9cd956";
+
+function createJwt(roles = ["RESTAURANT_MANAGER"], permissions = ["restaurant.*", "catalog.manage", "restaurant.kds.manage"], tenant = TENANT_ID, sessionType = "STAFF", sub = MANAGER_USER_ID) {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
   const payload = Buffer.from(JSON.stringify({
-    sub: "usr_preview_kds_tester",
+    sub,
     email: "kds.tester@assohospitality.com",
     tenantId: tenant,
     roles,
@@ -25,10 +28,10 @@ function createJwt(roles = ["RESTAURANT_MANAGER"], permissions = ["restaurant.*"
   return `${header}.${payload}.${signature}`;
 }
 
-const managerToken = createJwt(["RESTAURANT_MANAGER"], ["restaurant.*", "catalog.manage", "restaurant.kds.manage"]);
-const staffToken = createJwt(["RESTAURANT_STAFF"], ["restaurant.kds.view", "restaurant.kds.update"]);
-const guestToken = createJwt(["GUEST"], ["customer.read"], TENANT_ID, "CUSTOMER");
-const otherTenantToken = createJwt(["RESTAURANT_MANAGER"], ["restaurant.*", "restaurant.kds.manage"], OTHER_TENANT_ID);
+const managerToken = createJwt(["RESTAURANT_MANAGER"], ["restaurant.*", "catalog.manage", "restaurant.kds.manage"], TENANT_ID, "STAFF", MANAGER_USER_ID);
+const staffToken = createJwt(["RESTAURANT_STAFF"], ["restaurant.kds.view", "restaurant.kds.update"], TENANT_ID, "STAFF", STAFF_USER_ID);
+const guestToken = createJwt(["GUEST"], ["customer.read"], TENANT_ID, "CUSTOMER", "00000000-0000-0000-0000-000000000001");
+const otherTenantToken = createJwt(["RESTAURANT_MANAGER"], ["restaurant.*", "restaurant.kds.manage"], OTHER_TENANT_ID, "STAFF", MANAGER_USER_ID);
 
 function vercelCurl(path, options = {}) {
   const url = `${PREVIEW_BASE_URL}${path}`;
@@ -178,7 +181,7 @@ async function runSmokeTests() {
     await sql`
       INSERT INTO order_items (
         order_item_id, tenant_id, order_id, item_id, item_name, unit_price, quantity,
-        total_price, item_status, fulfillment_station
+        subtotal, item_status, fulfillment_station
       ) VALUES 
       (${orderItemId1}, ${TENANT_ID}, ${testOrderId}, ${itemId}, 'Hot Tandoori Chicken', '300.0000', 1, '300.0000', 'PLACED', 'HOT_KITCHEN'),
       (${orderItemId2}, ${TENANT_ID}, ${testOrderId}, ${itemId}, 'Garlic Butter Naan', '100.0000', 2, '200.0000', 'PLACED', 'TANDOOR'),
@@ -193,17 +196,17 @@ async function runSmokeTests() {
     await sql`
       INSERT INTO kds_tasks (
         task_id, tenant_id, outlet_id, order_id, order_item_id, item_id, item_name, quantity,
-        task_status, station_routing, destination_label, priority
+        task_status, station_routing, destination_label, priority, dining_context, order_source
       ) VALUES
-      (${taskId1}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId1}, ${itemId}, 'Hot Tandoori Chicken', 1, 'PENDING', 'HOT_KITCHEN', 'Table 1', 'NORMAL'),
-      (${taskId2}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId2}, ${itemId}, 'Garlic Butter Naan', 2, 'PENDING', 'TANDOOR', 'Table 1', 'NORMAL'),
-      (${taskId3}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId3}, ${itemId}, 'Mango Lassi', 1, 'PENDING', 'BEVERAGE', 'Table 1', 'NORMAL')
+      (${taskId1}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId1}, ${itemId}, 'Hot Tandoori Chicken', 1, 'PENDING', 'HOT_KITCHEN', 'Table 1', 'NORMAL', 'DINE_IN', 'POS'),
+      (${taskId2}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId2}, ${itemId}, 'Garlic Butter Naan', 2, 'PENDING', 'TANDOOR', 'Table 1', 'NORMAL', 'DINE_IN', 'POS'),
+      (${taskId3}, ${TENANT_ID}, ${OUTLET_ID}, ${testOrderId}, ${orderItemId3}, ${itemId}, 'Mango Lassi', 1, 'PENDING', 'BEVERAGE', 'Table 1', 'NORMAL', 'DINE_IN', 'POS')
     `;
     console.log("✓ Synthetic multi-station order and 3 KDS tasks seeded.\n");
 
     // 7. Multi-Station Separation on Tickets Endpoint
     console.log("7. Verifying Multi-Station Separation on GET /api/v1/restaurant/kds/tickets...");
-    const hotKitchenTickets = vercelCurl(`/api/v1/restaurant/kds/tickets?outletId=${OUTLET_ID}&stationCode=HOT_KITCHEN`, { token: staffToken });
+    const hotKitchenTickets = vercelCurl(`/api/v1/restaurant/kds/tickets?outletId=${OUTLET_ID}&stationRouting=HOT_KITCHEN`, { token: staffToken });
     console.log("Hot Kitchen tickets status:", hotKitchenTickets.statusCode);
     const hotOrderTicket = hotKitchenTickets.json?.data?.find(t => t.orderId === testOrderId);
     console.log("Hot Kitchen items for test order:", hotOrderTicket?.items?.length);
@@ -211,7 +214,7 @@ async function runSmokeTests() {
       throw new Error("Multi-station separation failed: HOT_KITCHEN did not isolate items correctly");
     }
 
-    const tandoorTickets = vercelCurl(`/api/v1/restaurant/kds/tickets?outletId=${OUTLET_ID}&stationCode=TANDOOR`, { token: staffToken });
+    const tandoorTickets = vercelCurl(`/api/v1/restaurant/kds/tickets?outletId=${OUTLET_ID}&stationRouting=TANDOOR`, { token: staffToken });
     const tandoorOrderTicket = tandoorTickets.json?.data?.find(t => t.orderId === testOrderId);
     console.log("Tandoor items for test order:", tandoorOrderTicket?.items?.length);
     if (!tandoorOrderTicket || tandoorOrderTicket.items.length !== 1 || tandoorOrderTicket.items[0].stationRouting !== "TANDOOR") {

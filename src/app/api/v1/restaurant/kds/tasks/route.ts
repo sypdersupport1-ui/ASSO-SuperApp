@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const stationRouting = req.nextUrl.searchParams.get("stationRouting") || undefined;
+    const stationRouting = req.nextUrl.searchParams.get("stationRouting") || req.nextUrl.searchParams.get("stationCode") || undefined;
     const stationId = req.nextUrl.searchParams.get("stationId") || undefined;
     const taskStatus = req.nextUrl.searchParams.get("taskStatus") || undefined;
     const priority = req.nextUrl.searchParams.get("priority") || undefined;
