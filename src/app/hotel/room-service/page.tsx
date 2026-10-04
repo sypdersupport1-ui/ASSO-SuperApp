@@ -31,7 +31,8 @@ import {
   Search,
   Filter,
 } from "lucide-react";
-import { getStaffAuthHeaders } from "@/lib/hotel/client-auth";
+import { hotelFetch, getStaffAuthHeaders } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 
 interface MenuItemDto {
   itemId: string;
@@ -78,6 +79,7 @@ interface StaffOrderDto {
 }
 
 function RoomServiceStaffWorkspaceContent() {
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const outletIdParam = searchParams.get("outletId");
 
@@ -96,8 +98,7 @@ function RoomServiceStaffWorkspaceContent() {
   useEffect(() => {
     async function initProperty() {
       try {
-        const auth = await getStaffAuthHeaders();
-        const res = await fetch("/api/v1/hotel/properties", { headers: auth });
+        const res = await hotelFetch("/api/v1/hotel/properties");
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           setOutletId((prev) => prev || json.data[0].outletId);
@@ -113,10 +114,7 @@ function RoomServiceStaffWorkspaceContent() {
   const fetchOrders = useCallback(async () => {
     if (!outletId) return;
     try {
-      const auth = await getStaffAuthHeaders();
-      const res = await fetch(`/api/v1/hotel/room-service/orders?outletId=${outletId}`, {
-        headers: auth,
-      });
+      const res = await hotelFetch(`/api/v1/hotel/room-service/orders?outletId=${outletId}`);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setOrders(json.data);
@@ -134,10 +132,7 @@ function RoomServiceStaffWorkspaceContent() {
   const fetchMenu = useCallback(async () => {
     if (!outletId) return;
     try {
-      const auth = await getStaffAuthHeaders();
-      const res = await fetch(`/api/v1/hotel/room-service/menu?outletId=${outletId}`, {
-        headers: auth,
-      });
+      const res = await hotelFetch(`/api/v1/hotel/room-service/menu?outletId=${outletId}`);
       const json = await res.json();
       if (json.success && json.data?.categories) {
         setCategories(json.data.categories);
@@ -190,12 +185,10 @@ function RoomServiceStaffWorkspaceContent() {
     if (!outletId) return;
     setUpdatingOrderId(orderId);
     try {
-      const auth = await getStaffAuthHeaders();
-      const res = await fetch(`/api/v1/hotel/room-service/orders/${orderId}/status`, {
+      const res = await hotelFetch(`/api/v1/hotel/room-service/orders/${orderId}/status`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...auth,
         },
         body: JSON.stringify({
           outletId,
@@ -205,12 +198,13 @@ function RoomServiceStaffWorkspaceContent() {
 
       const json = await res.json();
       if (json.success) {
+        toast.success(`Order status updated to ${nextStatus}.`);
         await fetchOrders();
       } else {
-        alert(json.error?.message || "Failed to update order status.");
+        toast.error(json.error?.message || "Failed to update order status.");
       }
     } catch {
-      alert("Network error updating status.");
+      toast.error("Network error updating status.");
     } finally {
       setUpdatingOrderId(null);
     }
@@ -221,12 +215,10 @@ function RoomServiceStaffWorkspaceContent() {
     if (!outletId) return;
     setTogglingItemId(itemId);
     try {
-      const auth = await getStaffAuthHeaders();
-      const res = await fetch(`/api/v1/hotel/room-service/menu/${itemId}/availability`, {
+      const res = await hotelFetch(`/api/v1/hotel/room-service/menu/${itemId}/availability`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...auth,
         },
         body: JSON.stringify({
           outletId,
@@ -236,12 +228,13 @@ function RoomServiceStaffWorkspaceContent() {
 
       const json = await res.json();
       if (json.success) {
+        toast.success(`Item marked as ${!currentAvailability ? "available" : "86 / unavailable"}.`);
         await fetchMenu();
       } else {
-        alert(json.error?.message || "Failed to toggle availability.");
+        toast.error(json.error?.message || "Failed to toggle availability.");
       }
     } catch {
-      alert("Network error toggling menu item.");
+      toast.error("Network error toggling menu item.");
     } finally {
       setTogglingItemId(null);
     }

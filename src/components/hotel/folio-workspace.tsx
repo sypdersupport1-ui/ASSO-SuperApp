@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -24,13 +25,10 @@ import {
   RefreshCw,
   Lock,
   Unlock,
-  DollarSign,
   ArrowDownLeft,
   ArrowUpRight,
   FileText,
-  User,
   BedDouble,
-  Clock,
   Sparkles,
   UtensilsCrossed,
 } from "lucide-react";
@@ -42,6 +40,7 @@ interface FolioWorkspaceProps {
 }
 
 export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
+  const { toast } = useToast();
   const [folio, setFolio] = useState<FolioDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +100,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
     try {
       const res = await hotelFetch(`/api/v1/hotel/folios/${stayId}/charges`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           entryType: chargeType,
           amount: chargeAmount ? parseFloat(chargeAmount) : undefined,
@@ -116,8 +116,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       setChargeModalOpen(false);
       setChargeAmount("");
       setChargeDesc("");
+      toast.success("Charge posted to folio successfully.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Charge failed");
+      toast.error(err instanceof Error ? err.message : "Charge failed to post.");
     } finally {
       setActionLoading(false);
     }
@@ -130,6 +131,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
     try {
       const res = await hotelFetch(`/api/v1/hotel/folios/${stayId}/payments`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: parseFloat(paymentAmount),
           paymentMethod,
@@ -145,8 +147,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       setPaymentModalOpen(false);
       setPaymentAmount("");
       setPaymentRef("");
+      toast.success("Payment recorded and credited to folio.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Payment failed");
+      toast.error(err instanceof Error ? err.message : "Payment recording failed.");
     } finally {
       setActionLoading(false);
     }
@@ -159,6 +162,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
     try {
       const res = await hotelFetch(`/api/v1/hotel/folios/${stayId}/adjustments`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: parseFloat(adjustAmount),
           reason: adjustReason.trim(),
@@ -175,8 +179,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       setAdjustAmount("");
       setAdjustReason("");
       setTargetEntryId(undefined);
+      toast.success("Compensating ledger adjustment posted.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Adjustment failed");
+      toast.error(err instanceof Error ? err.message : "Adjustment failed.");
     } finally {
       setActionLoading(false);
     }
@@ -189,6 +194,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
     try {
       const res = await hotelFetch(`/api/v1/hotel/folios/${stayId}/refunds`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: parseFloat(refundAmount),
           originalPaymentEntryId: refundPaymentEntryId,
@@ -205,8 +211,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       setRefundAmount("");
       setRefundReason("");
       setRefundPaymentEntryId("");
+      toast.success("Payment refund processed successfully.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Refund failed");
+      toast.error(err instanceof Error ? err.message : "Refund processing failed.");
     } finally {
       setActionLoading(false);
     }
@@ -226,8 +233,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       const json = await res.json();
       setFolio(json.data);
       setCloseConfirmOpen(false);
+      toast.success("Folio closed and sealed successfully.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Close failed");
+      toast.error(err instanceof Error ? err.message : "Closing folio failed.");
     } finally {
       setActionLoading(false);
     }
@@ -240,6 +248,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
     try {
       const res = await hotelFetch(`/api/v1/hotel/folios/${stayId}/reopen`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reason: reopenReason.trim(),
         }),
@@ -252,8 +261,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       setFolio(json.data);
       setReopenModalOpen(false);
       setReopenReason("");
+      toast.success("Folio reopened with audit justification.");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Reopen failed");
+      toast.error(err instanceof Error ? err.message : "Reopen failed.");
     } finally {
       setActionLoading(false);
     }
@@ -262,17 +272,17 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center p-12 space-y-4">
-        <RefreshCw className="h-8 w-8 animate-spin text-emerald-500" />
-        <p className="text-sm text-zinc-400">Loading guest folio and ledger records...</p>
+        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading guest folio and ledger records...</p>
       </div>
     );
   }
 
   if (error || !folio) {
     return (
-      <div className="p-8 bg-red-950/20 border border-red-800/40 rounded-xl text-center space-y-3">
-        <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
-        <p className="text-red-300 font-medium">{error || "Folio not found."}</p>
+      <div className="p-8 bg-destructive/5 border border-destructive/30 rounded-xl text-center space-y-3">
+        <AlertCircle className="h-8 w-8 text-destructive mx-auto" />
+        <p className="text-destructive font-medium">{error || "Folio not found."}</p>
         <Button variant="outline" size="sm" onClick={loadFolio}>
           Try Again
         </Button>
@@ -282,44 +292,43 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
   const isClosed = folio.status === "CLOSED";
   const numBalance = parseFloat(folio.balanceDue);
-  const isSettled = numBalance === 0;
 
   return (
     <div className="space-y-6">
       {/* Folio Header Card */}
-      <div className="bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-mono tracking-wider text-emerald-400 uppercase bg-emerald-950/60 border border-emerald-800/50 px-2.5 py-0.5 rounded-full">
+              <span className="text-xs font-mono tracking-wider text-primary uppercase bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-full font-semibold">
                 {folio.folioNumber}
               </span>
               <Badge
                 variant={isClosed ? "secondary" : "default"}
                 className={
                   isClosed
-                    ? "bg-zinc-800 text-zinc-400 border-zinc-700"
-                    : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                    ? "bg-muted text-muted-foreground border-border"
+                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                 }
               >
                 {isClosed ? <Lock className="w-3 h-3 mr-1" /> : <Unlock className="w-3 h-3 mr-1" />}
                 {folio.status}
               </Badge>
             </div>
-            <h2 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-              <Receipt className="w-6 h-6 text-emerald-400" />
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Receipt className="w-6 h-6 text-primary" />
               {folio.stay ? `${folio.stay.guestName}'s Folio` : "Guest Folio"}
             </h2>
             {folio.stay && (
-              <p className="text-xs text-zinc-400 flex items-center gap-3">
-                <span className="flex items-center gap-1 text-zinc-300">
-                  <BedDouble className="w-3.5 h-3.5 text-zinc-400" />
+              <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1 text-foreground font-medium">
+                  <BedDouble className="w-3.5 h-3.5 text-muted-foreground" />
                   Room {folio.stay.roomNumber} ({folio.stay.roomTypeName})
                 </span>
                 <span>•</span>
-                <span className="font-mono text-zinc-400">Stay #{folio.stay.stayNumber}</span>
+                <span className="font-mono">Stay #{folio.stay.stayNumber}</span>
                 <span>•</span>
-                <span className="text-zinc-400">Status: {folio.stay.status}</span>
+                <span>Status: {folio.stay.status}</span>
               </p>
             )}
           </div>
@@ -330,7 +339,6 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
               size="sm"
               variant="outline"
               onClick={loadFolio}
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
             >
               <RefreshCw className="w-3.5 h-3.5 mr-1" />
               Refresh
@@ -345,7 +353,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                     setChargeType("ROOM_CHARGE");
                     setChargeModalOpen(true);
                   }}
-                  className="border-emerald-800/60 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/50"
+                  className="border-primary/30 text-primary hover:bg-primary/5"
                 >
                   <PlusCircle className="w-3.5 h-3.5 mr-1" />
                   Add Charge
@@ -356,7 +364,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                     setPaymentAmount(numBalance > 0 ? numBalance.toFixed(2) : "");
                     setPaymentModalOpen(true);
                   }}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
                 >
                   <CreditCard className="w-3.5 h-3.5 mr-1" />
                   Record Payment
@@ -365,7 +373,6 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                   size="sm"
                   variant="outline"
                   onClick={() => setAdjustmentModalOpen(true)}
-                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                 >
                   <Sparkles className="w-3.5 h-3.5 mr-1" />
                   Adjustment
@@ -374,7 +381,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                   size="sm"
                   variant="outline"
                   onClick={() => setCloseConfirmOpen(true)}
-                  className="border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <Lock className="w-3.5 h-3.5 mr-1" />
                   Close Folio
@@ -385,7 +392,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 size="sm"
                 variant="outline"
                 onClick={() => setReopenModalOpen(true)}
-                className="border-amber-800/50 bg-amber-950/30 text-amber-300 hover:bg-amber-900/50"
+                className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
               >
                 <Unlock className="w-3.5 h-3.5 mr-1" />
                 Reopen Folio
@@ -396,22 +403,22 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
         {/* Financial KPI Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-          <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider font-medium flex items-center justify-between">
+          <div className="bg-muted/30 border border-border rounded-xl p-4">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider font-medium flex items-center justify-between">
               <span>Total Charges</span>
-              <ArrowUpRight className="w-4 h-4 text-zinc-400" />
+              <ArrowUpRight className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="text-2xl font-bold font-mono text-zinc-100 mt-1">
+            <div className="text-2xl font-bold font-mono text-foreground mt-1">
               ₹{parseFloat(folio.totalCharges).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
 
-          <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider font-medium flex items-center justify-between">
+          <div className="bg-muted/30 border border-border rounded-xl p-4">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider font-medium flex items-center justify-between">
               <span>Total Payments / Credits</span>
-              <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
+              <ArrowDownLeft className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
+            <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
               ₹{parseFloat(folio.totalPayments).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
@@ -419,27 +426,27 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
           <div
             className={`border rounded-xl p-4 ${
               numBalance > 0
-                ? "bg-amber-950/30 border-amber-800/50"
+                ? "bg-amber-500/10 border-amber-500/30"
                 : numBalance < 0
-                ? "bg-blue-950/30 border-blue-800/50"
-                : "bg-emerald-950/20 border-emerald-800/40"
+                ? "bg-blue-500/10 border-blue-500/30"
+                : "bg-emerald-500/10 border-emerald-500/30"
             }`}
           >
-            <div className="text-xs uppercase tracking-wider font-medium flex items-center justify-between text-zinc-300">
+            <div className="text-xs uppercase tracking-wider font-medium flex items-center justify-between text-muted-foreground">
               <span>Balance Due</span>
               {numBalance === 0 ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <AlertCircle className="w-4 h-4 text-amber-500" />
               )}
             </div>
             <div
               className={`text-2xl font-bold font-mono mt-1 ${
                 numBalance > 0
-                  ? "text-amber-300"
+                  ? "text-amber-700 dark:text-amber-400"
                   : numBalance < 0
-                  ? "text-blue-300"
-                  : "text-emerald-400"
+                  ? "text-blue-700 dark:text-blue-400"
+                  : "text-emerald-600 dark:text-emerald-400"
               }`}
             >
               ₹{numBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -449,15 +456,15 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
       </div>
 
       {/* Folio Ledger Entries Table */}
-      <Card className="bg-zinc-900/90 border-zinc-800 shadow-xl">
-        <CardHeader className="pb-3 border-b border-zinc-800/80">
+      <Card className="shadow-sm border-border">
+        <CardHeader className="pb-3 border-b border-border">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg text-zinc-100 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-400" />
+              <CardTitle className="text-lg text-foreground flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" />
                 Immutable Financial Ledger ({folio.entries.length} Entries)
               </CardTitle>
-              <CardDescription className="text-xs text-zinc-400">
+              <CardDescription className="text-xs text-muted-foreground">
                 Audited transactional accounting log. Modifications require compensating adjustment entries.
               </CardDescription>
             </div>
@@ -466,15 +473,15 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
         <CardContent className="p-0">
           {folio.entries.length === 0 ? (
-            <div className="text-center py-12 text-zinc-500 text-sm">
-              <Receipt className="w-10 h-10 mx-auto text-zinc-700 mb-2" />
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              <Receipt className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
               No financial entries posted yet.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400 bg-zinc-950/40">
+                  <tr className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/40">
                     <th className="py-3 px-4">Date / Time</th>
                     <th className="py-3 px-4">Type</th>
                     <th className="py-3 px-4">Description</th>
@@ -483,7 +490,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                     {!isClosed && <th className="py-3 px-4 text-center">Actions</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800/50 font-sans">
+                <tbody className="divide-y divide-border font-sans">
                   {folio.entries.map((entry) => {
                     const isPayment = entry.entryType === "PAYMENT";
                     const isFood = entry.entryType === "FOOD_CHARGE";
@@ -495,9 +502,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                     return (
                       <tr
                         key={entry.entryId}
-                        className="hover:bg-zinc-800/30 transition-colors group"
+                        className="hover:bg-muted/30 transition-colors group"
                       >
-                        <td className="py-3 px-4 text-xs font-mono text-zinc-400 whitespace-nowrap">
+                        <td className="py-3 px-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
                           {new Date(entry.createdAt).toLocaleString("en-IN", {
                             day: "2-digit",
                             month: "short",
@@ -511,16 +518,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                             variant="outline"
                             className={
                               isPayment
-                                ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/60"
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
                                 : isFood
-                                ? "bg-amber-950/40 text-amber-400 border-amber-800/60"
+                                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
                                 : isRoom
-                                ? "bg-blue-950/40 text-blue-400 border-blue-800/60"
+                                ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
                                 : isRefund
-                                ? "bg-purple-950/40 text-purple-400 border-purple-800/60"
+                                ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
                                 : isAdjustment
-                                ? "bg-cyan-950/40 text-cyan-400 border-cyan-800/60"
-                                : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                                ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30"
+                                : "bg-muted text-muted-foreground border-border"
                             }
                           >
                             {isFood && <UtensilsCrossed className="w-3 h-3 mr-1" />}
@@ -528,10 +535,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                           </Badge>
                         </td>
 
-                        <td className="py-3 px-4 text-zinc-200">
+                        <td className="py-3 px-4 text-foreground">
                           <div className="font-medium text-xs md:text-sm">{entry.description}</div>
                           {entry.reversesEntryId && (
-                            <div className="text-[11px] text-zinc-400 font-mono">
+                            <div className="text-[11px] text-muted-foreground font-mono">
                               Reverses: {entry.reversesEntryId.slice(0, 8)}...
                             </div>
                           )}
@@ -539,12 +546,12 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
                         <td className="py-3 px-4 whitespace-nowrap text-xs font-medium">
                           {entry.direction === "CREDIT" ? (
-                            <span className="text-emerald-400 flex items-center gap-1">
+                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                               <ArrowDownLeft className="w-3 h-3" />
                               CREDIT
                             </span>
                           ) : (
-                            <span className="text-zinc-300 flex items-center gap-1">
+                            <span className="text-foreground flex items-center gap-1">
                               <ArrowUpRight className="w-3 h-3" />
                               DEBIT
                             </span>
@@ -553,7 +560,9 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
                         <td
                           className={`py-3 px-4 text-right font-mono font-semibold whitespace-nowrap text-xs md:text-sm ${
-                            isPayment || numAmt < 0 ? "text-emerald-400" : "text-zinc-100"
+                            isPayment || numAmt < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-foreground"
                           }`}
                         >
                           {numAmt < 0 ? "-" : "+"}₹
@@ -569,7 +578,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-950/30"
+                                className="h-7 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
                                 onClick={() => {
                                   setRefundPaymentEntryId(entry.entryId);
                                   setRefundAmount(Math.abs(numAmt).toFixed(2));
@@ -583,7 +592,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                                className="h-7 text-xs text-muted-foreground hover:text-foreground"
                                 onClick={() => {
                                   setTargetEntryId(entry.entryId);
                                   setAdjustAmount((-numAmt).toFixed(2));
@@ -608,20 +617,20 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Add Charge */}
       <Dialog open={chargeModalOpen} onOpenChange={setChargeModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Post Folio Charge</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Post an authoritative room, service, or facility charge to this guest folio.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handlePostCharge} className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Charge Type</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Charge Type</label>
               <select
                 value={chargeType}
                 onChange={(e) => setChargeType(e.target.value as "ROOM_CHARGE" | "SERVICE_CHARGE" | "TAX")}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="ROOM_CHARGE">Room Charge</option>
                 <option value="SERVICE_CHARGE">Service / Facility Charge</option>
@@ -629,7 +638,7 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">
+              <label className="text-xs font-medium text-foreground block mb-1">
                 Amount (₹) {chargeType === "ROOM_CHARGE" ? "(Leave empty to use base rate)" : ""}
               </label>
               <Input
@@ -639,17 +648,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 placeholder={chargeType === "ROOM_CHARGE" ? "Auto-derived from stay rate" : "e.g. 500.00"}
                 value={chargeAmount}
                 onChange={(e) => setChargeAmount(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 font-mono"
+                className="font-mono"
                 required={chargeType !== "ROOM_CHARGE"}
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Description</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Description</label>
               <Input
                 placeholder="e.g. Laundry Express Service / Late Checkout"
                 value={chargeDesc}
                 onChange={(e) => setChargeDesc(e.target.value)}
-                className="bg-zinc-950 border-zinc-800"
               />
             </div>
             <DialogFooter>
@@ -657,11 +665,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 type="button"
                 variant="outline"
                 onClick={() => setChargeModalOpen(false)}
-                className="border-zinc-700 text-zinc-300"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+              <Button type="submit" disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 {actionLoading ? "Posting..." : "Confirm Charge"}
               </Button>
             </DialogFooter>
@@ -671,16 +678,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Record Payment */}
       <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Record Folio Payment</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Record a payment received from the guest to credit against the outstanding folio balance.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleRecordPayment} className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Payment Amount (₹)</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Payment Amount (₹)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -688,16 +695,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 placeholder="e.g. 2500.00"
                 value={paymentAmount}
                 onChange={(e) => setPaymentAmount(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 font-mono text-emerald-400"
+                className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold"
                 required
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Payment Method</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Payment Method</label>
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="CREDIT_CARD">Credit Card</option>
                 <option value="DEBIT_CARD">Debit Card</option>
@@ -708,12 +715,12 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Reference / Transaction ID</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Reference / Transaction ID</label>
               <Input
                 placeholder="e.g. TXN-8849102 / UPI Ref"
                 value={paymentRef}
                 onChange={(e) => setPaymentRef(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 font-mono"
+                className="font-mono"
               />
             </div>
             <DialogFooter>
@@ -721,11 +728,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 type="button"
                 variant="outline"
                 onClick={() => setPaymentModalOpen(false)}
-                className="border-zinc-700 text-zinc-300"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+              <Button type="submit" disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 {actionLoading ? "Recording..." : "Record Payment"}
               </Button>
             </DialogFooter>
@@ -735,16 +741,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Post Adjustment */}
       <Dialog open={adjustmentModalOpen} onOpenChange={setAdjustmentModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Post Ledger Adjustment</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Create a compensating adjustment entry. Enter a negative amount for a credit reduction or a positive amount for an additional charge.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handlePostAdjustment} className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">
+              <label className="text-xs font-medium text-foreground block mb-1">
                 Adjustment Amount (₹) — (Use negative for credit deduction)
               </label>
               <Input
@@ -753,17 +759,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 placeholder="e.g. -250.00"
                 value={adjustAmount}
                 onChange={(e) => setAdjustAmount(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 font-mono"
+                className="font-mono"
                 required
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Documented Reason (Mandatory)</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Documented Reason (Mandatory)</label>
               <Input
                 placeholder="e.g. Manager courtesy discount / Room service spill waiver"
                 value={adjustReason}
                 onChange={(e) => setAdjustReason(e.target.value)}
-                className="bg-zinc-950 border-zinc-800"
                 required
               />
             </div>
@@ -772,11 +777,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 type="button"
                 variant="outline"
                 onClick={() => setAdjustmentModalOpen(false)}
-                className="border-zinc-700 text-zinc-300"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={actionLoading} className="bg-cyan-600 hover:bg-cyan-500 text-white">
+              <Button type="submit" disabled={actionLoading} className="bg-cyan-600 hover:bg-cyan-700 text-white">
                 {actionLoading ? "Posting..." : "Post Adjustment"}
               </Button>
             </DialogFooter>
@@ -786,16 +790,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Issue Refund */}
       <Dialog open={refundModalOpen} onOpenChange={setRefundModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Issue Payment Refund</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Issue an audited refund referencing the original payment ledger entry.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleRecordRefund} className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Refund Amount (₹)</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Refund Amount (₹)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -803,17 +807,16 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 placeholder="e.g. 500.00"
                 value={refundAmount}
                 onChange={(e) => setRefundAmount(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 font-mono text-purple-300"
+                className="font-mono text-purple-600 dark:text-purple-400 font-semibold"
                 required
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Refund Reason (Mandatory)</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Refund Reason (Mandatory)</label>
               <Input
                 placeholder="e.g. Early checkout / deposit return"
                 value={refundReason}
                 onChange={(e) => setRefundReason(e.target.value)}
-                className="bg-zinc-950 border-zinc-800"
                 required
               />
             </div>
@@ -822,11 +825,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 type="button"
                 variant="outline"
                 onClick={() => setRefundModalOpen(false)}
-                className="border-zinc-700 text-zinc-300"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={actionLoading} className="bg-purple-600 hover:bg-purple-500 text-white">
+              <Button type="submit" disabled={actionLoading} className="bg-purple-600 hover:bg-purple-700 text-white">
                 {actionLoading ? "Processing..." : "Confirm Refund"}
               </Button>
             </DialogFooter>
@@ -836,10 +838,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Close Folio Confirmation */}
       <Dialog open={closeConfirmOpen} onOpenChange={setCloseConfirmOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Close Hotel Folio</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Closing this folio seals it against ordinary new charges. Outstanding balance: ₹{folio.balanceDue}.
             </DialogDescription>
           </DialogHeader>
@@ -847,14 +849,13 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
             <Button
               variant="outline"
               onClick={() => setCloseConfirmOpen(false)}
-              className="border-zinc-700 text-zinc-300"
             >
               Cancel
             </Button>
             <Button
               onClick={handleCloseFolio}
               disabled={actionLoading}
-              className="bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700"
+              variant="default"
             >
               {actionLoading ? "Closing..." : "Confirm Close Folio"}
             </Button>
@@ -864,21 +865,20 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
 
       {/* MODAL: Reopen Folio */}
       <Dialog open={reopenModalOpen} onOpenChange={setReopenModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Reopen Closed Folio</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Reopening a closed folio is an audited exception process requiring a documented reason.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleReopenFolio} className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Reason for Reopening (Mandatory)</label>
+              <label className="text-xs font-medium text-foreground block mb-1">Reason for Reopening (Mandatory)</label>
               <Input
                 placeholder="e.g. Late post-checkout minibar / room service charge adjustment"
                 value={reopenReason}
                 onChange={(e) => setReopenReason(e.target.value)}
-                className="bg-zinc-950 border-zinc-800"
                 required
               />
             </div>
@@ -887,11 +887,10 @@ export function FolioWorkspace({ stayId, onClose }: FolioWorkspaceProps) {
                 type="button"
                 variant="outline"
                 onClick={() => setReopenModalOpen(false)}
-                className="border-zinc-700 text-zinc-300"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={actionLoading} className="bg-amber-600 hover:bg-amber-500 text-white">
+              <Button type="submit" disabled={actionLoading} className="bg-amber-600 hover:bg-amber-700 text-white">
                 {actionLoading ? "Reopening..." : "Authorize Reopen"}
               </Button>
             </DialogFooter>

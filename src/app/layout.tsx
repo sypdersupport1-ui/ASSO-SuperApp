@@ -20,6 +20,8 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+import { ToastProvider } from "@/components/ui/toast";
+
 export const metadata: Metadata = {
   title: "ASSO Platform — Unified Hospitality SuperApp",
   description: "Next-generation operational foundation for Hotel, Restaurant, and Cinema verticals.",
@@ -33,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${outfit.variable} ${jetbrainsMono.variable} min-h-screen bg-background font-sans antialiased text-foreground`}>
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

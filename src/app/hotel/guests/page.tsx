@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogTrigger,
@@ -63,6 +65,7 @@ interface GuestDetail extends GuestSummary {
 }
 
 export default function HotelGuestsPage() {
+  const { toast } = useToast();
   const [guests, setGuests] = useState<GuestSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +95,7 @@ export default function HotelGuestsPage() {
       const url = searchQuery
         ? `/api/v1/hotel/guests?search=${encodeURIComponent(searchQuery)}`
         : "/api/v1/hotel/guests";
-      const res = await fetch(url);
+      const res = await hotelFetch(url);
       const json = await res.json();
       if (json.success) {
         setGuests(json.data);
@@ -116,7 +119,7 @@ export default function HotelGuestsPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/hotel/guests", {
+      const res = await hotelFetch("/api/v1/hotel/guests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -139,12 +142,13 @@ export default function HotelGuestsPage() {
         setFormEmail("");
         setFormIdProofNumber("");
         setFormNotes("");
+        toast.success(`Guest profile for ${formFullName.trim()} created successfully.`);
         await fetchGuests();
       } else {
-        alert("Failed to create guest: " + (json.error?.message || "Unknown error"));
+        toast.error("Failed to create guest: " + (json.error?.message || "Unknown error"));
       }
     } catch {
-      alert("Error submitting guest creation.");
+      toast.error("Error submitting guest creation.");
     } finally {
       setSubmitting(false);
     }
@@ -154,16 +158,16 @@ export default function HotelGuestsPage() {
     setDetailDialogOpen(true);
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/guests/${guestId}`);
+      const res = await hotelFetch(`/api/v1/hotel/guests/${guestId}`);
       const json = await res.json();
       if (json.success) {
         setSelectedGuest(json.data);
       } else {
-        alert("Failed to load guest detail: " + json.error?.message);
+        toast.error("Failed to load guest detail: " + (json.error?.message || "Unknown error"));
         setDetailDialogOpen(false);
       }
     } catch {
-      alert("Network error fetching guest details.");
+      toast.error("Network error fetching guest details.");
       setDetailDialogOpen(false);
     } finally {
       setDetailLoading(false);

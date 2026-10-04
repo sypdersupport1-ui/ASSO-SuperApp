@@ -14,18 +14,18 @@ export default function HotelFolioPage() {
   const stayId = params?.stayId as string;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans pb-16">
+    <div className="min-h-screen bg-background text-foreground font-sans pb-16 flex flex-col">
       {/* Global Hotel Top Navigation */}
       <HotelNav />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6 flex-1 w-full">
         {/* Back Link */}
         <div className="flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => router.back()}
-            className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 -ml-2"
+            className="text-muted-foreground hover:text-foreground -ml-2"
           >
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             Back to Front Office / Stays
@@ -33,12 +33,12 @@ export default function HotelFolioPage() {
 
           <div className="flex items-center gap-2">
             <Link href="/hotel/front-office">
-              <Button size="sm" variant="outline" className="border-zinc-800 text-zinc-300 hover:bg-zinc-900">
+              <Button size="sm" variant="outline">
                 Front Desk
               </Button>
             </Link>
             <Link href="/hotel/room-service">
-              <Button size="sm" variant="outline" className="border-zinc-800 text-zinc-300 hover:bg-zinc-900">
+              <Button size="sm" variant="outline">
                 Kitchen Console
               </Button>
             </Link>
@@ -49,7 +49,7 @@ export default function HotelFolioPage() {
         {stayId ? (
           <FolioWorkspace stayId={stayId} />
         ) : (
-          <div className="p-8 text-center text-zinc-500">Invalid stay identifier.</div>
+          <div className="p-8 text-center text-muted-foreground">Invalid stay identifier.</div>
         )}
       </main>
     </div>

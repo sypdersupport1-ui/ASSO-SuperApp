@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogTrigger,
@@ -31,6 +33,7 @@ interface RoomTypeItem {
 }
 
 export default function HotelRoomTypesPage() {
+  const { toast } = useToast();
   const [types, setTypes] = useState<RoomTypeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +52,7 @@ export default function HotelRoomTypesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/hotel/room-types");
+      const res = await hotelFetch("/api/v1/hotel/room-types");
       const json = await res.json();
       if (json.success) {
         setTypes(json.data);
@@ -73,7 +76,7 @@ export default function HotelRoomTypesPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/hotel/room-types", {
+      const res = await hotelFetch("/api/v1/hotel/room-types", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -92,12 +95,13 @@ export default function HotelRoomTypesPage() {
         setCode("");
         setName("");
         setDescription("");
+        toast.success(`Room type ${name.trim()} (${code.trim().toUpperCase()}) created successfully.`);
         await fetchRoomTypes();
       } else {
-        alert("Failed to create room type: " + json.error?.message);
+        toast.error("Failed to create room type: " + (json.error?.message || "Unknown error"));
       }
     } catch (err) {
-      alert("Error submitting room type");
+      toast.error("Error submitting room type");
     } finally {
       setSubmitting(false);
     }

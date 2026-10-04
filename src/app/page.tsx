@@ -188,14 +188,14 @@ export default function Home() {
                     <Hotel className="h-4 w-4" />
                   </div>
                   <h3 className="text-lg font-bold text-foreground">
-                    Phase 7 — HOTEL VERTICAL (Slice 1 Active)
+                    Phase 7 — HOTEL PMS (Slice 9 Active)
                   </h3>
                   <Badge variant="success" className="text-[10px] uppercase font-mono">
                     Production DB Ready
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground max-w-2xl">
-                  First business vertical slice established: Hotel Property, Room Types, Rooms, 1:1 Business Context mapping, and Operational Dashboard with PostgreSQL RLS.
+                  Comprehensive Hotel PMS established: Front Desk, Reservations, Stays, Room Rack, Housekeeping, Maintenance, Room Service, Folio billing & payments, and Customer QR Digital Dining with PostgreSQL RLS.
                 </p>
               </div>
 
@@ -203,8 +203,13 @@ export default function Home() {
                 <Link href="/hotel">
                   <Button className="flex items-center gap-2 shadow-sm">
                     <Hotel className="h-4 w-4" />
-                    Hotel Dashboard
+                    Hotel PMS
                     <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link href="/hotel/front-office">
+                  <Button variant="outline" className="flex items-center gap-2">
+                    Front Desk
                   </Button>
                 </Link>
                 <Link href="/hotel/rooms">
@@ -213,18 +218,12 @@ export default function Home() {
                     Room Rack
                   </Button>
                 </Link>
-                <Link href="/hotel/room-types">
-                  <Button variant="outline" className="flex items-center gap-2">
-                    <BedDouble className="h-4 w-4" />
-                    Room Types
-                  </Button>
-                </Link>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Feature Banner: RESTAURANT VERTICAL SLICE 1 */}
+        {/* Feature Banner: RESTAURANT VERTICAL SLICE 3.7 */}
         <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-orange-500/5 to-transparent relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl -mr-10 -mt-10" />
           <CardContent className="p-6">
@@ -235,14 +234,14 @@ export default function Home() {
                     <UtensilsCrossed className="h-4 w-4" />
                   </div>
                   <h3 className="text-lg font-bold text-foreground">
-                    RESTAURANT VERTICAL (Slice 1 Active)
+                    RESTAURANT VERTICAL (Slice 3.7 Active)
                   </h3>
                   <Badge className="bg-amber-600 text-white text-[10px] uppercase font-mono">
-                    R1 Tables & Floor Ready
+                    R3.7 KDS & Orders Ready
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground max-w-2xl">
-                  Second first-class business vertical established: Restaurant Outlet, Tables, Floor Statuses, Dining Sessions foundation, High-Entropy Table QR, and Operations Console with PostgreSQL RLS.
+                  Second first-class business vertical established: Restaurant Outlet, Tables, Floor Statuses, Dining Sessions, Digital Menu, Order Lifecycle, Kitchen KDS, and Operations Console with PostgreSQL RLS.
                 </p>
               </div>
 

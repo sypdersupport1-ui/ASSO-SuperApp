@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ interface RoomOption {
 }
 
 export default function FrontOfficePage() {
+  const { toast } = useToast();
   const [data, setData] = useState<FrontOfficeSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +163,7 @@ export default function FrontOfficePage() {
     e.preventDefault();
     if (!selectedArrival) return;
     if (!checkInRoomId) {
-      alert("Please select a physical room to allocate for this check-in.");
+      toast.warning("Please select a physical room to allocate for this check-in.");
       return;
     }
 
@@ -178,12 +180,13 @@ export default function FrontOfficePage() {
       const json = await res.json();
       if (json.success) {
         setCheckInModalOpen(false);
+        toast.success(`Guest ${selectedArrival.guestName} checked in successfully.`);
         await fetchSummary(search);
       } else {
-        alert(`Check-in failed: ${json.error?.message || "Operational rule violation."}`);
+        toast.error(`Check-in failed: ${json.error?.message || "Operational rule violation."}`);
       }
     } catch {
-      alert("Network failure while processing check-in.");
+      toast.error("Network failure while processing check-in.");
     } finally {
       setCheckInLoading(false);
     }
@@ -214,12 +217,13 @@ export default function FrontOfficePage() {
       if (json.success) {
         setCheckoutModalOpen(false);
         if (detailModalOpen) setDetailModalOpen(false);
+        toast.success(`Stay ${selectedDeparture.stayNumber} checked out successfully.`);
         await fetchSummary(search);
       } else {
-        alert(`Check-out failed: ${json.error?.message || "Operational rule violation."}`);
+        toast.error(`Check-out failed: ${json.error?.message || "Operational rule violation."}`);
       }
     } catch {
-      alert("Network failure while processing check-out.");
+      toast.error("Network failure while processing check-out.");
     } finally {
       setCheckoutLoading(false);
     }

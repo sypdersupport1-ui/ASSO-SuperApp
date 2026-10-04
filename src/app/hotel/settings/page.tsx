@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogTrigger,
@@ -30,6 +32,7 @@ interface PropertyItem {
 }
 
 export default function HotelSettingsPage() {
+  const { toast } = useToast();
   const [properties, setProperties] = useState<PropertyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +49,7 @@ export default function HotelSettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/hotel/properties");
+      const res = await hotelFetch("/api/v1/hotel/properties");
       const json = await res.json();
       if (json.success) {
         setProperties(json.data);
@@ -70,7 +73,7 @@ export default function HotelSettingsPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/hotel/properties", {
+      const res = await hotelFetch("/api/v1/hotel/properties", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -86,12 +89,13 @@ export default function HotelSettingsPage() {
         setDialogOpen(false);
         setName("");
         setCode("");
+        toast.success(`Property ${name.trim()} (${code.trim().toUpperCase()}) created successfully.`);
         await fetchProperties();
       } else {
-        alert("Failed to create property: " + json.error?.message);
+        toast.error("Failed to create property: " + (json.error?.message || "Unknown error"));
       }
     } catch (err) {
-      alert("Error submitting property");
+      toast.error("Error submitting property");
     } finally {
       setSubmitting(false);
     }

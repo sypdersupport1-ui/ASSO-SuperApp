@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ import type {
 import type { HotelRoom } from "@/db/schema/hotel";
 
 export default function HousekeepingPage() {
+  const { toast } = useToast();
   const [tasks, setTasks] = useState<HousekeepingTaskDetail[]>([]);
   const [summary, setSummary] = useState<HousekeepingSummary | null>(null);
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
@@ -145,9 +147,10 @@ export default function HousekeepingPage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error?.message || "Failed to start cleaning task.");
       }
+      toast.success("Cleaning task started.");
       await fetchHousekeepingData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error starting task");
     } finally {
       setActionLoading(false);
     }
@@ -164,9 +167,10 @@ export default function HousekeepingPage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error?.message || "Failed to complete cleaning task.");
       }
+      toast.success("Cleaning task marked completed.");
       await fetchHousekeepingData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error completing task");
     } finally {
       setActionLoading(false);
     }
@@ -175,7 +179,7 @@ export default function HousekeepingPage() {
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskRoomId) {
-      alert("Please select a room.");
+      toast.warning("Please select a room.");
       return;
     }
     try {
@@ -197,9 +201,10 @@ export default function HousekeepingPage() {
       setCreateDialogOpen(false);
       setNewTaskRoomId("");
       setNewTaskNotes("");
+      toast.success("Housekeeping task created successfully.");
       await fetchHousekeepingData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error creating task");
     } finally {
       setActionLoading(false);
     }
@@ -229,9 +234,10 @@ export default function HousekeepingPage() {
       setInspectDialogOpen(false);
       setSelectedTask(null);
       setInspectionNotes("");
+      toast.success(inspectionPassed ? "Room inspection passed." : "Inspection failed; room re-queued.");
       await fetchHousekeepingData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error submitting inspection");
     } finally {
       setActionLoading(false);
     }

@@ -23,6 +23,7 @@ import {
   Plus,
   UtensilsCrossed,
 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 
 interface CustomerContext {
   contextId: string;
@@ -92,6 +93,7 @@ const SERVICE_CATEGORIES = [
 ];
 
 function HotelGuestPortalContent() {
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get("token");
 
@@ -258,6 +260,7 @@ function HotelGuestPortalContent() {
       const json = await res.json();
       if (json.success) {
         setFormSuccess(true);
+        toast.success("Service request submitted to hotel staff!");
         await fetchRequests();
         setTimeout(() => {
           setSelectedCategory(null);
@@ -268,10 +271,10 @@ function HotelGuestPortalContent() {
           setActiveTab("requests");
         }, 1200);
       } else {
-        alert(json.error?.message || "Failed to submit service request.");
+        toast.error(json.error?.message || "Failed to submit service request.");
       }
     } catch {
-      alert("Network error. Please try submitting again.");
+      toast.error("Network error. Please try submitting again.");
     } finally {
       setSubmitting(false);
     }

@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogTrigger,
@@ -70,6 +72,7 @@ interface RoomTypeItem {
 }
 
 export default function HotelRoomsPage() {
+  const { toast } = useToast();
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomTypeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +116,7 @@ export default function HotelRoomsPage() {
     setQrData(null);
     setQrLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/rooms/${room.roomId}/qr?outletId=${room.roomTypeId ? "00000000-0000-0000-0000-000000000001" : ""}`);
+      const res = await hotelFetch(`/api/v1/hotel/rooms/${room.roomId}/qr?outletId=${room.roomTypeId ? "00000000-0000-0000-0000-000000000001" : ""}`);
       const json = await res.json();
       if (json.success && json.data) {
         setQrData(json.data);
@@ -130,7 +133,7 @@ export default function HotelRoomsPage() {
     if (!confirm(`Rotate QR code for Room ${qrRoom.roomNumber}? Previous QR token and guest sessions will be invalidated.`)) return;
     setQrActionLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/rotate`, {
+      const res = await hotelFetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/rotate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: "STAFF_REQUESTED_ROTATION" }),
@@ -138,11 +141,12 @@ export default function HotelRoomsPage() {
       const json = await res.json();
       if (json.success && json.data) {
         setQrData(json.data);
+        toast.success(`QR code for Room ${qrRoom.roomNumber} rotated successfully.`);
       } else {
-        alert(json.error?.message || "Failed to rotate QR code.");
+        toast.error(json.error?.message || "Failed to rotate QR code.");
       }
     } catch {
-      alert("Error rotating QR code.");
+      toast.error("Error rotating QR code.");
     } finally {
       setQrActionLoading(false);
     }
@@ -154,7 +158,7 @@ export default function HotelRoomsPage() {
     if (!reason) return;
     setQrActionLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/revoke`, {
+      const res = await hotelFetch(`/api/v1/hotel/rooms/${qrRoom.roomId}/qr/revoke`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
@@ -162,11 +166,12 @@ export default function HotelRoomsPage() {
       const json = await res.json();
       if (json.success) {
         setQrData((prev) => prev ? { ...prev, tokenStatus: "REVOKED" } : null);
+        toast.success(`QR code for Room ${qrRoom.roomNumber} revoked.`);
       } else {
-        alert(json.error?.message || "Failed to revoke QR code.");
+        toast.error(json.error?.message || "Failed to revoke QR code.");
       }
     } catch {
-      alert("Error revoking QR code.");
+      toast.error("Error revoking QR code.");
     } finally {
       setQrActionLoading(false);
     }
@@ -177,8 +182,8 @@ export default function HotelRoomsPage() {
     setError(null);
     try {
       const [roomsRes, typesRes] = await Promise.all([
-        fetch("/api/v1/hotel/rooms"),
-        fetch("/api/v1/hotel/room-types"),
+        hotelFetch("/api/v1/hotel/rooms"),
+        hotelFetch("/api/v1/hotel/room-types"),
       ]);
 
       const roomsJson = await roomsRes.json();
@@ -210,7 +215,7 @@ export default function HotelRoomsPage() {
 
     setCreating(true);
     try {
-      const res = await fetch("/api/v1/hotel/rooms", {
+      const res = await hotelFetch("/api/v1/hotel/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -226,12 +231,13 @@ export default function HotelRoomsPage() {
       if (json.success) {
         setCreateDialogOpen(false);
         setNewRoomNumber("");
+        toast.success(`Room ${newRoomNumber.trim()} created successfully.`);
         await fetchRoomsAndTypes();
       } else {
-        alert("Failed to create room: " + json.error?.message);
+        toast.error("Failed to create room: " + (json.error?.message || "Unknown error"));
       }
     } catch (err) {
-      alert("Error submitting room creation");
+      toast.error("Error submitting room creation");
     } finally {
       setCreating(false);
     }
@@ -241,7 +247,7 @@ export default function HotelRoomsPage() {
     if (!selectedRoom) return;
     setUpdating(true);
     try {
-      const res = await fetch(`/api/v1/hotel/rooms/${selectedRoom.roomId}`, {
+      const res = await hotelFetch(`/api/v1/hotel/rooms/${selectedRoom.roomId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -252,13 +258,14 @@ export default function HotelRoomsPage() {
 
       const json = await res.json();
       if (json.success) {
+        toast.success(`Room ${selectedRoom.roomNumber} status updated.`);
         setSelectedRoom(null);
         await fetchRoomsAndTypes();
       } else {
-        alert("State transition error: " + json.error?.message);
+        toast.error("State transition error: " + (json.error?.message || "Unknown error"));
       }
     } catch (err) {
-      alert("Failed to update room status");
+      toast.error("Failed to update room status");
     } finally {
       setUpdating(false);
     }
@@ -610,20 +617,21 @@ export default function HotelRoomsPage() {
                         if (!confirm(`Check out ${selectedRoom.currentOccupant} from Room ${selectedRoom.roomNumber}?`)) return;
                         setUpdating(true);
                         try {
-                          const res = await fetch(`/api/v1/hotel/stays/${selectedRoom.currentStayId}/check-out`, {
+                          const res = await hotelFetch(`/api/v1/hotel/stays/${selectedRoom.currentStayId}/check-out`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ notes: "Checked out from Room Rack" }),
                           });
                           const json = await res.json();
                           if (json.success) {
+                            toast.success(`Guest ${selectedRoom.currentOccupant || ""} checked out.`);
                             setSelectedRoom(null);
                             await fetchRoomsAndTypes();
                           } else {
-                            alert("Check-out failed: " + json.error?.message);
+                            toast.error("Check-out failed: " + (json.error?.message || "Unknown error"));
                           }
                         } catch {
-                          alert("Error processing check-out.");
+                          toast.error("Error processing check-out.");
                         } finally {
                           setUpdating(false);
                         }
@@ -754,7 +762,7 @@ export default function HotelRoomsPage() {
                           className="h-8 px-2.5 text-xs gap-1"
                           onClick={() => {
                             navigator.clipboard.writeText(qrData.qrUrl);
-                            alert("Copied guest link to clipboard!");
+                            toast.success("Copied guest link to clipboard!");
                           }}
                         >
                           <Copy className="h-3.5 w-3.5" />

@@ -7,6 +7,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   BedDouble,
   DoorOpen,
@@ -51,6 +53,7 @@ interface DashboardData {
 }
 
 export default function HotelDashboardPage() {
+  const { toast } = useToast();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
@@ -60,7 +63,7 @@ export default function HotelDashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/hotel/dashboard");
+      const res = await hotelFetch("/api/v1/hotel/dashboard");
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -77,15 +80,16 @@ export default function HotelDashboardPage() {
   const handleSeed = async () => {
     setSeeding(true);
     try {
-      const res = await fetch("/api/v1/hotel/seed", { method: "POST" });
+      const res = await hotelFetch("/api/v1/hotel/seed", { method: "POST" });
       const json = await res.json();
       if (json.success) {
+        toast.success("Hotel demo environment seeded successfully.");
         await fetchDashboard();
       } else {
-        alert("Seed failed: " + json.error?.message);
+        toast.error("Seed failed: " + (json.error?.message || "Unknown error"));
       }
     } catch (err) {
-      alert("Error triggering seed");
+      toast.error("Error triggering seed");
     } finally {
       setSeeding(false);
     }

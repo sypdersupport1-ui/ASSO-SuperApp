@@ -27,6 +27,7 @@ import {
   Truck,
   Ban,
 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 
 interface CustomerContext {
   contextId: string;
@@ -96,6 +97,7 @@ interface CartItem {
 }
 
 function RoomServicePortalContent() {
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get("token");
 
@@ -281,7 +283,7 @@ function RoomServicePortalContent() {
   const handlePlaceOrder = async () => {
     if (!sessionToken || cart.size === 0) return;
     if (!stay?.hasActiveStay) {
-      alert("In-room dining requires an active hotel stay check-in. Please contact the front desk.");
+      toast.warning("In-room dining requires an active hotel stay check-in. Please contact the front desk.");
       return;
     }
 
@@ -312,13 +314,14 @@ function RoomServicePortalContent() {
         setIsCartOpen(false);
         setGuestNotes("");
         setOrderSuccess(json.data);
+        toast.success("Room service order placed successfully!");
         await fetchOrders();
         setActiveTab("orders");
       } else {
-        alert(json.error?.message || "Failed to place order. Please try again.");
+        toast.error(json.error?.message || "Failed to place order. Please try again.");
       }
     } catch {
-      alert("Network error while submitting order. Please verify and retry.");
+      toast.error("Network error while submitting order. Please verify and retry.");
     } finally {
       setSubmittingOrder(false);
     }
@@ -340,12 +343,13 @@ function RoomServicePortalContent() {
       });
       const json = await res.json();
       if (json.success) {
+        toast.success("Order cancelled.");
         await fetchOrders();
       } else {
-        alert(json.error?.message || "Order cannot be cancelled at this stage.");
+        toast.error(json.error?.message || "Order cannot be cancelled at this stage.");
       }
     } catch {
-      alert("Failed to cancel order.");
+      toast.error("Failed to cancel order.");
     }
   };
 

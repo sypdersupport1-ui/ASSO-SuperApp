@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { HotelNav } from "@/components/hotel/hotel-nav";
 import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import type {
 import type { HotelRoom } from "@/db/schema/hotel";
 
 export default function MaintenancePage() {
+  const { toast } = useToast();
   const [requests, setRequests] = useState<MaintenanceRequestDetail[]>([]);
   const [summary, setSummary] = useState<MaintenanceSummary | null>(null);
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
@@ -143,7 +145,7 @@ export default function MaintenancePage() {
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createForm.title.trim() || !createForm.description.trim()) {
-      alert("Please provide both a title and description.");
+      toast.warning("Please provide both a title and description.");
       return;
     }
 
@@ -178,9 +180,10 @@ export default function MaintenancePage() {
         description: "",
         notes: "",
       });
+      toast.success("Maintenance request created successfully.");
       fetchData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error creating maintenance request");
     } finally {
       setActionLoading(false);
     }
@@ -196,12 +199,13 @@ export default function MaintenancePage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error?.message || "Failed to start maintenance work.");
       }
+      toast.success("Maintenance work started.");
       fetchData();
       if (selectedRequest?.requestId === requestId) {
         setSelectedRequest(json.data);
       }
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error starting work");
     } finally {
       setActionLoading(false);
     }
@@ -211,7 +215,7 @@ export default function MaintenancePage() {
     e.preventDefault();
     if (!selectedRequest) return;
     if (!resolveForm.resolutionNotes.trim()) {
-      alert("Please enter resolution notes.");
+      toast.warning("Please enter resolution notes.");
       return;
     }
 
@@ -236,12 +240,13 @@ export default function MaintenancePage() {
         resolutionNotes: "",
         restoreRoomOperationalStatus: "AVAILABLE",
       });
+      toast.success("Maintenance request resolved.");
       fetchData();
       if (selectedRequest) {
         setSelectedRequest(json.data);
       }
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error resolving request");
     } finally {
       setActionLoading(false);
     }
@@ -258,12 +263,13 @@ export default function MaintenancePage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error?.message || "Failed to close maintenance request.");
       }
+      toast.success("Maintenance request officially closed.");
       fetchData();
       if (selectedRequest?.requestId === requestId) {
         setSelectedRequest(json.data);
       }
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error closing request");
     } finally {
       setActionLoading(false);
     }
@@ -284,12 +290,13 @@ export default function MaintenancePage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error?.message || "Failed to reopen maintenance request.");
       }
+      toast.success("Maintenance request reopened.");
       fetchData();
       if (selectedRequest?.requestId === requestId) {
         setSelectedRequest(json.data);
       }
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Error reopening request");
     } finally {
       setActionLoading(false);
     }

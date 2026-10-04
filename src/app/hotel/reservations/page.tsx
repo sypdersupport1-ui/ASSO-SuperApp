@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogTrigger,
@@ -81,6 +83,7 @@ interface RoomOption {
 }
 
 export default function HotelReservationsPage() {
+  const { toast } = useToast();
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,14 +140,14 @@ export default function HotelReservationsPage() {
   const loadReferenceData = async () => {
     try {
       // Properties
-      const pRes = await fetch("/api/v1/hotel/properties");
+      const pRes = await hotelFetch("/api/v1/hotel/properties");
       const pJson = await pRes.json();
       if (pJson.success && pJson.data.length > 0) {
         const propId = pJson.data[0].outletId;
         setOutletId(propId);
 
         // Room Types
-        const rtRes = await fetch(`/api/v1/hotel/room-types?outletId=${propId}`);
+        const rtRes = await hotelFetch(`/api/v1/hotel/room-types?outletId=${propId}`);
         const rtJson = await rtRes.json();
         if (rtJson.success) {
           setRoomTypes(rtJson.data);
@@ -155,7 +158,7 @@ export default function HotelReservationsPage() {
         }
 
         // Rooms
-        const rRes = await fetch(`/api/v1/hotel/rooms?outletId=${propId}`);
+        const rRes = await hotelFetch(`/api/v1/hotel/rooms?outletId=${propId}`);
         const rJson = await rRes.json();
         if (rJson.success) {
           setAvailableRooms(rJson.data);
@@ -163,7 +166,7 @@ export default function HotelReservationsPage() {
       }
 
       // Guests
-      const gRes = await fetch("/api/v1/hotel/guests");
+      const gRes = await hotelFetch("/api/v1/hotel/guests");
       const gJson = await gRes.json();
       if (gJson.success) {
         setGuests(gJson.data);
@@ -186,7 +189,7 @@ export default function HotelReservationsPage() {
       if (searchQuery) params.append("search", searchQuery);
       if (params.toString()) url += `?${params.toString()}`;
 
-      const res = await fetch(url);
+      const res = await hotelFetch(url);
       const json = await res.json();
       if (json.success) {
         setReservations(json.data);
@@ -213,7 +216,7 @@ export default function HotelReservationsPage() {
     if (!outletId || !formRoomTypeId || !formArrivalDate || !formDepartureDate) return;
     try {
       const url = `/api/v1/hotel/reservations/availability?outletId=${outletId}&roomTypeId=${formRoomTypeId}&arrivalDate=${formArrivalDate}&departureDate=${formDepartureDate}`;
-      const res = await fetch(url);
+      const res = await hotelFetch(url);
       const json = await res.json();
       if (json.success) {
         const { availableRoomsCount, totalRooms, isAvailable } = json.data;
@@ -240,7 +243,7 @@ export default function HotelReservationsPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/hotel/reservations", {
+      const res = await hotelFetch("/api/v1/hotel/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,12 +265,13 @@ export default function HotelReservationsPage() {
         setCreateDialogOpen(false);
         setFormAssignedRoomId("");
         setFormSpecialRequests("");
+        toast.success("Reservation created successfully.");
         await fetchReservations();
       } else {
-        alert("Booking failed: " + (json.error?.message || "Unknown error"));
+        toast.error("Booking failed: " + (json.error?.message || "Unknown error"));
       }
     } catch {
-      alert("Error submitting reservation.");
+      toast.error("Error submitting reservation.");
     } finally {
       setSubmitting(false);
     }
@@ -277,7 +281,7 @@ export default function HotelReservationsPage() {
     if (!selectedRes) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/reservations/${selectedRes.reservationId}`, {
+      const res = await hotelFetch(`/api/v1/hotel/reservations/${selectedRes.reservationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -285,12 +289,13 @@ export default function HotelReservationsPage() {
       const json = await res.json();
       if (json.success) {
         setSelectedRes({ ...selectedRes, status: newStatus });
+        toast.success(`Reservation status updated to ${newStatus}.`);
         await fetchReservations();
       } else {
-        alert("State transition rejected: " + (json.error?.message || "Invalid state transition"));
+        toast.error("State transition rejected: " + (json.error?.message || "Invalid state transition"));
       }
     } catch {
-      alert("Error transitioning reservation state.");
+      toast.error("Error transitioning reservation state.");
     } finally {
       setActionLoading(false);
     }
@@ -300,7 +305,7 @@ export default function HotelReservationsPage() {
     if (!selectedRes || !assignRoomId) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/reservations/${selectedRes.reservationId}`, {
+      const res = await hotelFetch(`/api/v1/hotel/reservations/${selectedRes.reservationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ assignedRoomId: assignRoomId }),
@@ -313,12 +318,13 @@ export default function HotelReservationsPage() {
           assignedRoomId: assignRoomId,
           assignedRoomNumber: found?.roomNumber || "Assigned",
         });
+        toast.success(`Room ${found?.roomNumber || "allocated"} assigned.`);
         await fetchReservations();
       } else {
-        alert("Room assignment rejected: " + (json.error?.message || "Conflict or invalid room"));
+        toast.error("Room assignment rejected: " + (json.error?.message || "Conflict or invalid room"));
       }
     } catch {
-      alert("Error assigning room.");
+      toast.error("Error assigning room.");
     } finally {
       setActionLoading(false);
     }
@@ -330,7 +336,7 @@ export default function HotelReservationsPage() {
 
     setCheckInLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/reservations/${checkInRes.reservationId}/check-in`, {
+      const res = await hotelFetch(`/api/v1/hotel/reservations/${checkInRes.reservationId}/check-in`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -345,12 +351,13 @@ export default function HotelReservationsPage() {
         setCheckInRes(null);
         setCheckInNotes("");
         setDetailDialogOpen(false);
+        toast.success("Guest checked in successfully.");
         await fetchReservations();
       } else {
-        alert("Check-in failed: " + (json.error?.message || "Unknown error"));
+        toast.error("Check-in failed: " + (json.error?.message || "Unknown error"));
       }
     } catch {
-      alert("Error submitting check-in.");
+      toast.error("Error submitting check-in.");
     } finally {
       setCheckInLoading(false);
     }

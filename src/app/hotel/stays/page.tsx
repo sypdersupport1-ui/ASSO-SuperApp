@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { hotelFetch } from "@/lib/hotel/client-auth";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +66,7 @@ interface StayItem {
 }
 
 export default function HotelStaysPage() {
+  const { toast } = useToast();
   const [stays, setStays] = useState<StayItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +94,7 @@ export default function HotelStaysPage() {
       if (searchQuery) params.append("search", searchQuery);
       if (params.toString()) url += `?${params.toString()}`;
 
-      const res = await fetch(url);
+      const res = await hotelFetch(url);
       const json = await res.json();
       if (json.success) {
         setStays(json.data);
@@ -115,7 +118,7 @@ export default function HotelStaysPage() {
 
     setCheckoutLoading(true);
     try {
-      const res = await fetch(`/api/v1/hotel/stays/${selectedStay.stayId}/check-out`, {
+      const res = await hotelFetch(`/api/v1/hotel/stays/${selectedStay.stayId}/check-out`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: checkoutNotes.trim() || undefined }),
@@ -126,12 +129,13 @@ export default function HotelStaysPage() {
         setCheckoutModalOpen(false);
         setCheckoutNotes("");
         setSelectedStay(null);
+        toast.success(`Stay ${selectedStay.stayNumber} checked out successfully.`);
         await fetchStays();
       } else {
-        alert("Check-out rejected: " + (json.error?.message || "Unknown error"));
+        toast.error("Check-out rejected: " + (json.error?.message || "Unknown error"));
       }
     } catch {
-      alert("Error processing check-out.");
+      toast.error("Error processing check-out.");
     } finally {
       setCheckoutLoading(false);
     }

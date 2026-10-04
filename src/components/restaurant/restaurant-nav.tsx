@@ -22,6 +22,7 @@ import {
   X,
   Radio,
   ExternalLink,
+  Hotel,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,6 +121,16 @@ export function RestaurantNav({
 
           <div className="h-4 w-px bg-border mx-1" />
 
+          {/* Hotel PMS Workspace Switcher */}
+          <Link
+            href="/hotel"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium border border-border bg-primary/10 text-primary hover:bg-primary/20 transition-colors whitespace-nowrap"
+            title="Switch to Hotel PMS Workspace"
+          >
+            <Hotel className="h-3.5 w-3.5 text-primary" />
+            <span>Hotel PMS</span>
+          </Link>
+
           {/* Planned Future Modules Architecture Badges */}
           <div className="flex items-center gap-1">
             {upcomingModules.slice(0, 4).map((m) => (
@@ -186,6 +197,14 @@ export function RestaurantNav({
                 </Link>
               );
             })}
+            <Link
+              href="/hotel"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border border-border bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Hotel className="h-4 w-4 text-primary" />
+              <span>Switch to Hotel PMS Workspace</span>
+            </Link>
           </div>
 
           <div className="pt-2 border-t border-border space-y-2">
