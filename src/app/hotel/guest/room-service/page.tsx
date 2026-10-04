@@ -327,11 +327,14 @@ function RoomServicePortalContent() {
     }
   };
 
+  const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
+
   // Cancel order handler
   const handleCancelOrder = async (orderId: string) => {
     if (!sessionToken) return;
-    if (!confirm("Are you sure you want to cancel this order?")) return;
 
+    setCancellingOrder(true);
     try {
       const res = await fetch(`/api/v1/customer/room-service/orders/${orderId}/cancel`, {
         method: "POST",
@@ -344,12 +347,15 @@ function RoomServicePortalContent() {
       const json = await res.json();
       if (json.success) {
         toast.success("Order cancelled.");
+        setOrderToCancel(null);
         await fetchOrders();
       } else {
         toast.error(json.error?.message || "Order cannot be cancelled at this stage.");
       }
     } catch {
       toast.error("Failed to cancel order.");
+    } finally {
+      setCancellingOrder(false);
     }
   };
 
@@ -726,7 +732,7 @@ function RoomServicePortalContent() {
 
                         {canCancel && (
                           <button
-                            onClick={() => handleCancelOrder(ord.orderId)}
+                            onClick={() => setOrderToCancel(ord.orderId)}
                             className="text-xs px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition flex items-center space-x-1"
                           >
                             <Ban className="w-3.5 h-3.5" />
@@ -875,6 +881,45 @@ function RoomServicePortalContent() {
                     <Send className="w-3.5 h-3.5" />
                     <span>Place Order</span>
                   </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Order Confirmation Modal */}
+      {orderToCancel && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+              <Ban className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white">Cancel Room Service Order?</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Are you sure you wish to cancel this pending order? This action cannot be undone once processed by the kitchen.
+              </p>
+            </div>
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                disabled={cancellingOrder}
+                onClick={() => setOrderToCancel(null)}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+              >
+                Keep Order
+              </button>
+              <button
+                type="button"
+                disabled={cancellingOrder}
+                onClick={() => handleCancelOrder(orderToCancel)}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs transition shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-1.5"
+              >
+                {cancellingOrder ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span>Yes, Cancel</span>
                 )}
               </button>
             </div>
