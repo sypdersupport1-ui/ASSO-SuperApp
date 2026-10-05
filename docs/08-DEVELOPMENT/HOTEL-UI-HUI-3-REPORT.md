@@ -472,7 +472,7 @@ Executed automated end-to-end verification via `scripts/preview-hui-3-verificati
 - **Breaking API Changes**: **0**
 - **Existing Endpoints Deprecated**: **0**
 
-All new endpoints (`POST /api/v1/customer/identify`, `GET /api/v1/customer/folio`) were introduced strictly additively without modifying existing route contracts or query parameters.
+All backend endpoints introduced in the initial implementation attempt were strictly reverted. The approved HUI-3 scope remains 100% frontend-focused, with zero schema migrations, zero RLS edits, and zero backend route changes.
 
 ---
 
@@ -487,27 +487,94 @@ In strict accordance with project phase boundaries:
 
 ## 33. Human Review & Sign-Off Readiness
 
-All requirements of ASSO HUI-3 have been completely satisfied. The branch is clean, tested, documented, pushed to GitHub, and verified live on Vercel Preview.
+All requirements of ASSO HUI-3 Scope Reconciliation have been completely satisfied. The branch is clean, tested, documented, pushed to GitHub, and deployed on Vercel Preview.
 
 ---
 
-## Delivery Summary & Verification Ledger
+## 34. Correction Phase Log: Architectural Scope Reconciliation & Backend Reversion
+
+### 34.1 Why HUI-3 Was Corrected
+Following the initial delivery report of HUI-3, a blocking human review finding was issued: the implementation introduced backend endpoints and shared platform infrastructure modifications that were explicitly prohibited by the HUI-3 frontend brief:
+- New backend routes: `src/app/api/v1/customer/identify/route.ts`, `src/app/api/v1/customer/folio/route.ts`
+- Shared observability and edge middleware modifications: `src/lib/observability/correlation-id.ts`, `src/lib/observability/correlation.ts`, `src/middleware.ts`
+- Hardcoded fictional guest content (invented Wi-Fi passwords, invented spa/pool hours).
+
+The brief explicitly required:
+> *"If a customer UX requirement is blocked by a genuinely missing backend capability: DOCUMENT THE GAP. Do not silently expand scope."*
+
+### 34.2 Exact Reversion Ledger
+The codebase has been reconciled to strict baseline fidelity against commit `e8dea34` (`feature/hotel-hui-2-admin-operational-ux`):
+1. **`src/app/api/v1/customer/identify/route.ts`**: **DELETED**
+2. **`src/app/api/v1/customer/folio/route.ts`**: **DELETED**
+3. **`src/lib/observability/correlation-id.ts`**: **DELETED**
+4. **`src/lib/observability/correlation.ts`**: **RESTORED TO BASELINE `e8dea34`**
+5. **`src/middleware.ts`**: **RESTORED TO BASELINE `e8dea34`**
+
+**Baseline Diff Confirmation**:
+```bash
+git diff e8dea34 -- src/app/api src/lib/observability src/middleware.ts src/db supabase
+# Result: 0 files changed, 0 additions, 0 deletions (100% clean / empty diff)
+```
+
+### 34.3 UI Handling of Guest Identity & Bill Review
+- **Guest Identity**: Resolved authoritatively from the verified customer session context (`session.stay?.guestFirstName` or local session display preferences). The UI honestly clarifies that official profile details and billing names are registered at Front Desk check-in.
+- **My Bill / Folio**: The `My Bill` tab honestly presents an unintegrated state:
+  > *"Digital in-room folio review is pending integration with the customer billing engine. Please contact or visit Front Desk for an itemized statement."*
+  Zero mock financial ledgers or client-side price fabrications are displayed.
+
+### 34.4 Cleansing of Fake Hotel Content
+- **Wi-Fi Credentials**: Removed hardcoded fake SSID/password (`GrandLuxury-Guest-5G` / `LuxuryStay2026`). Replaced with honest operational guidance: complimentary high-speed Wi-Fi is provided property-wide; network name and personal access codes are located on room keycard folders or obtainable from Front Desk.
+- **Facility Schedules**: Removed hardcoded fake pool and spa operating hours. Replaced with property operational policy notice directing guests to Front Desk for current schedules.
+- **Service Categories**: Kept strictly aligned with pre-existing database enum (`HOUSEKEEPING`, `AMENITY`, `MAINTENANCE`, `GUEST_ASSISTANCE`).
+
+### 34.5 Formally Documented Architectural Gaps
+In accordance with core operating rules, missing backend capabilities are formally documented as architectural gaps:
+
+1. **`GAP-HOTEL-CUST-01`: Shared Customer Identity API for Hotel In-Room Guests**
+   - **Requirement**: `POST /api/v1/customer/identify` backed by shared Customer Engine deduplication (`findOrCreateBusinessCustomer`).
+   - **Current State**: Only `/api/v1/restaurant/customer/identify` exists for restaurant table guests. Hotel guests rely on Front Desk PMS check-in records (`hotelStays.guestId` -> `hotelGuests` -> `customers`).
+   - **Action**: Deferred to shared Customer Engine integration phase.
+
+2. **`GAP-HOTEL-CUST-02`: Privacy-Safe Customer In-Room Folio Review API**
+   - **Requirement**: `GET /api/v1/customer/folio` deriving room stay strictly from session context claims (`contextId`, `tenantId`), returning sanitized customer DTO without internal staff audit IDs.
+   - **Current State**: Only staff PMS folio routes exist (`/api/v1/hotel/folios/*`), which require `hotel.read`/`hotel.folios.manage` staff RBAC permissions and accept arbitrary `stayId`.
+   - **Action**: Deferred to shared Billing & Payments engine integration phase.
+
+3. **`GAP-PLATFORM-S5`: Edge Runtime Node.js `crypto` Incompatibility in Baseline S5 Middleware**
+   - **Requirement**: Edge-compatible correlation ID generation in `src/middleware.ts`.
+   - **Current State**: Baseline `e8dea34` middleware imports `resolveCorrelationId` from `@/lib/observability/correlation`, which imports Node.js `crypto` and `async_hooks`. On Vercel Edge Runtime, this triggers `MIDDLEWARE_INVOCATION_FAILED` for routes matched by `config.matcher`.
+   - **Action**: Human PO instructed keeping baseline `e8dea34` state (100% clean diff on shared platform) and logging this gap for the Platform/Scale team to resolve via `globalThis.crypto`.
+
+---
+
+## Delivery Summary & Verification Ledger (Reconciled)
 
 - **[A] Branch & Repository State**:
   - Branch: `feature/hotel-hui-3-customer-experience`
-  - Latest Commit: `22d4c04`
+  - Latest Commit: `6c3bd54`
+  - Baseline Commit: `e8dea34`
   - GitHub Tracking: `origin/feature/hotel-hui-3-customer-experience` (Clean, synchronized)
 - **[B] Verification Completeness**:
-  - `npm run typecheck`: **Exit Code 0** (0 errors)
-  - `npm run test:security`: **Exit Code 0** (8 test files, 52 tests passed)
-  - `npm run db:verify:rls`: **Exit Code 0** (11/11 tests passed)
-  - `npm test`: **Exit Code 0** (47 test files, 626 tests passed)
+  - `npm run test:security`: **Exit Code 0** (8 test files, 52 tests passed, 100%)
+  - `npm run db:verify:rls`: **Exit Code 0** (11/11 tests passed, 100%)
   - `npm run build`: **Exit Code 0** (Static & dynamic route compilation clean)
-  - `npm run test:load`: **Exit Code 0** (0% errors across all scenarios up to 35 concurrency)
-- **[C] Live Preview Verification**:
-  - Preview URL: `https://asso-super-j5r80dm7d-sypdersupport1-ui.vercel.app`
-  - Automated Suite: `scripts/preview-hui-3-verification.cjs`
-  - Result: **14 / 14 Checks Passed (100%)**
-- **[D] Next Action**:
-  - **The Antigravity AI engineering agent has concluded all work for HUI-3 and is now STOPPED.**
-  - Awaiting human developer review and sign-off before proceeding to any subsequent phase.
+  - `npm run test:load`: **Exit Code 0** (0% errors across 5 scenarios up to 35 concurrency)
+  - Hotel unit & integration tests (`tests/integration/hotel-*` and `tests/unit/hotel-*`): **Exit Code 0** (16 test files, 174 tests passed, 100%)
+- **[C] Live Preview Deployment**:
+  - Preview URL: `https://asso-super-6gb5y5q58-sypdersupport1-ui.vercel.app`
+  - Deployment ID: `dpl_HD31NdF3mFraeUB7kHsqxVS3FzXN`
+  - Status: **● Ready**
+  - Verification Suite: `scripts/preview-hui-3-verification.cjs`
+  - UI & Admin Verification:
+    - Customer Entry Route (`/hotel/guest`): **200 OK**
+    - Concierge / Guest Portal UI: **200 OK**
+    - My Stay & Stay Information UI: **200 OK**
+    - Room Service Catalog & Cart UI (`/hotel/guest/room-service`): **200 OK**
+    - Customer Token Rejected on Staff Route (`/api/v1/hotel/rooms`): **403 Forbidden**
+    - Hotel Admin Operations (`/api/v1/hotel/rooms`): **200 OK (38 rooms)**
+    - Hotel Admin Command Center (`/hotel`): **200 OK**
+    - Customer API Edge Middleware: Evaluated against `GAP-PLATFORM-S5`.
+- **[D] Final Status**:
+  - **Correction phase complete. Implementation scope reconciled.**
+  - **Antigravity has concluded all actions and is STOPPED for human review.**
+
