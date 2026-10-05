@@ -6,7 +6,7 @@
 const crypto = require("crypto");
 const { execSync } = require("child_process");
 
-const PREVIEW_BASE_URL = process.env.PREVIEW_BASE_URL || "https://asso-super-j5r80dm7d-sypdersupport1-ui.vercel.app";
+const PREVIEW_BASE_URL = process.argv[2] || process.env.PREVIEW_BASE_URL || "https://asso-super-6gb5y5q58-sypdersupport1-ui.vercel.app";
 const JWT_SECRET = process.env.PREVIEW_JWT_SECRET || "9KomVQXMxL8bcWSsgHragXvGn+HaPemLzES7foGkOxZkrQD7hNWmBHDY2iGQho966r3ZB6WunUoxGwcwcYvyFQ==";
 
 // Tenant IDs and Room Context
