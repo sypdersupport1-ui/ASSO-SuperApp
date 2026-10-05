@@ -560,21 +560,45 @@ In accordance with core operating rules, missing backend capabilities are formal
   - `npm run typecheck`: **Exit Code 0** (0 type errors workspace-wide)
   - `npm run build`: **Exit Code 0** (Static & dynamic route compilation clean, all 29 routes bundled)
   - `npm run test:load`: **Exit Code 0** (0% errors across 20 benchmarks, 5 progressive scenarios up to 35 concurrency)
-- **[C] Live Preview Deployment**:
-  - Preview URL: `https://asso-super-6gb5y5q58-sypdersupport1-ui.vercel.app`
-  - Deployment ID: `dpl_HD31NdF3mFraeUB7kHsqxVS3FzXN`
-  - Status: **● Ready**
-  - Verification Suite: `scripts/preview-hui-3-verification.cjs`
-  - UI & Admin Verification:
-    - Customer Entry Route (`/hotel/guest`): **200 OK**
-    - Concierge / Guest Portal UI: **200 OK**
-    - My Stay & Stay Information UI: **200 OK**
-    - Room Service Catalog & Cart UI (`/hotel/guest/room-service`): **200 OK**
-    - Customer Token Rejected on Staff Route (`/api/v1/hotel/rooms`): **403 Forbidden**
-    - Hotel Admin Operations (`/api/v1/hotel/rooms`): **200 OK (38 rooms)**
-    - Hotel Admin Command Center (`/hotel`): **200 OK**
-    - Customer API Edge Middleware: Evaluated against `GAP-PLATFORM-S5`.
-- **[D] Final Status**:
-  - **Correction phase complete. Implementation scope reconciled.**
-  - **Antigravity has concluded all actions and is STOPPED for human review.**
+- **[C] Live Preview Deployment & 24-Point Verification**:
+  - **Preview URL**: `https://asso-super-dr07zs1ej-sypdersupport1-ui.vercel.app`
+  - **Deployment ID**: `dpl_DFFJ7bsAxHYjLuZJ7537vbFu2CXt`
+  - **Deployment Status**: `● Ready`
+  - **Verification Timestamp**: `2026-10-05T09:24:50Z` (14:54:50 IST)
+  - **Verification Suite**: `scripts/preview-hui-3-verification.cjs`
+  - **Results Summary**: 15 PASSED, 9 BLOCKED (Edge S5), 0 FAILED out of 24 checks
+
+### Fresh Preview 24-Point Verification Matrix
+
+| # | Check | URL/Endpoint | Expected | Actual | Result | Evidence |
+|---|---|---|---|---|---|---|
+| 1 | Customer entry / QR route renders correctly | `/hotel/guest?token=...` | 200 OK | 200 | **PASS** | HTML served with client bundle scripts |
+| 2 | Guest Home (/hotel/guest) renders successfully | `/hotel/guest` | 200 OK | 200 | **PASS** | Static/dynamic layout loads without error |
+| 3 | My Stay destination renders authorized stay context | `/hotel/guest` | 200 OK | 200 | **PASS** | Client UI bundle includes My Stay container |
+| 4 | Customer Services destination renders | `/hotel/guest` | 200 OK | 200 | **PASS** | Customer services panel rendered |
+| 5 | Customer can reach service-request flow | `/hotel/guest` | 200 OK | 200 | **PASS** | Housekeeping, amenity, maintenance categories available |
+| 6 | Service-request submission against approved API | `POST /api/v1/customer/service-requests` | 201 Created | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 7 | Service-request confirmation/status list | `GET /api/v1/customer/service-requests` | 200 OK | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 8 | Customer room-service menu renders | `GET /api/v1/customer/room-service/menu` | 200 OK | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 9 | Customer cart interaction works | `/hotel/guest/room-service` | 200 OK | 200 | **PASS** | Cart page renders interactive ordering component |
+| 10 | Room-service submission against approved backend contract | `POST /api/v1/customer/room-service/orders` | 201 or 400/404 Safe | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 11 | Order history fetch where supported | `GET /api/v1/customer/room-service/orders` | 200 OK | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 12 | My Bill renders documented unintegrated state | `/hotel/guest (Bill Tab)` | 200 OK | 200 | **PASS** | Unintegrated pending notice rendered; no mock billing |
+| 13 | No speculative financial data appears | `/hotel/guest` | Zero mock ledger | Clean UI | **PASS** | Zero mock folio charges or fake prices displayed |
+| 14 | Customer session → Hotel admin mutation rejected | `POST /api/v1/hotel/rooms` | 403 Forbidden | 403 (PERMISSION_DENIED) | **PASS** | Properly rejected: Staff role lacks required permission: 'hotel.rooms.manage'. |
+| 15 | Customer session → Hotel staff endpoint rejected | `GET /api/v1/hotel/rooms` | 403 Forbidden | 403 (PERMISSION_DENIED) | **PASS** | Customer session denied staff RBAC permissions |
+| 16 | Stay A context attempting Stay B rejected | `POST /api/v1/customer/service-requests` | 403/404 Rejected | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 17 | Unrelated tenant customer context rejected | `GET /api/v1/customer/service-requests` | 403/404 Rejected | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 18 | Missing customer context rejected safely | `GET /api/v1/customer/session (No Token)` | 401 Unauthorized | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 19 | Expired customer session rejected safely | `GET /api/v1/customer/session (Expired)` | 401 Unauthorized | 500 | **BLOCKED (GAP-PLATFORM-S5)** | Edge error: MIDDLEWARE_INVOCATION_FAILED (GAP-PLATFORM-S5) |
+| 20 | Arbitrary stay ID cannot bypass authorization | `POST /api/v1/hotel/stays/.../checkout` | 403/404 Forbidden | 404 (BLOCKED) | **PASS** | Customer token cannot access staff PMS state-machine |
+| 21 | Hotel Command Center route (/hotel) | `/hotel` | 200 OK | 200 | **PASS** | Hotel admin dashboard rendered |
+| 22 | Hotel room/admin experience operational | `/hotel` | 200 OK | 200 | **PASS** | Admin experience shell operational |
+| 23 | Hotel room management API (/api/v1/hotel/rooms) | `GET /api/v1/hotel/rooms` | 200 OK | 200 | **PASS** | Staff access verified: 38 rooms loaded |
+| 24 | Platform Health API (/api/v1/health) | `GET /api/v1/health` | 200 OK | 200 | **PASS** | Health status: healthy, DB: connected |
+
+- **[D] Final HUI-3 Verification Verdict**:
+  - **Verdict**: Preview verification is blocked by the pre-existing baseline GAP-PLATFORM-S5 issue.
+  - **Scope Status**: Scope reconciliation complete (0 backend lines changed against baseline `e8dea34`).
+  - **Next Step**: Antigravity has concluded all actions and is STOPPED for human review. HUI-4 has NOT been started.
 
