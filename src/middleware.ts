@@ -142,6 +142,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  runtime: "nodejs",
   matcher: [
     "/api/v1/customer/:path*",
     "/api/v1/restaurant/orders",
